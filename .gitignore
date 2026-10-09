@@ -1,0 +1,10 @@
+# Vault data belongs in your own private repo, never in this public one.
+vault.enc
+vault.enc.js
+*.enc
+*.enc.js
+media/
+backup-*.enc.js
+*.design.json
+# Local editor and preview settings.
+.claude/
