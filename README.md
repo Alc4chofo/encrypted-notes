@@ -2,11 +2,13 @@
 
 Encrypted notes in a single HTML file. No dependencies, no build step, no server: open `index.html` in a browser and everything is encrypted and decrypted right there, with a master password that never leaves your machine. Your notes sync to a **private GitHub repo of your own**, which only ever stores ciphertext.
 
-This repo holds the app only. It never contains anyone's notes.
+This repo holds the app only. It never contains anyone's notes, and nobody can sync into it: each person creates their own private repo and points their copy of the app there.
+
+**[How it works](HOW-IT-WORKS.md)** explains the threat model, the cryptography, the file formats and the sync protocol in detail, with the function names to check each claim against the code.
 
 ## Setting it up
 
-1. Create a **private** GitHub repo for your vault, for example `notes`.
+1. Create a new **private** GitHub repo for your vault, for example `notes`. Do not fork this one: GitHub makes forks of public repos public, and the app refuses to sync to a public repo.
 2. Copy `index.html` into it and set your repo near the top of the script:
 
    ```js
@@ -36,6 +38,7 @@ On another computer, clone your private repo and open `index.html`: the synced v
 - Attachments are encrypted with a separate random 256-bit key that lives inside the vault, and each file is bound to its own id, so files cannot be swapped by someone with write access to the repo.
 - Browser storage only ever holds ciphertext. Titles, bodies, folder names, attachments and the token exist in the clear only in memory while unlocked.
 - Brute-force guard: each password attempt costs 3 seconds, and after 10 failures the vault locks for 30 days.
+- Private repos only: until `OWNER` and `REPO` are set the app sends nothing, and before its first request after the page opens it asks GitHub whether the repo is private. A public repo is refused before a single byte is uploaded, because anyone could download the encrypted vault from it and try passwords offline.
 - Trade-off worth knowing: `index.html` loads `vault.enc.js` from its own folder with a script tag, which is what makes password-only unlock work on a fresh clone. Anyone who can write to your vault repo could therefore run code in the page, the same trust you already place in that repo for `index.html` itself. Keep it private and the token scoped to it.
 - There is no idle auto-lock. Lock it yourself when you step away.
 - Forget the master password and nobody can decrypt the vault, you included.

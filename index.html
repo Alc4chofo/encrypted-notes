@@ -6279,6 +6279,9 @@ const ERR_LABEL = {
   ratelimit: "Sync failed: rate limited",
   conflict: "Sync failed: remote changed",
   pwmismatch: "Sync blocked: remote password mismatch",
+  // The two repo-guard refusals: this copy has no repo configured yet, or it points at a public one.
+  unset: "Sync off: no repo set",
+  public: "Sync blocked: repo is public",
   other: "Sync failed",
 };
 const ERR_EXPLAIN = {
@@ -6287,12 +6290,18 @@ const ERR_EXPLAIN = {
   ratelimit: "GitHub is rate limiting this token. Wait a few minutes and press Sync again.",
   conflict: "Someone pushed between reading and writing. Press Sync again; your changes will be merged, not overwritten.",
   pwmismatch: "The vault.enc in the repo cannot be decrypted with your master password, so pushing would permanently destroy it. Only overwrite it if you are sure the remote copy is disposable.",
+  // The fix for "unset" is editing two values in the file itself, so the text says exactly where.
+  unset: "This copy is not connected to a repo yet. Set OWNER and REPO near the top of index.html to your own private GitHub repo, then press Sync. Nothing was sent.",
+  // For "public" the point is why it is refused, and that nothing left the page.
+  public: "The repo this copy points at is public: anyone could download the encrypted vault and try passwords offline. Notes only sync to a private repo. Make the repo private, or point OWNER and REPO at a private one, then press Sync. Nothing was uploaded.",
   other: "Unexpected error during sync. Press Sync to retry.",
 };
 
 function classifySyncError(e) {
   let kind = "other";
-  if (e instanceof TypeError || navigator.onLine === false) kind = "offline";
+  // A repo-guard refusal already names its own kind ("unset" or "public"), so it wins over the generic checks.
+  if (e.guard) kind = e.guard;
+  else if (e instanceof TypeError || navigator.onLine === false) kind = "offline";
   else if (e.status === 401 || e.status === 404) kind = "auth";
   else if (e.status === 403 && /rate.?limit/i.test(e.message)) kind = "ratelimit";
   else if (e.status === 409) kind = "conflict";
@@ -8083,7 +8092,42 @@ async function ghError(res) {
   return err;
 }
 
+// ---------- Repo guard ----------
+// Sync may only ever talk to a PRIVATE repo of the user's own. Copies of the
+// public mirror ship with placeholder OWNER/REPO values, and a fork of a public
+// repo is always public: syncing there would let anyone download the vault and
+// attack the password offline. Both are refused before any request is sent.
+// REPO_UNSET compares the two settings against the public mirror's placeholders, so a copy nobody configured is caught.
+const REPO_UNSET = OWNER === "YOUR_GITHUB_USER" || REPO === "YOUR_PRIVATE_REPO";
+// repoCheck holds { token, promise }: the visibility check is made once per token and reused for the session.
+let repoCheck = null;
+function ensurePrivateRepo() {
+  // So first I check the placeholders, and if they are still there I refuse with kind "unset" and send nothing.
+  if (REPO_UNSET) return Promise.reject(Object.assign(new Error("no repo set: edit OWNER and REPO in index.html"), { guard: "unset" }));
+  // If this same token was already checked, the stored answer is reused, so the extra request happens once.
+  if (repoCheck && repoCheck.token === vault.token) return repoCheck.promise;
+  // Otherwise I ask GitHub for the repo's own metadata, which carries the private flag.
+  const promise = fetch(`https://api.github.com/repos/${OWNER}/${REPO}`, {
+    // Same token and media type as every other call, so GitHub applies exactly the same access rules.
+    headers: { Authorization: `Bearer ${vault.token}`, Accept: "application/vnd.github+json" },
+  }).then(async res => {
+    // A 401/404 means this token cannot see the repo; ghError keeps the status, so the usual "token rejected" help shows.
+    if (!res.ok) throw await ghError(res);
+    // Only an explicit private:true passes; public, or a missing field, is refused with kind "public".
+    if ((await res.json()).private !== true)
+      throw Object.assign(new Error(`${OWNER}/${REPO} is public, refusing to upload`), { guard: "public" });
+  });
+  // The answer is remembered against the token it was made with, so a new token gets a fresh check.
+  repoCheck = { token: vault.token, promise };
+  // A failed check is forgotten, so the next Sync asks again (say, after the repo was made private).
+  promise.catch(() => { if (repoCheck && repoCheck.promise === promise) repoCheck = null; });
+  // The caller awaits this: it resolves for a private repo and rejects otherwise.
+  return promise;
+}
+
 async function gh(method, body, path = FILE) {
+  // Nothing reaches the repo until the guard has confirmed it is set and private.
+  await ensurePrivateRepo();
   const res = await fetch(API(path), {
     method,
     headers: { Authorization: `Bearer ${vault.token}`, Accept: "application/vnd.github+json" },
@@ -8098,6 +8142,8 @@ async function gh(method, body, path = FILE) {
 // attachment MUST come back through this path or they silently arrive empty.
 // 404-tolerant like gh("GET"): a missing media file is a placeholder, not a failure.
 async function ghRaw(path) {
+  // Downloads go through the same guard as uploads, so an unset or public repo is never even read from.
+  await ensurePrivateRepo();
   const res = await fetch(API(path), {
     headers: { Authorization: `Bearer ${vault.token}`, Accept: "application/vnd.github.raw+json" },
   });
