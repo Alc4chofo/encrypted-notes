@@ -1,6 +1,6 @@
 # How encrypted-notes works
 
-This document describes exactly what the app does with your data: the threat model, the cryptographic construction, the storage and sync formats, and the limits. Every claim names the function in `index.html` that implements it, so you can check it against the code. The file is about 9,800 lines of unminified HTML, CSS and JavaScript with no dependencies, so what you read is what runs.
+This document describes exactly what the app does with your data: the threat model, the cryptographic construction, the storage and sync formats, and the limits. Every claim names the function in `index.html` that implements it, so you can check it against the code. The file is about 10,200 lines of unminified HTML, CSS and JavaScript with no dependencies, so what you read is what runs.
 
 ## Contents
 
@@ -79,7 +79,7 @@ K = PBKDF2-HMAC-SHA256(password, salt, iterations = 1,200,000, length = 256 bits
 
 ### 3.3 Sealing the vault
 
-All notes, folders, the trash, tombstones, designs, the attachment key ring and the GitHub token live in one JavaScript object, the vault. `sealObject` serializes it to JSON and encrypts it:
+All notes, folders, the trash, tombstones, designs, pins, the attachment key ring and the GitHub token live in one JavaScript object, the vault. `sealObject` serializes it to JSON and encrypts it:
 
 ```
 iv     = 12 random bytes
@@ -139,11 +139,12 @@ Commit messages are fixed strings (`sync`, `media`, `purge`, `weekly backup`, `m
 | `localStorage` | `vault.prev`, `vault.prevAt` | a sealed snapshot taken before the last merge, for recovery |
 | `localStorage` | `syncMeta` | random ids, timestamps and file hashes from the last sync. No titles, no bodies |
 | `localStorage` | `authGuard` | the failed-attempt counter (section 5) |
+| `localStorage` | `settings` | `{"autoLockMin": <minutes>}`, the auto-lock delay (section 5). Per device, not synced |
 | `localStorage` | `backupMeta`, `pullBanner`, UI preferences | timestamps, counts, colours, which sections are collapsed |
 | IndexedDB `notes-media` | `<uuid>` | encrypted attachment records `{id, bytes: iv \|\| ciphertext \|\| tag}` |
 | IndexedDB `notes-media` | `__authGuard__`, `__notesDir__` | the second copy of the attempt counter, and the folder handle backups are written to |
 
-Plaintext exists only in memory while the vault is unlocked: the JavaScript heap, the rendered page, and temporary `blob:` URLs for attachments you open.
+Plaintext exists only in memory while the vault is unlocked: the JavaScript heap (including `searchTextCache`, the plain text of each note kept for search), the rendered page, and temporary `blob:` URLs for attachments you open.
 
 ## 5. Unlocking, locking and the attempt limit
 
@@ -153,7 +154,9 @@ Plaintext exists only in memory while the vault is unlocked: the JavaScript heap
 
 **What the limit is not.** It is a client-side control. It stops casual guessing on your own machine, but someone who copies `vault.enc` elsewhere never runs this code. Against that attacker only the key-derivation cost and your password's entropy matter (section 7). The code says so in its own comments, and so does this document.
 
-**Locking** (`lockApp`, or Ctrl+L) drops the vault object, the key, the password, the attachment key ring and the undo history (which holds snapshots of notes). It revokes every decrypted `blob:` URL and clears every rendered panel that could hold titles or a typed token. It also bumps the counters that in-flight decryptions check, so an attachment still decrypting at the moment of locking cannot paint itself over the lock screen afterwards.
+**Locking** (`lockApp`, or Ctrl+L) drops the vault object, the key, the password, the attachment key ring and the undo history (which holds snapshots of notes). It revokes every decrypted `blob:` URL and clears every rendered panel that could hold titles or a typed token. It also bumps the counters that in-flight decryptions check, so an attachment still decrypting at the moment of locking cannot paint itself over the lock screen afterwards. The search cache and any open dialog go with it.
+
+**Auto-lock** (`checkIdle`, `autoLock`): any pointer, key, wheel or touch input resets an idle timer. Every 15 seconds, and whenever the tab becomes visible again (so a laptop waking from sleep locks at once), the app compares the idle time with `settings.autoLockMin` (default 10 minutes; 0 turns it off). When it is exceeded, an open dialog is answered "Cancel", unsaved edits are saved, and `lockApp` runs exactly as for a manual lock. A sync in progress is never interrupted; the check tries again 15 seconds later. Browsers slow timers in background tabs, so the lock can land somewhat late there, but never early.
 
 ## 6. Sync protocol
 
@@ -172,6 +175,7 @@ Plaintext exists only in memory while the vault is unlocked: the JavaScript heap
    - an object present on only one side is kept;
    - permanent deletions travel as tombstones (`vault.purged`, id to time), kept for 90 days;
    - if the same note changed on both sides since the last common sync, the newer `mtime` wins, ties go to the larger SHA-256 of its canonical content, and the losing version is kept as a "(conflict ...)" copy. The copy's id is derived from the inputs, never random, so two devices resolving the same conflict produce the *same* copy and do not fork twice;
+   - pins (`vault.pins`, note id to `{on, at}`) merge separately, the newer `at` winning, so pinning a note never changes its `mtime` and never decides a conflict over its text;
    - the outcome does not depend on which device runs the merge, so devices converge.
 4. **Seal and write** the merged vault with the SHA from step 1, then update `vault.enc.js`.
 5. **Attachments:** upload local files the repo does not have, download referenced files this device lacks (authenticated before storing), and delete files whose tombstone says nothing references them any more.
@@ -197,6 +201,8 @@ Expected time to find a *randomly generated* password, which on average means se
 (Diceware words are drawn from a 7,776-word list, giving 12.9 bits each.)
 
 These figures hold only for passwords chosen at random. A human-chosen password has far less entropy than its length suggests, and cracking tools try dictionary words, names, dates and common patterns first. **The password is the security of this system.** Use five or more random words, or a password manager's generator.
+
+**The strength meter** on the first-run screen (`estimateBits`, `crackSeconds`) applies this model to what you type: 1,000 GPUs searching half the space. Its entropy figure is a rough heuristic, not a cracker: it gives full credit only to strings that look random, and cuts the estimate for common passwords, a word plus digits or symbols, leetspeak swaps ("p@ssw0rd" is "password") and space-separated words, which it scores as diceware words. Treat its answer as an order of magnitude. It can say a password is weak with confidence; it cannot promise one is strong.
 
 ## 8. What someone with access to your repo can and cannot do
 
@@ -234,7 +240,7 @@ Every input path into the vault goes through AES-GCM authenticated decryption, s
 
 ## 10. Known limitations
 
-- **No idle auto-lock.** An unlocked vault stays unlocked until you lock it, close it or reload it.
+- **Auto-lock is a timer.** It locks after the idle time you choose, not the moment you walk away, and it can be turned off. Use Ctrl+L when you leave the device.
 - **No protection on a compromised device** (adversary A3): malware or a browser extension with access to the page can read anything you can see.
 - **Metadata is visible** to anyone who can read the repo: sizes, counts and timing (section 8).
 - **Code integrity depends on the repo** (section 8). Keep it private and keep the token scoped.

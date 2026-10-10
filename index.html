@@ -37,6 +37,8 @@
     --i-sync: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M13.2 6.2A5.4 5.4 0 0 0 3.4 4.6M2.8 9.8a5.4 5.4 0 0 0 9.8 1.6'/%3E%3Cpath d='M13.4 2.6v3.7H9.7M2.6 13.4V9.7h3.7'/%3E%3C/svg%3E");
     --i-archive: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linejoin='round'%3E%3Crect x='1.8' y='2.5' width='12.4' height='3.3' rx='.8'/%3E%3Cpath d='M3 5.8v6.5c0 .7.5 1.2 1.2 1.2h7.6c.7 0 1.2-.5 1.2-1.2V5.8M6.5 8.6h3' stroke-linecap='round'/%3E%3C/svg%3E");
     --i-lock: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linejoin='round'%3E%3Crect x='3' y='7' width='10' height='7' rx='1.4'/%3E%3Cpath d='M5.3 7V5a2.7 2.7 0 0 1 5.4 0v2'/%3E%3C/svg%3E");
+    --i-pin: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5.5 2.5h5M6.5 2.5v4L4.5 9h7l-2-2.5v-4M8 9v4.5'/%3E%3C/svg%3E");
+    --i-sliders: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linecap='round'%3E%3Cpath d='M2.5 4.5h5.5M11.5 4.5h2M2.5 11.5h2M8 11.5h5.5'/%3E%3Ccircle cx='9.8' cy='4.5' r='1.7'/%3E%3Ccircle cx='6.2' cy='11.5' r='1.7'/%3E%3C/svg%3E");
     --i-split: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5'%3E%3Crect x='1.8' y='2.8' width='12.4' height='10.4' rx='1.4'/%3E%3Cpath d='M8 2.8v10.4'/%3E%3C/svg%3E");
   }
   * { box-sizing: border-box; }
@@ -94,7 +96,7 @@
   button:focus-visible { outline: none; border-color: var(--acc-line); box-shadow: 0 0 0 3px rgb(163 196 147 / .16); }
   /* Icon slot for buttons whose label the app rewrites ("Syncing..."): a ::before
      survives textContent changes, an <svg> child would not. --icon picks the glyph. */
-  #sync::before, #backup::before, #lock-btn::before, #new-note::before, #new-folder::before, #split-btn::before {
+  #sync::before, #backup::before, #lock-btn::before, #settings-btn::before, #new-note::before, #new-folder::before, #split-btn::before {
     content: ""; flex: none; width: 14px; height: 14px; background: currentColor;
     -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat; }
 
@@ -268,7 +270,7 @@
   /* The B / I / U / S letters are set in the serif so they look like type samples, not labels. */
   #fmt-bar button[data-cmd="bold"], #fmt-bar button[data-cmd="italic"],
   #fmt-bar button[data-cmd="underline"], #fmt-bar button[data-cmd="strikeThrough"] { font: 15px/1 var(--serif); }
-  #fmt-bar select { height: 28px; padding: 0 6px; font-size: 12px; background: transparent; border: 1px solid var(--line-2);
+  #fmt-bar select { height: 28px; padding: 0 6px; font-size: 12px; background-color: var(--s1); border: 1px solid var(--line-2);
     border-radius: 6px; color: var(--t2); max-width: 130px; }
   #fmt-bar select:hover { border-color: var(--line-3); color: var(--t1); }
   #fmt-bar .fmt-sep { width: 1px; height: 18px; background: var(--line-2); margin: 0 6px; }
@@ -621,13 +623,14 @@
   /* Sync is the filled primary; Backup and Lock are borderless with an icon. Reserved
      widths: the labels swap to "Syncing..."/"Saved" mid-action and the whole bar used
      to jump sideways under the cursor. */
-  #sync, #backup, #lock-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  #sync, #backup, #lock-btn, #settings-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px;
     padding: 5px 12px; font-size: 12.5px; flex: none; }
   #sync { --icon: var(--i-sync); min-width: 96px; }
   #backup { --icon: var(--i-archive); }
   #lock-btn { --icon: var(--i-lock); }
-  #backup, #lock-btn { background: transparent; border-color: transparent; color: var(--t2); }
-  #backup:hover, #lock-btn:hover { background: var(--s3); border-color: transparent; color: var(--t1); }
+  #settings-btn { --icon: var(--i-sliders); }
+  #backup, #lock-btn, #settings-btn { background: transparent; border-color: transparent; color: var(--t2); }
+  #backup:hover, #lock-btn:hover, #settings-btn:hover { background: var(--s3); border-color: transparent; color: var(--t1); }
   /* The sync glyph turns while a sync runs (the button is disabled exactly then). */
   #sync:disabled::before { animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -658,6 +661,47 @@
   #lock-msg { font-size: 13px; }
   #backup-sel { color: var(--warn); font-size: 13px; }
 
+  /* ---------- Dropdown lists ----------
+     A native <select> list takes its colours from the options, not the select:
+     without these the font and size lists opened white with pale text. */
+  select { background-color: var(--s2); }
+  option, optgroup { background-color: var(--s2); color: var(--t1); }
+
+  /* ---------- Pinned notes and body search ---------- */
+  /* Small section labels in the note list: "Pinned" above the pinned notes, "Notes" above the rest. */
+  .list-label { margin: 12px 16px 4px; font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--t4); }
+  /* A pinned row ends its title line with a small pin, drawn as a mask in the meta colour. */
+  .note-item.pinned .note-title::after { content: ""; flex: none; align-self: center; width: 11px; height: 11px; background: var(--t3);
+    -webkit-mask: var(--i-pin) center / contain no-repeat; mask: var(--i-pin) center / contain no-repeat; }
+  /* A body match replaces the date line with a one-line snippet, the match itself highlighted in amber. */
+  .note-snippet { color: var(--t3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .note-snippet mark { background: rgb(227 169 92 / .24); color: var(--t1); border-radius: 2px; padding: 0 1px; }
+
+  /* ---------- Settings dialog ---------- */
+  .modal.settings { width: 460px; }
+  /* One setting per row: name and explanation on the left, the control on the right, ruled above and below. */
+  .set-row { display: flex; align-items: center; gap: 16px; margin: 6px 0 12px; padding: 12px 0;
+    border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .set-words { flex: 1; min-width: 0; }
+  .set-name { display: block; font-size: 13.5px; font-weight: 600; color: var(--t1); }
+  .set-help { margin-top: 2px; font-size: 12px; line-height: 1.45; color: var(--t3); }
+  .set-row select { flex: none; min-width: 132px; padding: 7px 10px; font-size: 13px; }
+  .modal p.set-note { font-size: 12px; color: var(--t3); }
+
+  /* ---------- Password strength meter (first run) ---------- */
+  /* A thin bar, then the verdict and the rough crack time; --pw is the band colour set by the class. */
+  #pw-meter { margin: -2px 0 2px; }
+  .pw-bar { height: 4px; border-radius: 3px; background: var(--s3); overflow: hidden; }
+  .pw-fill { display: block; height: 100%; width: 0; border-radius: 3px; background: var(--pw, var(--t4)); transition: width .2s, background-color .2s; }
+  .pw-line { display: flex; flex-wrap: wrap; gap: 0 6px; margin-top: 6px; font-size: 12px; line-height: 1.45; color: var(--t3); }
+  .pw-label { font-weight: 600; color: var(--pw, var(--t3)); }
+  /* Red, orange, amber, light sage, sage: from very weak to very strong. */
+  #pw-meter.vweak { --pw: var(--bad); }
+  #pw-meter.weak { --pw: #e3895a; }
+  #pw-meter.fair { --pw: var(--warn); }
+  #pw-meter.strong { --pw: #8fbf7e; }
+  #pw-meter.vstrong { --pw: var(--acc); }
+
   /* ---------- Scrollbars ---------- */
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-thumb { background: var(--s4); border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
@@ -680,6 +724,11 @@
     <div id="autovault-msg" class="lock-note" style="display:none">Found a synced vault
     next to this file. Enter your master password to unlock it.</div>
     <div id="token-row">
+      <!-- Strength meter for the new master password: a bar, a label, and a rough time to crack. -->
+      <div id="pw-meter" style="display:none" aria-live="polite">
+        <div class="pw-bar"><span class="pw-fill"></span></div>
+        <div class="pw-line"><span class="pw-label"></span><span class="pw-time"></span></div>
+      </div>
       <!-- There is no password recovery, so a typo here would be unrecoverable. -->
       <input id="password2" type="password" placeholder="Confirm master password">
       <input id="token" type="password" placeholder="GitHub fine-grained token">
@@ -714,7 +763,7 @@
   <div id="app-body">
     <div id="sidebar">
       <div id="side-top">
-        <input id="search" type="text" placeholder="Search notes and folders" autocomplete="off" spellcheck="false">
+        <input id="search" type="text" placeholder="Search titles, text and folders" autocomplete="off" spellcheck="false">
         <div class="row">
           <button id="new-note" type="button">New note</button>
           <button id="new-folder" type="button">New folder</button>
@@ -794,6 +843,8 @@
     <button id="sync">Sync</button>
     <button id="backup" type="button" title="Download an encrypted backup of all notes. Keep it anywhere (Google Drive, Dropbox, a USB stick): it is useless without your master password. Media syncs through the repo, not this file.">Backup</button>
     <button id="lock-btn" type="button" title="Lock and forget the decrypted vault (Ctrl+L)">Lock</button>
+    <!-- Per-device settings (auto-lock time) open in a dialog. -->
+    <button id="settings-btn" type="button" title="Settings">Settings</button>
     <span id="last-synced"></span>
     <span id="status"></span>
     <div id="chips">
@@ -971,6 +1022,8 @@ function migrateVault(v) {
   if (!v.trash || typeof v.trash !== "object") v.trash = {};
   if (!v.purged || typeof v.purged !== "object") v.purged = {};
   if (!v.presets || typeof v.presets !== "object") v.presets = {};
+  // pins is a map note id -> { on, at }; an older vault simply has none yet, so it starts empty.
+  if (!v.pins || typeof v.pins !== "object") v.pins = {};
   v.v = 2;
   return v;
 }
@@ -1208,6 +1261,27 @@ function persistLocal(stamp = true) {
 // Five independent signals; the Unsynced chip counts their sum. Per-note dots
 // use the live-note predicate only.
 function isUnsynced(id) { return !(id in syncMeta.noteMtimes) || vault.notes[id].mtime > syncMeta.noteMtimes[id]; }
+
+// ---------- Pinned notes ----------
+// Pins live in their own map (vault.pins: id -> { on, at }) instead of on the note,
+// so pinning never bumps the note's mtime: a pin on one device can then never
+// out-vote a text edit on another in the merge, which picks whole notes by mtime.
+// Unpinning keeps the entry with on:false, so the unpin itself syncs and wins
+// over an older pin from another device.
+function isPinned(id) {
+  // So first I look the id up in the pin map, and if there is no entry the note is not pinned.
+  const p = vault.pins && vault.pins[id];
+  // Only an explicit on:true counts, so an unpin record (on:false) reads as not pinned.
+  return !!p && p.on === true;
+}
+function togglePin(id) {
+  // The new state is the opposite of the current one, stamped now so the newest change wins a merge.
+  vault.pins[id] = { on: !isPinned(id), at: Date.now() };
+  // persistSafe stamps savedAt, which is what makes the next Sync push the change even with no note edited.
+  persistSafe();
+  // The sidebar moves the note into or out of the Pinned section straight away.
+  renderList();
+}
 function unsyncedIds() { return Object.keys(vault.notes).filter(isUnsynced); }
 function unsyncedFolderIds() {
   return Object.keys(vault.folders).filter(fid =>
@@ -1709,6 +1783,8 @@ function renderListInner() {
 
   const byFolder = {}, loose = [];
   for (const id in vault.notes) {
+    // Pinned notes are listed once, in the Pinned section above, never again inside their folder.
+    if (isPinned(id)) continue;
     const fid = vault.notes[id].folderId;
     if (fid && vault.folders[fid]) (byFolder[fid] = byFolder[fid] || []).push(id);
     else loose.push(id);   // a note pointing at a deleted folder shows in the plain list
@@ -1717,7 +1793,8 @@ function renderListInner() {
   // a fully-legacy group keeps the exact newest-first order the whole list used before.
   for (const fid in byFolder) byFolder[fid].sort(cmpNotes);
   loose.sort(cmpNotes);
-  const titleMatches = id => !searching || (vault.notes[id].title || "").toLowerCase().includes(q);
+  // A note shows when nothing is being searched, or when its title OR its body text contains the query.
+  const visibleNote = id => !searching || noteMatches(id, q);
 
   if (inlineEdit && inlineEdit.kind === "new") list.appendChild(inlineFolderRow(null));
 
@@ -1749,7 +1826,7 @@ function renderListInner() {
     visSeen.add(fid);
     const all = byFolder[fid] || [];
     const nameMatches = searching && folderName(fid).toLowerCase().includes(q);
-    visNotes[fid] = (!searching || nameMatches) ? all : all.filter(titleMatches);
+    visNotes[fid] = (!searching || nameMatches) ? all : all.filter(visibleNote);
     let show = !searching || nameMatches || visNotes[fid].length > 0;
     for (const c of kidsOf[fid] || []) show = computeVis(c) || show;
     return (showFolder[fid] = show);
@@ -1772,7 +1849,8 @@ function renderListInner() {
     walked.add(fid);
     if (inlineEdit && inlineEdit.kind === "rename" && inlineEdit.folderId === fid)
       pushRow(inlineFolderRow(fid, colors.length), colors);
-    else pushRow(folderRow(fid, visNotes[fid].length, colors), colors);
+    // The count includes this folder's pinned notes, which are listed in the Pinned section instead.
+    else pushRow(folderRow(fid, visNotes[fid].length + (pinnedIn[fid] || 0), colors), colors);
     rows++;
     // While searching, persisted collapse state is ignored (a match hidden
     // inside a collapsed folder reads as data loss) and never written to.
@@ -1792,10 +1870,25 @@ function renderListInner() {
       rowDescs[rowDescs.length - 1].rails[myColors.length - 1].capBottom = true;
     }
   };
+  // Pinned section: every pinned note that passes the search, most recently pinned
+  // first, under a small label. These rows sit outside the folder tree, so they
+  // get no rails, cannot be dragged, and are not drop targets (see noteRow).
+  const pinnedIds = Object.keys(vault.notes).filter(id => isPinned(id) && visibleNote(id))
+    .sort((a, b) => (vault.pins[b].at || 0) - (vault.pins[a].at || 0));
+  // How many shown pinned notes belong to each folder: added to that folder's count below.
+  const pinnedIn = {};
+  for (const id of pinnedIds) { const f = vault.notes[id].folderId; if (f) pinnedIn[f] = (pinnedIn[f] || 0) + 1; }
+  if (pinnedIds.length) {
+    list.appendChild(mk("div", "list-label", "Pinned"));
+    for (const id of pinnedIds) { list.appendChild(noteRow(id, [])); rows++; }
+    // A second label marks where the ordinary list starts, so the two never blur together.
+    list.appendChild(mk("div", "list-label", "Notes"));
+  }
   // Top level: loose notes and root folders interleave the same way. Cycle
   // orphans (unreachable from the root) follow at the end via kidsOf[""].
   for (const it of siblingItems(null)) {
-    if (it.kind === "note") { if (titleMatches(it.id)) { pushRow(noteRow(it.id, []), []); rows++; } }
+    // Pinned notes were listed above, so they are skipped here as well as inside folders.
+    if (it.kind === "note") { if (!isPinned(it.id) && visibleNote(it.id)) { pushRow(noteRow(it.id, []), []); rows++; } }
     else walkFolder(it.id, []);
   }
   for (const fid of kidsOf[""]) walkFolder(fid, []);
@@ -1826,7 +1919,19 @@ function noteRow(id, railColors = []) {
   d.style.visibility = (isUnsynced(id) || (id === currentId && dirty)) ? "" : "hidden";
   row.appendChild(d);
   div.appendChild(row);
-  div.appendChild(mk("div", "note-meta", relTime(n.mtime)));
+  // Second line: while searching, a body match shows WHERE it matched; otherwise the usual date.
+  const q = searchQuery.trim().toLowerCase();
+  const pinned = isPinned(id);
+  // So first, if there is a query the title does not contain, the match must be in the body: show it.
+  const snippet = q && !(n.title || "").toLowerCase().includes(q) ? bodySnippet(id, q) : null;
+  if (snippet) div.appendChild(snippet);
+  else {
+    // A pinned row has left its folder's place in the list, so its date line also names the folder.
+    const where = pinned && n.folderId && vault.folders[n.folderId] ? folderName(n.folderId) + " · " : "";
+    div.appendChild(mk("div", "note-meta", where + relTime(n.mtime)));
+  }
+  // The class drives the small pin mark in the stylesheet.
+  if (pinned) div.classList.add("pinned");
   // justDragged swallows the synthetic click a completed drag leaves behind; a real
   // click never fires dragstart (native DnD only starts past the OS threshold) so it
   // opens normally. Keyboard activation (below) is unaffected.
@@ -1834,7 +1939,8 @@ function noteRow(id, railColors = []) {
   div.oncontextmenu = e => { e.preventDefault(); openMenu(e.clientX, e.clientY, noteMenu(id)); };
 
   // ---- Drag source: reorder within a group / move between folders ----
-  div.draggable = !syncing && !backupView;   // no DnD mid-sync or in a read-only backup view
+  // No DnD mid-sync, in a read-only backup view, or on a pinned row (it sits outside the folder order it would reorder).
+  div.draggable = !syncing && !backupView && !pinned;
   div.addEventListener("dragstart", e => {
     if (syncing) { e.preventDefault(); return; }
     draggingNoteId = id;
@@ -1852,7 +1958,8 @@ function noteRow(id, railColors = []) {
   // Row is a reorder drop target (suppressed while searching: visible neighbours are
   // filtered, so an insertion index would be meaningless - move-to-folder still works).
   div.addEventListener("dragover", e => {
-    if (syncing || !draggingNoteId || draggingNoteId === id || searchQuery.trim()) return;
+    // A pinned row is never a reorder target: its neighbours in the Pinned section are not its folder siblings.
+    if (syncing || !draggingNoteId || draggingNoteId === id || searchQuery.trim() || pinned) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     const r = div.getBoundingClientRect();
@@ -1868,7 +1975,8 @@ function noteRow(id, railColors = []) {
     e.stopPropagation();   // don't also fire the #notelist loose-area drop
     // While searching, ignore the row drop entirely (stopPropagation above blocks the
     // loose fallback too); the drop must not land at a filtered index.
-    if (searchQuery.trim() || draggingNoteId === id) { e.preventDefault(); finishDrag(); return; }
+    // Same for a drop on a pinned row: swallowed, so it cannot land at a meaningless index.
+    if (searchQuery.trim() || draggingNoteId === id || pinned) { e.preventDefault(); finishDrag(); return; }
     e.preventDefault();
     const dragId = draggingNoteId;
     const r = div.getBoundingClientRect();
@@ -2103,6 +2211,64 @@ function noteBodies(n) {
   const ps = notePages(n);
   return ps ? ps.map(p => ({ body: p.body || "", bodyV: p.bodyV, name: p.name }))
             : [{ body: n.body || "", bodyV: n.bodyV, name: n.title || "" }];
+}
+
+// ---------- Search inside note bodies ----------
+// The searchable text of a note is built from EVERY page (noteBodies), in memory
+// only, and cached per note until its mtime changes. The cache holds plaintext,
+// so lockApp clears it. Censored spans are left out on purpose: a search must
+// not surface, in a snippet, text the user chose to black out.
+const searchTextCache = new Map();   // note id -> { mtime, text }
+function bodyPlainText(b) {
+  // A plain (v1) body is already text, so it is used as it is.
+  if (b.bodyV !== 2) return b.body || "";
+  // A v2 body is sanitized HTML; a <template> parses it inert (nothing loads or runs).
+  const tpl = document.createElement("template");
+  tpl.innerHTML = b.body || "";
+  // Censored spans are removed before reading the text, so they never match and never show.
+  for (const el of tpl.content.querySelectorAll("[data-censor]")) el.remove();
+  // textContent of what is left is the words on the page.
+  return tpl.content.textContent || "";
+}
+function noteSearchText(id) {
+  const n = vault.notes[id];
+  // A cached entry built from the same mtime is still right, so it is reused.
+  const hit = searchTextCache.get(id);
+  if (hit && hit.mtime === n.mtime) return hit.text;
+  // Otherwise every page's text is joined with a newline, so words on two pages never fuse.
+  const text = noteBodies(n).map(bodyPlainText).join("\n");
+  // Stored lower-cased as well, since every search compares lower-case strings.
+  const entry = { mtime: n.mtime, text, lower: text.toLowerCase() };
+  searchTextCache.set(id, entry);
+  return text;
+}
+// True when the note's title or its body text contains the (lower-cased) query.
+function noteMatches(id, q) {
+  // So first the title, because that check is free.
+  if ((vault.notes[id].title || "").toLowerCase().includes(q)) return true;
+  // Then the body: noteSearchText fills the cache, and the cached lower-case copy is searched.
+  noteSearchText(id);
+  return searchTextCache.get(id).lower.includes(q);
+}
+// The snippet under a row whose match is in the body: some words before, the
+// match highlighted, some words after. Built from text nodes and a <mark>, never
+// from HTML, so note text can never become markup in the sidebar.
+function bodySnippet(id, q) {
+  const text = noteSearchText(id);
+  const lower = searchTextCache.get(id).lower;
+  const at = lower.indexOf(q);
+  // No hit in the body means the caller shows the normal date line instead.
+  if (at < 0) return null;
+  // Up to 28 characters of context before the match and 60 after, whitespace collapsed to single spaces.
+  const start = Math.max(0, at - 28);
+  const end = Math.min(text.length, at + q.length + 60);
+  const flat = s => s.replace(/\s+/g, " ");
+  const out = mk("div", "note-meta note-snippet");
+  // An ellipsis only where the snippet really cuts the text.
+  out.append((start > 0 ? "…" : "") + flat(text.slice(start, at)));
+  out.appendChild(mk("mark", null, text.slice(at, at + q.length)));
+  out.append(flat(text.slice(at + q.length, end)) + (end < text.length ? "…" : ""));
+  return out;
 }
 let currentPage = 0;   // session-only index into the open note's pages
 let draggingPage = null;   // index of the page tab being dragged to reorder
@@ -7273,7 +7439,9 @@ function addToFolderItems(id) {
 
 function noteMenu(id) {
   const n = vault.notes[id] || {};
-  const items = [{ label: "Add to folder", disabled: syncing, submenu: () => addToFolderItems(id) }];
+  // Pin first: it is the one item people reach for without thinking, and it reads as on/off.
+  const items = [{ label: isPinned(id) ? "Unpin" : "Pin to top", disabled: syncing, onClick: () => togglePin(id) }];
+  items.push({ label: "Add to folder", disabled: syncing, submenu: () => addToFolderItems(id) });
   // Gate on the folder existing: a note pointing at a deleted folder already
   // renders as loose, so the item would have been a no-op.
   if (n.folderId && vault.folders[n.folderId])
@@ -8674,8 +8842,19 @@ async function mergeVaults(local, remote, scope, exclude) {
     presets[pid] = (lp && rp) ? ((rp.mtime || 0) > (lp.mtime || 0) ? rp : lp) : (lp || rp);
   }
 
-  info.local = { notes: lN, folders: lF, trash: lT, purged: lP, presets, token, mediaKey: mkey, mediaKeysOld: mkOld };
-  info.pushed = { ...remote, v: 2, notes: rN, folders: rF, trash: rT, purged: rP, presets, token,
+  // Pins: per note id the newer change (pin OR unpin, by its `at`) wins, union of
+  // both sides. Listed explicitly for the same reason as presets, and independent
+  // of the notes themselves, so a pin never decides which version of a note survives.
+  const pins = {};
+  for (const id of new Set([...Object.keys(local.pins || {}), ...Object.keys(remote.pins || {})])) {
+    const lp = (local.pins || {})[id], rp = (remote.pins || {})[id];
+    // So if both sides have a record, the later one wins; with one record, that one is taken as is.
+    if (lp && rp) pins[id] = (rp.at || 0) > (lp.at || 0) ? rp : lp;
+    else pins[id] = lp || rp;
+  }
+
+  info.local = { notes: lN, folders: lF, trash: lT, purged: lP, presets, pins, token, mediaKey: mkey, mediaKeysOld: mkOld };
+  info.pushed = { ...remote, v: 2, notes: rN, folders: rF, trash: rT, purged: rP, presets, pins, token,
     mediaKey: mkey, mediaKeysOld: mkOld };
 
   // "Changed nothing remotely" must be computable per id, never from bytes.
@@ -8683,9 +8862,13 @@ async function mergeVaults(local, remote, scope, exclude) {
     (a.mediaKeysOld || []).length !== mkOld.length;
   info.remoteChanged = countDiff(rN, remote.notes) + countDiff(rF, remote.folders) +
     countDiff(rT, remote.trash) + countDiff(rP, remote.purged) > 0 ||
+    // A pin-only change on this device must still be pushed, so pins count as a remote change too.
+    countDiff(pins, remote.pins || {}) > 0 ||
     (remote.token || null) !== token || keyRingDiff(remote);
   info.localDelta = countDiff(lN, local.notes) + countDiff(lF, local.folders) + countDiff(lT, local.trash);
   info.localChanged = info.localDelta > 0 || countDiff(lP, local.purged) > 0 ||
+    // And a pin made on another device must be applied here.
+    countDiff(pins, local.pins || {}) > 0 ||
     (local.token || null) !== token || keyRingDiff(local);
   if (scope) info.outOfScopeDiverged = computeOutOfScopeDiverged(local, remote, scope);
   return info;
@@ -8733,6 +8916,8 @@ async function applyMerge(info, remote) {
   vault.trash = info.local.trash;
   vault.purged = info.local.purged;
   vault.presets = info.local.presets || vault.presets || {};
+  // Adopt the merged pins, keeping the current map if a merge somehow produced none.
+  vault.pins = info.local.pins || vault.pins || {};
   vault.token = info.local.token || vault.token;
   vault.v = 2;
   // Adopt the merged key ring before anything tries to decrypt pulled media.
@@ -9427,14 +9612,129 @@ refreshLockBackupRow();
 // Drops every decrypted artefact: the vault object, the derived keys, the
 // master password and every live blob: URL. The ciphertext in localStorage and
 // IndexedDB is untouched, so unlocking again restores everything.
-async function lockApp() {
+// ---------- Settings (per device) ----------
+// Kept in plain localStorage under "settings": they hold no note content, and a
+// laptop and a phone sharing one vault may well want different lock times.
+// Only the listed values are accepted when reading back, so a hand-edited
+// entry cannot set something odd like a fraction of a second.
+const AUTOLOCK_CHOICES = [0, 1, 2, 5, 10, 15, 30, 60];   // minutes; 0 = never
+let settings = { autoLockMin: 10 };                        // the default: lock after 10 idle minutes
+try {
+  const saved = JSON.parse(localStorage.getItem("settings"));
+  // So a stored value is only taken if it is one of the offered choices; anything else keeps the default.
+  if (saved && AUTOLOCK_CHOICES.includes(saved.autoLockMin)) settings.autoLockMin = saved.autoLockMin;
+} catch {}
+function saveSettings() { localStorage.setItem("settings", JSON.stringify(settings)); }
+const fmtMinutes = m => (m === 0 ? "Never" : m === 60 ? "1 hour" : m === 1 ? "1 minute" : m + " minutes");
+
+// The Settings dialog rides on the shared modal machinery (modalOpenCount and
+// modalCancel), so Escape closes it and Ctrl+S / Ctrl+L stay quiet while it is
+// open, exactly as for every other dialog.
+let settingsBack = null;   // the open dialog's backdrop, or null
+function openSettings() {
+  // Only one at a time, and only while unlocked.
+  if (settingsBack || !vault) return;
+  const back = mk("div", "modal-back");
+  const card = mk("div", "modal settings");
+  card.setAttribute("role", "dialog");
+  card.setAttribute("aria-modal", "true");
+  card.appendChild(mk("h3", null, "Settings"));
+  // Auto-lock row: name and explanation on the left, the choice on the right.
+  const row = mk("div", "set-row");
+  const words = mk("div", "set-words");
+  words.appendChild(mk("label", "set-name", "Auto-lock"));
+  words.appendChild(mk("div", "set-help", "Lock the vault after this long with no typing, clicking or scrolling."));
+  row.appendChild(words);
+  const sel = mk("select");
+  sel.id = "set-autolock";
+  words.firstChild.htmlFor = "set-autolock";
+  for (const m of AUTOLOCK_CHOICES) {
+    const o = mk("option", null, fmtMinutes(m));
+    o.value = String(m);
+    sel.appendChild(o);
+  }
+  sel.value = String(settings.autoLockMin);
+  // A change applies at once and the idle clock restarts from now, so it never locks the instant it is changed.
+  sel.onchange = () => { settings.autoLockMin = Number(sel.value); saveSettings(); lastActivity = Date.now(); };
+  row.appendChild(sel);
+  card.appendChild(row);
+  card.appendChild(mk("p", "set-note", "Saved on this device only. Unsaved edits are saved before it locks."));
+  const actions = mk("div", "modal-actions");
+  const done = mk("button", "primary", "Done");
+  done.type = "button";
+  done.onclick = closeSettings;
+  actions.appendChild(done);
+  card.appendChild(actions);
+  back.appendChild(card);
+  // A click on the dim backdrop (not inside the card) closes it, like the other dialogs.
+  back.addEventListener("mousedown", e => { if (e.target === back) closeSettings(); });
+  document.body.appendChild(back);
+  settingsBack = back;
+  modalOpenCount++;
+  modalCancel = closeSettings;
+  requestAnimationFrame(() => back.classList.add("show"));
+  sel.focus();
+}
+function closeSettings() {
+  // Nothing open means nothing to do (Escape and Done can both arrive).
+  if (!settingsBack) return;
+  const back = settingsBack;
+  settingsBack = null;
+  modalOpenCount--;
+  if (modalCancel === closeSettings) modalCancel = null;
+  // Same fade-out as buildModal: stays mounted 140ms with clicks passing through.
+  back.classList.remove("show");
+  back.classList.add("closing");
+  setTimeout(() => back.remove(), 140);
+}
+$("settings-btn").onclick = openSettings;
+
+// ---------- Auto-lock ----------
+// Any input counts as activity. Instead of a timer per event, a check every 15s
+// compares the clock with the last activity: that survives background-tab timer
+// throttling and a laptop waking from sleep (the first check after waking locks
+// at once if the limit passed while it slept).
+let lastActivity = Date.now();
+for (const ev of ["pointerdown", "pointermove", "keydown", "wheel", "touchstart"])
+  document.addEventListener(ev, () => { lastActivity = Date.now(); }, { capture: true, passive: true });
+function checkIdle() {
+  // So first: nothing to lock while locked, and 0 means the user turned auto-lock off.
+  if (!vault || !settings.autoLockMin) return;
+  // Still inside the allowed idle time: wait for the next check.
+  if (Date.now() - lastActivity < settings.autoLockMin * 60000) return;
+  autoLock();
+}
+setInterval(checkIdle, 15000);
+// Coming back to the tab runs the check straight away instead of up to 15s later.
+document.addEventListener("visibilitychange", checkIdle);
+async function autoLock() {
+  // A running sync is never interrupted; the next check, 15s later, tries again.
   if (syncing) return;
-  if (dirty && !await confirmModal({
+  // An open dialog is cancelled first (its flow treats that as "Cancel"), so nothing waits over the lock screen.
+  if (modalCancel) modalCancel();
+  // Unsaved edits are saved first, the same as answering "Save and lock" to the manual lock prompt.
+  if (dirty) flushSave();
+  // force: the save above already answered the prompt lockApp would otherwise wait on.
+  await lockApp(true);
+  // Only if it really locked: say why, so an unexpected lock screen explains itself.
+  if (!vault) {
+    $("lock-msg").style.color = "var(--t3)";
+    $("lock-msg").textContent = `Locked after ${fmtMinutes(settings.autoLockMin)} without activity.`;
+  }
+}
+
+// force === true is auto-lock: it has already saved, so the unsaved-changes prompt is skipped. A strict
+// === true check, because the Lock button calls this with its click event as the first argument.
+async function lockApp(force) {
+  if (syncing) return;
+  if (force !== true && dirty && !await confirmModal({
     title: "Lock with unsaved changes?",
     body: "The note you are editing has unsaved changes. Save before locking, or lock and lose them?",
     confirmLabel: "Save and lock",
   }).then(ok => { if (ok) flushSave(); return ok; })) return;
   closeMenu(); closePanel(); closeLightbox(); revokeAllMediaUrls();
+  closeSettings();        // a dialog must not stay up over the lock screen
+  searchTextCache.clear();   // the body-search index is plaintext of every note
   exitSplit(true);        // the reference pane holds plaintext from the open note
   currentPage = 0;
   $("page-tabs").innerHTML = ""; $("page-tabs").style.display = "none";
@@ -9482,6 +9782,8 @@ async function lockApp() {
   $("password").value = "";
   $("password2").value = "";
   $("token").value = "";
+  // The strength meter described the old password; with the field empty it must not linger.
+  $("pw-meter").style.display = "none";
   $("password").focus();
 }
 $("lock-btn").onclick = lockApp;
@@ -9603,6 +9905,114 @@ async function registerSuccess() {
   renderGuard();
 }
 loadGuard().then(renderGuard);
+
+// ---------- Password strength (first run only) ----------
+// A rough entropy estimate, turned into a crack time with the same model as
+// HOW-IT-WORKS.md section 7: every guess costs one PBKDF2 run of ITER
+// iterations (2 SHA-256 compressions each), against an attacker with 1,000 GPUs
+// doing ~2e10 compressions per second each, who on average searches half the
+// space. Deliberately approximate: it is a nudge, not an audit.
+const COMMON_PW = ["password", "passw0rd", "123456", "12345678", "123456789", "qwerty", "qwertyuiop", "letmein",
+  "admin", "welcome", "iloveyou", "monkey", "dragon", "football", "baseball", "abc123", "111111", "sunshine",
+  "princess", "master", "shadow", "superman", "trustno1", "contraseña", "contrasena", "secret", "notes"];
+function estimateBits(pw) {
+  if (!pw) return 0;
+  // So first the character pool the password actually draws from.
+  let pool = 0;
+  if (/[a-z]/.test(pw)) pool += 26;
+  if (/[A-Z]/.test(pw)) pool += 26;
+  if (/[0-9]/.test(pw)) pool += 10;
+  if (/[^a-zA-Z0-9]/.test(pw)) pool += 33;
+  // Effective length: a repeated character or a step (aa, ab, 12, ba) adds a quarter of a character, not one.
+  let eff = 1;
+  for (let i = 1; i < pw.length; i++) {
+    const step = pw.charCodeAt(i) - pw.charCodeAt(i - 1);
+    eff += (step >= -1 && step <= 1) ? 0.25 : 1;
+  }
+  let bits = eff * Math.log2(pool);
+  // A list password, alone or with digits/symbols around it ("Password1!"), is one guess from a short list.
+  const lower = pw.toLowerCase();
+  const core = lower.replace(/^[^a-z]+|[^a-z]+$/g, "");
+  if (COMMON_PW.includes(lower) || COMMON_PW.includes(core)) bits = Math.min(bits, 8 + (pw.length - core.length) * 3.3);
+  // One word plus a short suffix: a ~100k-word dictionary (~17 bits), a capital, and ~3.3 bits per suffix character.
+  else if (core.length >= 3 && core.length <= 12 && /^[a-zA-Z]+[^a-zA-Z]{0,6}$/.test(pw))
+    bits = Math.min(bits, 17 + (/[A-Z]/.test(pw) ? 1 : 0) + (pw.length - core.length) * 3.3);
+  // Leetspeak barely helps ("tr0ub4dor" is "troubador" to a cracker): undo the usual swaps first.
+  const LEET = { "0": "o", "1": "l", "3": "e", "4": "a", "5": "s", "7": "t", "@": "a", "$": "s", "!": "i" };
+  const plain = lower.replace(/[013457@$!]/g, c => LEET[c]);
+  // A swapped list password ("P@ssw0rd2024") is still a list password. The padding is cut off BEFORE
+  // undoing the swaps, so a trailing "2024" or "!" is treated as padding and not read as letters.
+  const plainCore = lower.replace(/^[^a-z]+|[^a-z]+$/g, "").replace(/[013457@$!]/g, c => LEET[c]);
+  if (COMMON_PW.includes(plainCore)) bits = Math.min(bits, 9 + (pw.length - plainCore.length) * 3.3);
+  // A run of 6+ letters after the swaps counts as one dictionary word (~17 bits, +1 for the swaps, +1 for a
+  // capital, ~4.5 bits for each other character) when it looks like a word:
+  for (const m of plain.matchAll(/[a-z]{6,}/g)) {
+    // The run as typed, so its own vowels and capitals can be checked.
+    const typed = pw.slice(m.index, m.index + m[0].length);
+    // Real words have vowels: either typed ("tr0ub4dor") ...
+    const typedVowels = (typed.toLowerCase().match(/[aeiou]/g) || []).length;
+    // ... or only appearing once the swaps are undone ("dr4g0nfly").
+    const plainVowels = (m[0].match(/[aeiou]/g) || []).length;
+    // The second case also needs no capital after the first letter: a random string like "xR4!nq8Zk2",
+    // whose swaps happen to spell "xrainq", mixes case mid-run, so it keeps its full random-string score.
+    // ponytail: two-rule heuristic, not a dictionary; random all-lowercase strings can still undershoot,
+    // which errs on the safe side (the meter says weaker, never stronger).
+    if (typedVowels >= 2 || (plainVowels >= 2 && !/[A-Z]/.test(typed.slice(1)))) {
+      bits = Math.min(bits, 17 + (plain !== lower ? 1 : 0) + (/[A-Z]/.test(pw) ? 1 : 0) + (pw.length - m[0].length) * 4.5);
+    }
+  }
+  // Several words separated by spaces or dashes count as words from a 7,776-word list (12.9 bits each).
+  const parts = pw.trim().split(/[\s\-_.]+/);
+  if (parts.length >= 3 && parts.every(w => /^[a-zA-Z]{2,}$/.test(w))) bits = Math.min(bits, parts.length * 12.9);
+  return bits;
+}
+function crackSeconds(bits) {
+  // SHA-256 compressions per guess: two per PBKDF2 iteration.
+  const perGuess = 2 * ITER;
+  // 1,000 GPUs at ~2e10 compressions per second each.
+  const guessesPerSec = 1000 * 2e10 / perGuess;
+  // Half the space on average.
+  return Math.pow(2, bits - 1) / guessesPerSec;
+}
+function fmtCrack(sec) {
+  // Two significant figures are plenty for an estimate this rough; en-US so the
+  // decimal point matches the English sentence instead of the browser's locale.
+  const r = x => Number(x.toPrecision(2)).toLocaleString("en-US");
+  if (sec < 60) return `${r(Math.max(sec, 1))} seconds`;
+  if (sec < 3600) return `${r(sec / 60)} minutes`;
+  if (sec < 86400) return `${r(sec / 3600)} hours`;
+  const years = sec / (365.25 * 86400);
+  if (years < 1) return `${r(sec / 86400)} days`;
+  if (years < 1e6) return `${r(years)} years`;
+  if (years < 1e9) return `${r(years / 1e6)} million years`;
+  if (years < 1e12) return `${r(years / 1e9)} billion years`;
+  return "far longer than the age of the universe";
+}
+function renderPwMeter() {
+  const box = $("pw-meter"), pw = $("password").value;
+  // So first: the meter only matters while creating a vault, and an empty field shows nothing.
+  if ($("token-row").style.display !== "flex" || !pw) { box.className = ""; box.style.display = "none"; return; }
+  const bits = estimateBits(pw);
+  // Five bands by entropy; the class colours the bar and the label.
+  let level = "vweak", label = "Very weak";
+  if (bits >= 75) { level = "vstrong"; label = "Very strong"; }
+  else if (bits >= 60) { level = "strong"; label = "Strong"; }
+  else if (bits >= 50) { level = "fair"; label = "Fair"; }
+  else if (bits >= 36) { level = "weak"; label = "Weak"; }
+  box.className = level;
+  box.style.display = "block";
+  // The bar fills to 100% at 90 bits.
+  box.querySelector(".pw-fill").style.width = Math.min(100, Math.max(6, bits / 90 * 100)) + "%";
+  box.querySelector(".pw-label").textContent = label;
+  const sec = crackSeconds(bits);
+  const t = fmtCrack(sec);
+  // Three phrasings so the sentence always reads right: almost instantly, beyond the universe's age, or "in about <time>".
+  let line = `1,000 GPUs would crack it in about ${t} (rough estimate).`;
+  if (sec < 1) line = "1,000 GPUs would crack it almost instantly (rough estimate).";
+  else if (t.startsWith("far longer")) line = "1,000 GPUs would need far longer than the age of the universe (rough estimate).";
+  box.querySelector(".pw-time").textContent = line;
+}
+$("password").addEventListener("input", renderPwMeter);
 
 // ---------- Unlock ----------
 const autoVault = typeof window.__VAULT__ === "object" && window.__VAULT__ !== null

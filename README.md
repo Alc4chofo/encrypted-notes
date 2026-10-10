@@ -16,14 +16,14 @@ This repo holds the app only. It never contains anyone's notes, and nobody can s
    ```
 
 3. Create a fine-grained token (GitHub Settings > Developer settings > Fine-grained tokens) with access to **that repo only** and the permission **Contents: read and write**.
-4. Open `index.html` (a double click is enough). On first run, choose a master password, confirm it, and paste the token. The token is stored inside the encrypted vault, never in plain text.
+4. Open `index.html` (a double click is enough). On first run, choose a master password (a strength meter shows a rough cracking time as you type), confirm it, and paste the token. The token is stored inside the encrypted vault, never in plain text.
 5. Write notes. They autosave; **Save** or Ctrl+S forces a save. **Sync** (bottom left) merges with the repo, and **Lock** (Ctrl+L) forgets the decrypted vault until you type the password again.
 
 On another computer, clone your private repo and open `index.html`: the synced vault is picked up from the folder, so only the master password is needed.
 
 ## Features
 
-- **Notes and folders**: nested folders, drag and drop to reorder or move, colours, a search over titles and folder names (never note bodies).
+- **Notes and folders**: nested folders, drag and drop to reorder or move, colours, pinned notes at the top of the list, and a search over titles, note text and folder names. Censored text is never searched.
 - **Rich text**: fonts, sizes, colours, highlight, alignment, links, numbered lists and tables with row and column controls. Undo and redo cover structural changes too.
 - **Pages**: a note can be a stack of real A4 sheets that paginate as you type, with designs (title, body and closing pages) you can import and export as `.design.json`.
 - **PDF export**: a built-in PDF writer, so what you see on the sheets is what you get, with no browser metadata. A folder export writes the PDF plus a `files/` folder for its attachments. **Censored** text and images never reach the exported file.
@@ -40,7 +40,7 @@ On another computer, clone your private repo and open `index.html`: the synced v
 - Brute-force guard: each password attempt costs 3 seconds, and after 10 failures the vault locks for 30 days.
 - Private repos only: until `OWNER` and `REPO` are set the app sends nothing, and before its first request after the page opens it asks GitHub whether the repo is private. A public repo is refused before a single byte is uploaded, because anyone could download the encrypted vault from it and try passwords offline.
 - Trade-off worth knowing: `index.html` loads `vault.enc.js` from its own folder with a script tag, which is what makes password-only unlock work on a fresh clone. Anyone who can write to your vault repo could therefore run code in the page, the same trust you already place in that repo for `index.html` itself. Keep it private and the token scoped to it.
-- There is no idle auto-lock. Lock it yourself when you step away.
+- Auto-lock: after 10 minutes without input the app saves and locks itself. **Settings** (bottom left) changes the delay or turns it off; the choice is kept per device.
 - Forget the master password and nobody can decrypt the vault, you included.
 
 ## What never goes in this repo
