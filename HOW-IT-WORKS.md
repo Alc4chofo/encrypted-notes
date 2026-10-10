@@ -1,6 +1,6 @@
 # How encrypted-notes works
 
-This document describes exactly what the app does with your data: the threat model, the cryptographic construction, the storage and sync formats, and the limits. Every claim names the function in `index.html` that implements it, so you can check it against the code. The file is about 9,600 lines of unminified JavaScript with no dependencies, so what you read is what runs.
+This document describes exactly what the app does with your data: the threat model, the cryptographic construction, the storage and sync formats, and the limits. Every claim names the function in `index.html` that implements it, so you can check it against the code. The file is about 9,800 lines of unminified HTML, CSS and JavaScript with no dependencies, so what you read is what runs.
 
 ## Contents
 

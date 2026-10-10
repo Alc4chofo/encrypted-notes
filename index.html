@@ -5,49 +5,131 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>notes</title>
 <style>
-  :root { color-scheme: dark; }
+  /* ---------- Design tokens ----------
+     One warm, ink-dark palette for the whole app: every surface, line and text
+     colour below comes from this short list instead of ad-hoc greys, so the
+     screens read as one designed thing. */
+  :root {
+    color-scheme: dark;
+    /* Surfaces, darkest to lightest: chrome (sidebar, status bar), the writing area, raised controls, hover, pressed. */
+    --s0: #121110; --s1: #181715; --s2: #201e1c; --s3: #292724; --s4: #33302c;
+    /* Lines: hairline dividers, control edges, and the strongest edge for hover/focus. */
+    --line: #272522; --line-2: #383430; --line-3: #4d4843;
+    /* Text, strongest to faintest: body, secondary labels, meta, placeholders. */
+    --t1: #ece7de; --t2: #bcb5aa; --t3: #8a8378; --t4: #625c54;
+    /* Sage green is the one accent (primary actions, focus, active states); -ink is the text on it. */
+    --acc: #a3c493; --acc-ink: #11150f; --acc-dim: #263222; --acc-line: #4f6c46;
+    /* Amber means "not saved / not synced yet", red means destructive or failed, blue is for links. */
+    --warn: #e3a95c; --warn-dim: #2a2116; --warn-line: #5b4527;
+    --bad: #e4735f; --bad-dim: #2c1916; --bad-line: #66342b;
+    --link: #86afd9;
+    /* Type: the platform UI face, a book serif for titles, the platform monospace for the editor. */
+    --ui: system-ui, "Segoe UI", sans-serif;
+    --serif: "Iowan Old Style", "Sitka Text", Charter, Cambria, Georgia, serif;
+    --mono: ui-monospace, Consolas, "Cascadia Mono", monospace;
+    /* Sidebar width, and the editor's side padding that centres a ~760px text column in what is left. */
+    --side-w: 248px;
+    --ed-pad-x: max(32px, calc((100vw - var(--side-w) - 760px) / 2));
+    /* Icons are drawn on a 16px grid with 1.6px strokes and used as masks, so they take the text colour. */
+    --i-chev: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 3.5 10.5 8 6 12.5'/%3E%3C/svg%3E");
+    --i-plus: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M8 3v10M3 8h10'/%3E%3C/svg%3E");
+    --i-folder: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linejoin='round'%3E%3Cpath d='M1.8 4.2c0-.7.5-1.2 1.2-1.2h3l1.5 1.6h5.5c.7 0 1.2.5 1.2 1.2v6.4c0 .7-.5 1.2-1.2 1.2H3c-.7 0-1.2-.5-1.2-1.2z'/%3E%3Cpath d='M8 7v3.6M6.2 8.8h3.6' stroke-linecap='round'/%3E%3C/svg%3E");
+    --i-sync: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M13.2 6.2A5.4 5.4 0 0 0 3.4 4.6M2.8 9.8a5.4 5.4 0 0 0 9.8 1.6'/%3E%3Cpath d='M13.4 2.6v3.7H9.7M2.6 13.4V9.7h3.7'/%3E%3C/svg%3E");
+    --i-archive: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linejoin='round'%3E%3Crect x='1.8' y='2.5' width='12.4' height='3.3' rx='.8'/%3E%3Cpath d='M3 5.8v6.5c0 .7.5 1.2 1.2 1.2h7.6c.7 0 1.2-.5 1.2-1.2V5.8M6.5 8.6h3' stroke-linecap='round'/%3E%3C/svg%3E");
+    --i-lock: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linejoin='round'%3E%3Crect x='3' y='7' width='10' height='7' rx='1.4'/%3E%3Cpath d='M5.3 7V5a2.7 2.7 0 0 1 5.4 0v2'/%3E%3C/svg%3E");
+    --i-split: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5'%3E%3Crect x='1.8' y='2.8' width='12.4' height='10.4' rx='1.4'/%3E%3Cpath d='M8 2.8v10.4'/%3E%3C/svg%3E");
+  }
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: system-ui, sans-serif; background: #111; color: #ddd; height: 100vh; display: flex; flex-direction: column; }
-  #lock { flex: 1; display: flex; align-items: center; justify-content: center; }
+  /* 14px base instead of the browser's 16px: the app is a dense tool, and every control below is sized from this. */
+  body { margin: 0; font: 14px/1.45 var(--ui); background: var(--s0); color: var(--t1); height: 100vh; display: flex; flex-direction: column;
+    -webkit-font-smoothing: antialiased; }
+  ::selection { background: rgb(163 196 147 / .28); }
+
+  /* ---------- Lock screen ----------
+     A real card instead of loose inputs on a black page. */
+  #lock { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; }
+  #lock form { display: flex; flex-direction: column; gap: 10px; width: 340px; padding: 28px 28px 22px;
+    background: var(--s1); border: 1px solid var(--line); border-radius: 14px;
+    box-shadow: 0 1px 0 rgb(255 255 255 / .03) inset, 0 8px 24px rgb(0 0 0 / .22); }
+  /* Mark, name and one line of reassurance, then the form. */
+  .lock-head { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin-bottom: 8px; }
+  .lock-mark { width: 30px; height: 30px; color: var(--acc); margin-bottom: 8px; }
+  .lock-head h1 { margin: 0; font: 600 26px/1.1 var(--serif); letter-spacing: -.01em; color: var(--t1); }
+  .lock-head p { margin: 0; font-size: 13px; color: var(--t3); }
+  /* The quiet explanatory text under the inputs. */
+  #lock small, .lock-note { display: block; font-size: 12px; line-height: 1.5; color: var(--t3); }
+  #lock code { font: 11.5px var(--mono); color: var(--t2); }
   /* Attempt counter / lockout notice. Amber while attempts remain, red once the
      vault is locked; the whole form is visibly dead in that state. */
-  #guard-msg { padding: 10px 12px; border-radius: 6px; font-size: 13px; line-height: 1.45;
-    border: 1px solid #6a5a2a; background: #241f12; color: #e0b155; }
-  #guard-msg.locked { border-color: #7a3030; background: #2a1616; color: #e77; }
+  #guard-msg { padding: 10px 12px; border-radius: 8px; font-size: 13px; line-height: 1.45;
+    border: 1px solid var(--warn-line); background: var(--warn-dim); color: var(--warn); }
+  #guard-msg.locked { border-color: var(--bad-line); background: var(--bad-dim); color: var(--bad); }
   #guard-msg .guard-title { font-weight: 600; letter-spacing: .01em; margin-bottom: 2px;
     font-variant-numeric: tabular-nums; }
-  #guard-msg .guard-sub { margin-top: 4px; color: #a86; font-size: 12px; }
-  #guard-msg.locked .guard-sub { color: #a55; }
+  #guard-msg .guard-sub { margin-top: 4px; color: color-mix(in srgb, var(--warn) 70%, var(--t3)); font-size: 12px; }
+  #guard-msg.locked .guard-sub { color: color-mix(in srgb, var(--bad) 70%, var(--t3)); }
   #unlock-form.locked-out input, #unlock-form.locked-out button { opacity: .4; }
-  #lock form { display: flex; flex-direction: column; gap: 8px; width: 300px; }
-  input, textarea, button, select { background: #1c1c1c; color: #ddd; border: 1px solid #333; border-radius: 6px; padding: 8px; font: inherit; }
+
+  /* ---------- Controls ----------
+     Default button = a quiet bordered control. Hierarchy comes from three
+     variants: .primary (filled sage, at most one per area), ghost (borderless,
+     for secondary chrome) and .danger (red). */
+  input, textarea, button, select { background: var(--s2); color: var(--t1); border: 1px solid var(--line-2);
+    border-radius: 7px; padding: 8px 10px; font: inherit; }
+  input::placeholder, textarea::placeholder { color: var(--t4); }
   /* One motion language: every hover/selection state fades at the same 120ms as
      the menus, modals and lightbox. Typing paths are never transitioned. */
   button, .note-item, .folder-row, #trash-head, .trash-item, .detail-row.click, .ctxitem, .swatch, .att, .chip {
-    transition: background-color .12s, border-color .12s, color .12s; }
-  button { cursor: pointer; }
-  button:hover { background: #2a2a2a; }
+    transition: background-color .12s, border-color .12s, color .12s, box-shadow .12s; }
+  button { cursor: pointer; color: var(--t1); }
+  button:hover { background: var(--s3); border-color: var(--line-3); }
   button:disabled { opacity: .45; cursor: default; }
-  button:disabled:hover { background: #1c1c1c; }
-  input:focus, textarea:focus, button:focus-visible { outline: none; border-color: #555; }
+  button:disabled:hover { background: var(--s2); border-color: var(--line-2); }
+  /* Filled sage: the single most likely next action (Unlock, Sync, a dialog's confirm). */
+  button.primary, #sync { background: var(--acc); border-color: var(--acc); color: var(--acc-ink); font-weight: 600; }
+  button.primary:hover, #sync:hover { background: #b6d3a8; border-color: #b6d3a8; }
+  button.primary:disabled:hover, #sync:disabled:hover { background: var(--acc); border-color: var(--acc); }
+  /* Focus is a soft sage ring, the same on every input and keyboard-focused button. */
+  input:focus, textarea:focus, select:focus { outline: none; border-color: var(--acc-line); box-shadow: 0 0 0 3px rgb(163 196 147 / .12); }
+  button:focus-visible { outline: none; border-color: var(--acc-line); box-shadow: 0 0 0 3px rgb(163 196 147 / .16); }
+  /* Icon slot for buttons whose label the app rewrites ("Syncing..."): a ::before
+     survives textContent changes, an <svg> child would not. --icon picks the glyph. */
+  #sync::before, #backup::before, #lock-btn::before, #new-note::before, #new-folder::before, #split-btn::before {
+    content: ""; flex: none; width: 14px; height: 14px; background: currentColor;
+    -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat; }
+
+  /* ---------- Layout ---------- */
   /* min-height:0: as a flex item in the column body, #app defaults to min-height:auto
      and would refuse to shrink below its content, so a long note grew the whole page
      instead of scrolling. Zero lets it stay viewport-height and the editor scrolls. */
   #app { flex: 1; display: none; flex-direction: column; min-height: 0; }
   #app-body { flex: 1; display: flex; min-height: 0; }
-  #sidebar { width: 230px; border-right: 1px solid #333; display: flex; flex-direction: column; }
-  #side-top { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-bottom: 1px solid #333; }
+
+  /* ---------- Sidebar ---------- */
+  #sidebar { width: var(--side-w); flex: none; background: var(--s0); border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+  #side-top { display: flex; flex-direction: column; gap: 8px; padding: 12px 10px 10px; }
   #side-top .row { display: flex; gap: 6px; }
-  #side-top .row button { flex: 1; padding: 6px 8px; font-size: 13px; white-space: nowrap; }
-  #side-top input { padding: 6px 8px; font-size: 13px; }
-  #notelist { flex: 1; overflow-y: auto; }
-  /* Every row reserves the same 3px left-border slot (colored when a note color
-     is set) so selecting or coloring never shifts text horizontally; the active
-     row is indicated by background only. */
+  /* The two creation buttons carry a small glyph and read as actions, not form buttons. */
+  #side-top .row button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 6px 8px; font-size: 13px; white-space: nowrap; }
+  #new-note { --icon: var(--i-plus); background: var(--acc-dim); border-color: var(--acc-line); color: var(--acc); }
+  #new-note:hover { background: #2f3d2a; border-color: #5f8054; color: #bcd9ad; }
+  #new-folder { --icon: var(--i-folder); background: transparent; color: var(--t2); }
+  /* Search: a magnifier drawn into the field's left padding (a fixed colour, since a background image cannot use currentColor). */
+  #side-top input { padding: 7px 10px 7px 30px; font-size: 13px; background: var(--s1)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23857e74' stroke-width='1.6' stroke-linecap='round'%3E%3Ccircle cx='7' cy='7' r='4.3'/%3E%3Cpath d='m10.3 10.3 3.2 3.2'/%3E%3C/svg%3E") 10px center / 14px no-repeat; }
+  #notelist { flex: 1; overflow-y: auto; padding: 2px 0 8px; }
+  /* Rows float as rounded tiles 6px in from the edges instead of a ruled table.
+     The horizontal geometry is untouched: the 3px left border slot (coloured when
+     a note colour is set, so selecting or colouring never shifts text) and the
+     9/12px paddings are what the indent rails (applyRails) are measured from. */
   /* position:relative anchors the drag insertion line (::after) so it overlays the
      row and never reflows it - a real 2px border would shift the row and jank. */
-  .note-item { position: relative; padding: 7px 12px 7px 9px; cursor: pointer; border-bottom: 1px solid #222; border-left: 3px solid transparent; user-select: none; }
-  .note-item.active, .note-item:hover { background: #2a2a2a; }
+  .note-item { position: relative; margin: 1px 6px; padding: 6px 12px 6px 9px; cursor: pointer; border-radius: 7px;
+    border-left: 3px solid transparent; user-select: none; }
+  .note-item:hover { background: var(--s2); }
+  /* The open note gets a faint sage wash, so "where am I" is answered by colour, not only by contrast. */
+  .note-item.active { background: color-mix(in srgb, var(--acc) 11%, var(--s1)); }
   .note-item.in-folder { padding-left: 21px; }
   /* Indent guides: one 2px stripe per ancestor folder, painted as layered
      gradients in --rails (composed in applyRails, which knows the depth, each
@@ -66,49 +148,144 @@
      overlaid so it never changes the row's geometry (120ms on colour, never layout). */
   .note-item.drop-before::after, .note-item.drop-after::after,
   .folder-row.drop-before::after, .folder-row.drop-after::after {
-    content: ""; position: absolute; left: 0; right: 0; height: 2px; background: #ea5;
+    content: ""; position: absolute; left: 0; right: 0; height: 2px; background: var(--warn); border-radius: 2px;
     pointer-events: none; transition: background-color .12s; z-index: 1; }
-  .note-item.drop-before::after, .folder-row.drop-before::after { top: -1px; }
-  .note-item.drop-after::after, .folder-row.drop-after::after { bottom: -1px; }
-  /* position:relative anchors the ::before rails of a nested folder row. */
-  .folder-row { position: relative; display: flex; align-items: center; gap: 6px; padding: 6px 12px 6px 9px; border-left: 3px solid transparent; border-bottom: 1px solid #222; cursor: pointer; font-size: 13px; color: #bbb; user-select: none; }
-  .folder-row:hover { background: #2a2a2a; }
+  .note-item.drop-before::after, .folder-row.drop-before::after { top: -2px; }
+  .note-item.drop-after::after, .folder-row.drop-after::after { bottom: -2px; }
+  /* Folder headers: a touch heavier than notes, same tile shape. position:relative anchors the ::before rails. */
+  .folder-row { position: relative; display: flex; align-items: center; gap: 7px; margin: 1px 6px; padding: 6px 12px 6px 9px;
+    border-left: 3px solid transparent; border-radius: 7px; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--t2); user-select: none; }
+  .folder-row:hover { background: var(--s2); color: var(--t1); }
   .folder-row.dragging { opacity: .4; }
   /* Folder is a drop target while a note is being dragged over its header. */
-  .folder-row.drop-target { background: #2a2a2a; box-shadow: inset 3px 0 0 #ea5; }
-  /* Fixed-width slot, one rotating glyph: expand/collapse never shifts the name. */
-  .folder-arrow { flex: none; width: 10px; font-size: 9px; color: #888; display: inline-block; transition: transform .12s; }
+  .folder-row.drop-target { background: var(--s3); box-shadow: inset 3px 0 0 var(--warn); }
+  /* Fixed-width slot, one rotating chevron: expand/collapse never shifts the name.
+     The app writes a "▶" character here; font-size:0 hides it and the mask draws a
+     proper chevron in its place, still rotated by the .open class. */
+  .folder-arrow { flex: none; width: 10px; height: 10px; font-size: 0; color: var(--t3); display: inline-block;
+    background: currentColor; -webkit-mask: var(--i-chev) center / 10px no-repeat; mask: var(--i-chev) center / 10px no-repeat;
+    transition: transform .12s; }
   .folder-arrow.open { transform: rotate(90deg); }
   .folder-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .folder-count { flex: none; font-size: 11px; color: #666; }
+  /* The note count is metadata: small, tabular, faint. */
+  .folder-count { flex: none; font-size: 11px; font-weight: 400; color: var(--t4); font-variant-numeric: tabular-nums; }
   /* Always rendered (transparent when no color is set) so the slot never
      appears or disappears and the label beside it never shifts. */
   .color-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: transparent; }
   /* Same rails consumer as the real rows: a nested rename row must not punch a
      gap in its ancestors' stripes (an unset --rails computes to transparent). */
-  .inline-folder { position: relative; padding: 4px 8px 4px 9px; border-left: 3px solid transparent; border-bottom: 1px solid #222; }
+  .inline-folder { position: relative; margin: 1px 6px; padding: 4px 8px 4px 9px; border-left: 3px solid transparent; }
   .inline-folder::before { content: ""; position: absolute; inset: 0; background: var(--rails); pointer-events: none; }
   .inline-folder input { width: 100%; padding: 4px 8px; font-size: 13px; }
-  #trash-section { flex: none; border-top: 1px solid #333; display: flex; flex-direction: column; max-height: 45%; }
-  /* Same 6/12/9 rhythm as .folder-row above; the trash header used to sit 4px taller. */
-  #trash-head { display: flex; align-items: center; gap: 6px; padding: 6px 12px 6px 9px; border-left: 3px solid transparent; cursor: pointer; font-size: 13px; color: #888; user-select: none; flex: none; }
-  #trash-head:hover { background: #2a2a2a; }
-  /* Formatting toolbar */
-  #fmt-bar { flex: none; display: flex; align-items: center; gap: 3px; flex-wrap: wrap;
-    padding: 5px 10px; border-bottom: 1px solid #262626; background: #171717; }
-  #fmt-bar button { padding: 2px 8px; min-width: 28px; font-size: 12px; background: #1c1c1c;
-    border: 1px solid #303030; border-radius: 4px; color: #bbb; line-height: 1.4; }
-  #fmt-bar button:hover { background: #2a2a2a; color: #eee; }
-  #fmt-bar button.on { background: #2c3a2f; border-color: #3d7a4c; color: #9d8; }
-  #fmt-bar select { padding: 2px 4px; font-size: 11px; background: #1c1c1c; border: 1px solid #303030;
-    border-radius: 4px; color: #bbb; max-width: 130px; }
-  #fmt-bar .fmt-sep { width: 1px; height: 16px; background: #303030; margin: 0 4px; }
-  #fmt-bar .fmt-hint { font-size: 11px; color: #5d5d5d; margin-left: auto; }
+  #trash-section { flex: none; border-top: 1px solid var(--line); display: flex; flex-direction: column; max-height: 45%; padding: 4px 0; }
+  /* Same 6/12/9 rhythm and tile shape as .folder-row above. */
+  #trash-head { display: flex; align-items: center; gap: 7px; margin: 1px 6px; padding: 6px 12px 6px 9px; border-left: 3px solid transparent;
+    border-radius: 7px; cursor: pointer; font-size: 13px; color: var(--t3); user-select: none; flex: none; }
+  #trash-head:hover { background: var(--s2); color: var(--t2); }
+  .trash-clear { flex: none; padding: 2px 8px; font-size: 11px; color: var(--bad); background: transparent;
+    border: 1px solid var(--bad-line); border-radius: 6px; }
+  .trash-clear:hover { background: var(--bad-dim); color: #f08b78; border-color: var(--bad-line); }
+  #trash-list { overflow-y: auto; }
+  .trash-item { margin: 1px 6px; padding: 6px 12px 6px 21px; cursor: pointer; border-radius: 7px; border-left: 3px solid transparent; user-select: none; }
+  .trash-item:hover { background: var(--s2); }
+  .trash-item.active { background: var(--s3); }
+  .trash-item .note-title .t { color: var(--t2); }
+  /* Backup bar: pinned under the trash, quiet until an age chip warms up. The
+     chip inherits its zone color via --bk (safe/normal/danger/unsafe). */
+  /* Two self-describing buttons, no heading: a "Backups" title beside them made
+     the row need 257px inside a 229px sidebar, so the right button was clipped. */
+  #backup-bar { flex: none; display: flex; gap: 6px; padding: 8px 10px 10px; border-top: 1px solid var(--line); }
+  /* min-width:0 lets a button shrink below its content instead of pushing the
+     row wider than the sidebar; the label ellipsizes, the age pill never does. */
+  #backup-bar button { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between;
+    gap: 5px; padding: 5px 6px 5px 9px; background: var(--s1); border: 1px solid var(--line); border-radius: 7px; }
+  #backup-bar button:hover { background: var(--s2); border-color: var(--line-2); }
+  #backup-bar .bk-label { font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--t3);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bk-age { flex: none; font-family: var(--mono); font-size: 10px; font-weight: 600;
+    font-variant-numeric: tabular-nums; line-height: 1; padding: 3px 6px; border-radius: 999px;
+    color: var(--bk, #888); border: 1px solid color-mix(in srgb, var(--bk, #888) 40%, transparent);
+    background: color-mix(in srgb, var(--bk, #888) 12%, transparent); }
+  .empty-state { padding: 14px 18px; color: var(--t4); font-size: 12px; font-style: italic; }
+  /* Note rows: title line then a faint, tabular "when" line. */
+  .note-title { display: flex; align-items: baseline; gap: 7px; font-size: 13.5px; color: var(--t1); }
+  .note-title .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .note-title .t.untitled { color: var(--t4); font-style: italic; }
+  /* Unsynced marker: the app writes a "●", kept small and amber like the other not-synced signals. */
+  .dot { color: var(--warn); font-size: 8px; line-height: 1; flex: none; }
+  .note-meta { margin-top: 1px; font-size: 11px; color: var(--t3); font-variant-numeric: tabular-nums; }
+  /* Drop bar for moving a note out of a folder. */
+  .loose-drop-bar { margin: 6px 8px; padding: 10px 12px; border: 1px dashed var(--line-3); border-radius: 8px;
+    text-align: center; font-size: 12px; color: var(--t3); background: var(--s1); transition: border-color .12s, color .12s, background-color .12s; }
+  .loose-drop-bar.over { border-color: var(--warn); color: var(--warn); background: var(--warn-dim); }
+
+  /* ---------- Main column ---------- */
+  #main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--s1); }
+  /* Title row: the note title is the page heading, set in the book serif with no
+     box around it, aligned with the text column below. */
+  .bar { display: flex; gap: 10px; padding: 20px var(--ed-pad-x) 10px; align-items: center; }
+  #title { font: 600 23px/1.25 var(--serif); letter-spacing: -.005em; color: var(--t1); background: transparent;
+    border: 0; border-radius: 0; padding: 4px 0; min-width: 0; }
+  #title:focus { box-shadow: none; }
+  #title::placeholder { color: var(--t4); }
+  .bar button { padding: 5px 12px; font-size: 12.5px; line-height: 1.2; white-space: nowrap; }
+  /* Save is quiet when everything is saved (disabled "Saved") and turns sage the moment there is something to save. */
+  #save { background: transparent; color: var(--t3); }
+  #save:not(:disabled) { background: var(--acc-dim); border-color: var(--acc-line); color: var(--acc); }
+  #save:not(:disabled):hover { background: #2f3d2a; }
+  /* A read-only trash view has to LOOK read-only, not just refuse keystrokes. */
+  #main.readonly #title, #main.readonly #editor { color: var(--t3); cursor: default; }
+  #main.readonly #editor { background: var(--s0); }
+  /* Banners above the editor: a tinted strip with a coloured edge, never a modal. */
+  #pull-banner, #trash-banner { display: none; gap: 8px; align-items: center; margin: 0 var(--ed-pad-x) 8px; padding: 8px 10px 8px 12px;
+    border: 1px solid var(--warn-line); border-left: 3px solid var(--warn); border-radius: 8px; font-size: 13px; background: var(--warn-dim); color: var(--t1); }
+  #pull-banner span, #trash-banner span { flex: 1; }
+  #pull-banner button, #trash-banner button { padding: 3px 9px; font-size: 12px; }
+  /* Read-only backup view: amber banner, all mutating chrome hidden. */
+  #backup-banner { display: none; align-items: center; gap: 8px; margin: 0 var(--ed-pad-x) 8px; padding: 8px 10px 8px 12px;
+    background: var(--warn-dim); border: 1px solid var(--warn-line); border-left: 3px solid var(--warn); border-radius: 8px; color: var(--warn); font-size: 13px; }
+  #backup-banner span { flex: 1; }
+  #backup-banner #backup-convert { border-color: var(--warn-line); color: var(--warn); background: transparent; }
+  body.backup-view #save, body.backup-view #sync, body.backup-view #backup,
+  body.backup-view #new-note, body.backup-view #new-folder, body.backup-view #backup-bar,
+  body.backup-view #trash-restore, body.backup-view #trash-purge, body.backup-view #chips,
+  /* The pull banner's Details button opens the detail panel, whose rows include
+     destructive repo/vault actions; the panel itself is chrome for the LIVE
+     vault and means nothing for a snapshot. */
+  body.backup-view #pull-banner, body.backup-view #status-detail { display: none; }
+  #backup-row button.sel { border-color: var(--warn); color: var(--warn); }
+
+  /* ---------- Formatting toolbar ----------
+     Borderless icon buttons on a hairline-separated strip, aligned with the text
+     column. Pressed states (bold on, etc.) use the sage tint. */
+  #fmt-bar { flex: none; display: flex; align-items: center; gap: 2px; flex-wrap: wrap;
+    padding: 6px 16px 6px calc(var(--ed-pad-x) - 8px); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--s1); }
+  #fmt-bar button { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 28px;
+    padding: 0 7px; font-size: 13px; background: transparent; border: 1px solid transparent; border-radius: 6px; color: var(--t2); line-height: 1; }
+  #fmt-bar button:hover { background: var(--s3); color: var(--t1); }
+  #fmt-bar button.on { background: var(--acc-dim); border-color: transparent; color: var(--acc); }
+  #fmt-bar svg { width: 16px; height: 16px; flex: none; }
+  /* The B / I / U / S letters are set in the serif so they look like type samples, not labels. */
+  #fmt-bar button[data-cmd="bold"], #fmt-bar button[data-cmd="italic"],
+  #fmt-bar button[data-cmd="underline"], #fmt-bar button[data-cmd="strikeThrough"] { font: 15px/1 var(--serif); }
+  #fmt-bar select { height: 28px; padding: 0 6px; font-size: 12px; background: transparent; border: 1px solid var(--line-2);
+    border-radius: 6px; color: var(--t2); max-width: 130px; }
+  #fmt-bar select:hover { border-color: var(--line-3); color: var(--t1); }
+  #fmt-bar .fmt-sep { width: 1px; height: 18px; background: var(--line-2); margin: 0 6px; }
+  /* The toolbar starts where the text column starts (minus the first button's own padding) but may run past
+     it to the right, so it stays on one line. The hint only shows where there is room for it; on narrower
+     windows it just wrapped into clutter. */
+  #fmt-bar .fmt-hint { font-size: 11px; color: var(--t4); margin-left: auto; }
+  @media (max-width: 1500px) { #fmt-bar .fmt-hint { display: none; } }
   #main.readonly #fmt-bar { opacity: .4; pointer-events: none; }
-  /* Tables and links, in the dark editor and on the white page sheets. */
-  /* table-layout:fixed is what makes typing WRAP inside a cell and push the row
-     taller, instead of stretching the column sideways as content grows. The
-     column keeps whatever width the handles gave it. */
+  /* Colour/highlight buttons carry a bar showing the last colour used, under the glyph. */
+  #fmt-color, #fmt-highlight { flex-direction: column; gap: 2px; padding-top: 3px; }
+  #fmt-bar .swatch-bar { display: block; width: 14px; height: 3px; border-radius: 2px; background: #666; }
+  /* Censor: a small black slab with spaced capitals, the look of a redaction stamp. */
+  #fmt-censor { font-size: 10px; font-weight: 600; letter-spacing: .1em; background: #050505; color: var(--t3); border-color: var(--line-2); }
+  #fmt-censor:hover { color: #fff; background: #000; border-color: var(--line-3); }
+
+  /* ---------- Tables and links, in the dark editor and on the white page sheets ---------- */
   /* table-layout:fixed keeps typing from stretching a column (it wraps and the
      row grows instead), but the table must NOT be stretched to the full text
      width: with width:100% the columns share a fixed total, so widening one
@@ -118,29 +295,30 @@
     table-layout: fixed; width: auto; max-width: 100%; }
   #editor td, #editor th, .sheet-body td, .sheet-body th, #prev-body td, #prev-body th {
     overflow-wrap: anywhere; word-break: break-word; white-space: pre-wrap; }
-  #editor td, #editor th { border: 1px solid #3a3a3a; padding: 4px 8px; min-width: 40px; vertical-align: top; }
-  #editor th { background: #232323; font-weight: 600; }
+  #editor td, #editor th { border: 1px solid var(--line-3); padding: 4px 8px; min-width: 40px; vertical-align: top; }
+  #editor th { background: var(--s3); font-weight: 600; }
   .sheet-body td, .sheet-body th, #prev-body td, #prev-body th {
     border: 1px solid #999; padding: 4pt 6pt; min-width: 40px; vertical-align: top; }
   .sheet-body th, #prev-body th { background: #eee; font-weight: 700; }
-  #editor a, .sheet-body a, #prev-body a { color: #6aa9e0; text-decoration: underline; cursor: pointer; }
+  #editor a, .sheet-body a, #prev-body a { color: var(--link); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
   .sheet-body a { color: #1a4f8a; }
-  /* Colour palette popup */
-  .palette-pop { position: fixed; z-index: 80; padding: 10px; background: #1e1e1e;
-    border: 1px solid #3a3a3a; border-radius: 8px; box-shadow: 0 8px 26px rgba(0,0,0,.6); }
-  .pal-head { font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: #777; margin: 2px 0 6px; }
-  .pal-reset { display: block; width: 100%; margin-bottom: 8px; padding: 4px 8px; font-size: 12px;
-    background: #262626; border: 1px solid #3a3a3a; border-radius: 5px; color: #ccc; }
-  .pal-reset:hover { background: #303030; color: #fff; }
+
+  /* ---------- Colour palette popup ---------- */
+  .palette-pop { position: fixed; z-index: 80; padding: 12px; background: var(--s2);
+    border: 1px solid var(--line-2); border-radius: 10px; box-shadow: 0 16px 40px rgb(0 0 0 / .5); }
+  .pal-head { font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--t3); margin: 2px 0 7px; }
+  .pal-reset { display: block; width: 100%; margin-bottom: 8px; padding: 5px 8px; font-size: 12px;
+    background: var(--s3); border: 1px solid var(--line-2); border-radius: 6px; color: var(--t2); }
+  .pal-reset:hover { background: var(--s4); color: var(--t1); }
   .pal-grid { display: grid; grid-template-columns: repeat(10, 18px); gap: 4px; }
   .pal-grid.custom { grid-template-columns: repeat(10, 18px); margin-bottom: 2px; }
   .pal-swatch { width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 1px solid #00000055;
     cursor: pointer; }
-  .pal-swatch:hover { outline: 2px solid #6aa9e0; outline-offset: 1px; }
-  .pal-add { background: #262626; border: 1px dashed #555; color: #aaa; font-size: 12px; line-height: 1; }
-  .pal-add:hover { background: #303030; color: #fff; }
-  /* Colour/highlight buttons carry a bar showing the last colour used. */
-  #fmt-bar .swatch-bar { display: block; height: 3px; margin-top: 1px; border-radius: 2px; background: #666; }
+  .pal-swatch:hover { outline: 2px solid var(--acc); outline-offset: 1px; }
+  .pal-add { background: var(--s3); border: 1px dashed var(--line-3); color: var(--t3); font-size: 12px; line-height: 1; }
+  .pal-add:hover { background: var(--s4); color: var(--t1); }
+
+  /* ---------- Censored text ---------- */
   /* Censored text: a solid box in the app, revealed on hover so it stays
      editable. The EXPORT does not rely on this - it removes the text entirely. */
   [data-censor] { background: #000; color: transparent; border-radius: 2px;
@@ -152,14 +330,13 @@
      paths destroy them; this covers printing the raw page.) */
   @media print { [data-censor] { visibility: hidden; } }
   .sheet-body [data-censor]:hover, #editor [data-censor]:hover { color: #bbb; }
-  #fmt-censor { font-size: 10px; letter-spacing: .05em; background: #000; color: #999; border-color: #444; }
-  #fmt-censor:hover { color: #fff; }
   /* Bullets follow the text alignment: with the marker outside the box it always
      hangs at the left margin no matter how the line is aligned. */
   #editor ul, #editor ol, .sheet-body ul, .sheet-body ol { list-style-position: inside; padding-left: 0; margin: 4px 0 4px 12px; }
-  /* Image/file layout inside a note */
+
+  /* ---------- Image/file layout inside a note ---------- */
   /* Selection + resize handles */
-  .inline-media.selected { outline: 2px solid #6aa9e0; outline-offset: 1px; }
+  .inline-media.selected { outline: 2px solid var(--link); outline-offset: 1px; }
   .media-handle { position: absolute; width: 9px; height: 9px; background: #fff; border: 1px solid #4a86c8;
     border-radius: 2px; z-index: 3; }
   .media-handle.h-nw { top: -5px; left: -5px; cursor: nwse-resize; }
@@ -168,22 +345,23 @@
   .media-handle.h-se { bottom: -5px; right: -5px; cursor: nwse-resize; }
   /* Centre guide shown while dragging an image */
   .drag-guide { position: fixed; width: 1px; background: #4a86c8; opacity: .45; z-index: 60; pointer-events: none; }
-  .drag-guide.snap { background: #ea5; opacity: 1; width: 2px; box-shadow: 0 0 6px rgba(238,170,85,.6); }
+  .drag-guide.snap { background: var(--warn); opacity: 1; width: 2px; box-shadow: 0 0 6px rgb(227 169 92 / .6); }
   .inline-media.align-center { display: block; margin-left: auto; margin-right: auto; }
   .inline-media.align-right { display: block; margin-left: auto; margin-right: 0; }
   .inline-media.align-left { display: block; margin-right: auto; margin-left: 0; }
-  /* Page tabs: only rendered for a multi-page note, so a single-page note looks
-     exactly as it always did. */
-  #page-tabs { display: none; gap: 4px; padding: 6px 10px 0; flex-wrap: wrap; flex: none; }
-  .page-tab { padding: 3px 10px; font-size: 12px; background: #1c1c1c; border: 1px solid #333;
-    border-radius: 5px 5px 0 0; color: #aaa; max-width: 180px; overflow: hidden;
+
+  /* ---------- Page tabs ---------- */
+  /* Only rendered for a multi-page note, so a single-page note looks exactly as it always did. */
+  #page-tabs { display: none; gap: 4px; padding: 8px var(--ed-pad-x) 0; flex-wrap: wrap; flex: none; }
+  .page-tab { padding: 4px 11px; font-size: 12px; background: var(--s2); border: 1px solid var(--line-2);
+    border-radius: 7px 7px 0 0; color: var(--t3); max-width: 180px; overflow: hidden;
     text-overflow: ellipsis; white-space: nowrap; }
-  .page-tab:hover { background: #2a2a2a; }
-  .page-tab.active { background: #2f2f2f; border-color: #4a4a4a; color: #eee; }
+  .page-tab:hover { background: var(--s3); color: var(--t2); }
+  .page-tab.active { background: var(--s4); border-color: var(--line-3); color: var(--t1); }
   .page-tab.dragging { opacity: .4; }
   /* Parts: title and final are visually distinct from the body they bracket. */
   .sec-mark { align-self: flex-end; font-size: 9px; letter-spacing: .1em; text-transform: uppercase;
-    padding: 0 4px 4px; color: #666; }
+    padding: 0 4px 4px; color: var(--t4); }
   .sec-mark.sec-title { color: #7aa7d0; } .sec-mark.sec-final { color: #c08bd0; }
   .page-tab.sec-title { border-color: #33506b; }
   .page-tab.sec-title.active { background: #22303d; border-color: #4b7ba6; color: #cfe4f5; }
@@ -192,18 +370,20 @@
   .sheet.sec-title .sheet-label { background: #16202a; border-bottom-color: #26384a; }
   .sheet.sec-final .sheet-label { background: #201828; border-bottom-color: #3a2a45; }
   .sec-chip { font-size: 9px; letter-spacing: .09em; text-transform: uppercase; padding: 1px 5px;
-    border-radius: 3px; background: #2a2a2a; color: #999; }
+    border-radius: 3px; background: var(--s3); color: var(--t3); }
   .sec-chip.sec-title { background: #24384c; color: #a6cbe8; }
   .sec-chip.sec-final { background: #35264a; color: #d3b3e8; }
-  .page-tab.drop-left { box-shadow: inset 2px 0 0 #ea5; }
-  .page-tab.drop-right { box-shadow: inset -2px 0 0 #ea5; }
-  .page-add { padding: 3px 9px; font-size: 12px; background: transparent; border: 1px dashed #3a3a3a;
-    border-radius: 5px; color: #777; }
-  .page-add:hover { background: #262626; color: #aaa; }
+  .page-tab.drop-left { box-shadow: inset 2px 0 0 var(--warn); }
+  .page-tab.drop-right { box-shadow: inset -2px 0 0 var(--warn); }
+  .page-add { padding: 4px 10px; font-size: 12px; background: transparent; border: 1px dashed var(--line-3);
+    border-radius: 7px; color: var(--t3); }
+  .page-add:hover { background: var(--s3); color: var(--t2); }
+
+  /* ---------- Paged notes ---------- */
   /* Paged notes: a scrolling stack of real A4 sheets. The measurements here are
      the SAME ones the PDF stylesheet uses (210mm wide, 18mm/16mm margins, 12pt
      serif), so what is on screen is what comes out of the export. */
-  #sheets { display: none; flex: 1; overflow: auto; padding: 16px 0 40px; background: #0d0d0d; min-width: 0; }
+  #sheets { display: none; flex: 1; overflow: auto; padding: 20px 0 48px; background: var(--s0); min-width: 0; }
   body.paged-view #editor { display: none; }
   body.paged-view #sheets { display: block; }
   /* ALWAYS a true A4 sheet, never narrowed to fit the window: laying it out at
@@ -211,12 +391,12 @@
      A narrow window (the second screen especially) only SCALES it - see
      fitSheets, which sets --sheet-k and pulls back the space the scale frees. */
   .sheet { width: 210mm; margin: 0 auto 20px; background: #fff; color: #111;
-    box-shadow: 0 2px 14px rgba(0,0,0,.55); border-radius: 2px; overflow: hidden;
+    box-shadow: 0 2px 14px rgb(0 0 0 / .55); border-radius: 2px; overflow: hidden;
     transform: scale(var(--sheet-k, 1)); transform-origin: top left; }
-  .sheet.active { box-shadow: 0 0 0 2px #4a7a55, 0 2px 14px rgba(0,0,0,.55); }
+  .sheet.active { box-shadow: 0 0 0 2px var(--acc-line), 0 2px 14px rgb(0 0 0 / .55); }
   .sheet-label { padding: 4px 10px; font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
-    color: #888; background: #191919; border-bottom: 1px solid #262626; display: flex; gap: 8px; }
-  .sheet-label .n { margin-left: auto; color: #666; font-variant-numeric: tabular-nums; }
+    color: var(--t3); background: var(--s2); border-bottom: 1px solid var(--line); display: flex; gap: 8px; }
+  .sheet-label .n { margin-left: auto; color: var(--t4); font-variant-numeric: tabular-nums; }
   /* 297mm, NOT calc(297mm - 36mm): box-sizing is border-box globally, so
      min-height already includes the padding. Subtracting it again gave the
      sheet 225mm of content where the PDF writer allows 261mm, so every page
@@ -244,121 +424,84 @@
     justify-content: flex-start; border-left: 2px solid #8a8a8a; background: #f5f5f5; }
   .sheet-body .inline-media { border-color: #ccc; background: #f4f4f4; }
   .sheet-body .inline-ph { color: #555; }
-  /* Split ("second screen") edit mode: reference on the left, live edit right. */
+
+  /* ---------- Split ("second screen") edit mode: reference on the left, live edit right ---------- */
   #edit-wrap { flex: 1; display: flex; min-height: 0; }
   #edit-wrap #editor { flex: 1; min-width: 0; }
+  /* Half the width each, so the centred-column padding would leave almost no text: use a flat gutter instead. */
+  body.split-edit { --ed-pad-x: 24px; }
   #prev-pane { display: none; flex: 1; min-width: 0; flex-direction: column;
-    border-right: 1px solid #333; background: #131313; }
+    border-right: 1px solid var(--line); background: var(--s0); }
   body.split-edit #prev-pane { display: flex; }
-  #prev-head { flex: none; padding: 6px 14px; font-size: 10px; letter-spacing: .12em;
-    text-transform: uppercase; color: #6a6; border-bottom: 1px solid #262626; background: #151815; }
+  #prev-head { flex: none; padding: 7px 16px; font-size: 10px; font-weight: 600; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--acc); border-bottom: 1px solid var(--line); background: var(--s0); }
   /* min-height:0 is what makes this actually scroll: as a flex child it would
      otherwise grow to its content and the pane would clip instead of scrolling. */
   #prev-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px; font-size: 15px; line-height: 1.55;
-    color: #9a9a9a; white-space: pre-wrap; word-wrap: break-word; user-select: text; }
+    color: var(--t3); white-space: pre-wrap; word-wrap: break-word; user-select: text; }
   #prev-body img { max-width: 100%; border-radius: 4px; }
   /* Reference sheets: the same page format as the editor, dimmed and inert. */
   #prev-body .prev-sheet { width: 100%; margin: 0 0 14px; opacity: .85; }
   #prev-body .prev-sheet .sheet-body { min-height: 0; padding: 10mm 9mm; font-size: 10pt; }
   /* The split controls sit at the far right of the status bar. */
   #split-controls { margin-left: auto; display: flex; gap: 6px; flex: none; }
-  #split-btn, #split-save { border-color: #2f5f3a; color: #7c6; padding: 3px 10px; }
-  #split-btn:hover, #split-save:hover { background: #1b2a1f; color: #9d8; }
-  body.split-edit #split-btn { background: #1b2a1f; color: #9d8; border-color: #3d7a4c; }
+  #split-controls button { padding: 4px 11px; font-size: 12px; }
+  #split-btn { --icon: var(--i-split); display: inline-flex; align-items: center; gap: 6px; background: transparent; border-color: var(--acc-line); color: var(--acc); }
+  #split-btn:hover, #split-save:hover { background: var(--acc-dim); color: #bcd9ad; }
+  #split-save { border-color: var(--acc-line); color: var(--acc); background: transparent; }
+  body.split-edit #split-btn { background: var(--acc-dim); color: #bcd9ad; border-color: #5f8054; }
   /* Only meaningful inside the second screen, where they can be undone. */
   #split-save, #split-format, #split-design, #split-cancel { display: none; }
   body.split-edit #split-save, body.split-edit #split-format, body.split-edit #split-design,
   body.split-edit #split-cancel { display: inline-block; }
   /* Red like the trash controls: this one throws work away. */
-  #split-cancel { border-color: #533; color: #c66; }
-  #split-cancel:hover { background: #3a2222; color: #e66; }
-  .trash-clear { flex: none; padding: 2px 8px; font-size: 11px; color: #c66; background: transparent;
-    border: 1px solid #533; border-radius: 4px; }
-  .trash-clear:hover { background: #3a2222; color: #e66; }
-  /* Backup bar: pinned under the trash, quiet until an age chip warms up. The
-     chip inherits its zone color via --bk (safe/normal/danger/unsafe). */
-  /* Two self-describing buttons, no heading: a "Backups" title beside them made
-     the row need 257px inside a 229px sidebar, so the right button was clipped. */
-  #backup-bar { flex: none; display: flex; gap: 6px; padding: 6px 9px; border-top: 1px solid #333; }
-  /* min-width:0 lets a button shrink below its content instead of pushing the
-     row wider than the sidebar; the label ellipsizes, the age pill never does. */
-  #backup-bar button { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between;
-    gap: 5px; padding: 3px 5px 3px 7px; background: #1c1c1c; border: 1px solid #333; border-radius: 5px; }
-  #backup-bar button:hover { background: #2a2a2a; border-color: #444; }
-  #backup-bar .bk-label { font-size: 9px; letter-spacing: .07em; text-transform: uppercase; color: #aaa;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .bk-age { flex: none; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 10px; font-weight: 600;
-    font-variant-numeric: tabular-nums; line-height: 1; padding: 2px 5px; border-radius: 999px;
-    color: var(--bk, #888); border: 1px solid color-mix(in srgb, var(--bk, #888) 45%, transparent);
-    background: color-mix(in srgb, var(--bk, #888) 12%, transparent); }
-  /* Read-only backup view: amber banner, all mutating chrome hidden. */
-  #backup-banner { display: none; align-items: center; gap: 8px; padding: 8px 12px;
-    background: #2a2416; border-bottom: 1px solid #553; color: #ea5; font-size: 13px; }
-  #backup-banner span { flex: 1; }
-  #backup-banner #backup-convert { border-color: #765; color: #ea5; }
-  body.backup-view #save, body.backup-view #sync, body.backup-view #backup,
-  body.backup-view #new-note, body.backup-view #new-folder, body.backup-view #backup-bar,
-  body.backup-view #trash-restore, body.backup-view #trash-purge, body.backup-view #chips,
-  /* The pull banner's Details button opens the detail panel, whose rows include
-     destructive repo/vault actions; the panel itself is chrome for the LIVE
-     vault and means nothing for a snapshot. */
-  body.backup-view #pull-banner, body.backup-view #status-detail { display: none; }
-  #backup-row button.sel { border-color: #ea5; color: #ea5; }
-  #trash-list { overflow-y: auto; }
-  .trash-item { padding: 7px 12px 7px 21px; cursor: pointer; border-bottom: 1px solid #222; border-left: 3px solid transparent; user-select: none; }
-  .trash-item.active, .trash-item:hover { background: #2a2a2a; }
-  .trash-item .note-title .t { color: #aaa; }
-  .empty-state { padding: 14px 12px; color: #666; font-size: 12px; font-style: italic; }
-  .note-title { display: flex; align-items: baseline; gap: 6px; font-size: 13px; color: #ddd; }
-  .note-title .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .note-title .t.untitled { color: #666; font-style: italic; }
-  .dot { color: #ea5; font-size: 9px; line-height: 1; flex: none; }
-  .note-meta { margin-top: 2px; font-size: 11px; color: #666; }
-  #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #split-cancel { border-color: var(--bad-line); color: var(--bad); background: transparent; }
+  #split-cancel:hover { background: var(--bad-dim); color: #f08b78; border-color: var(--bad-line); }
+
+  /* ---------- Editor ---------- */
   /* Contenteditable, not a <textarea>: pre-wrap preserves the migrated newline
      fidelity a textarea gave for free, break-word keeps a long token from widening
      #main, and an explicit overflow-y restores the textarea's implicit scroll.
-     position:relative anchors the empty-state placeholder. */
-  #editor { flex: 1; border: 0; border-radius: 0; outline: none; padding: 16px;
-    font-family: ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: break-word;
+     position:relative anchors the empty-state placeholder. The side padding
+     (--ed-pad-x) centres a readable ~760px column on wide windows. */
+  #editor { flex: 1; border: 0; border-radius: 0; outline: none; padding: 26px var(--ed-pad-x) 96px;
+    font: 400 14.5px/1.7 var(--mono); color: #dcd6cc; background: var(--s1); white-space: pre-wrap; overflow-wrap: break-word;
     overflow-y: auto; min-height: 0; position: relative; }
   /* The placeholder attribute does nothing on a <div>; drive it from a data attr
      and an empty flag toggled in JS (:empty is unreliable - the browser leaves a
-     stray <br>). Absolutely placed so it never takes layout space or blocks the caret. */
+     stray <br>). Absolutely placed so it never takes layout space or blocks the
+     caret; top/left must match the editor padding above. */
   #editor[data-empty="true"]::before { content: attr(data-placeholder); position: absolute;
-    top: 16px; left: 16px; color: #666; pointer-events: none; white-space: pre-wrap; }
-  /* Inline media: an atomic, non-editable wrapper carrying only data-mid/data-kind.
-     Subtle themed border + rounded corners; the 120ms fade is hover only, never typing. */
+    top: 26px; left: var(--ed-pad-x); right: var(--ed-pad-x); color: var(--t4); pointer-events: none; white-space: pre-wrap; }
   /* Freely placed media OR tables: pinned to their own spot on the page, out of
      the text flow, so they stay exactly where they were dropped. */
   .inline-media.floating, table.floating { position: absolute; z-index: 2; margin: 0; }
-  table.floating { background: #1c1c1c; }
+  table.floating { background: var(--s2); }
   .sheet-body table.floating { background: #fff; }
   .sheet-body, #editor { position: relative; }
   /* Word-style move grip: appears at a table's top-left, drags the whole table.
      Lives on <body>, never inside the note, so it is never saved. */
   .table-grip { position: fixed; z-index: 70; width: 18px; height: 18px; cursor: move;
     display: flex; align-items: center; justify-content: center; font-size: 11px; line-height: 1;
-    color: #ddd; background: #2f2f2f; border: 1px solid #555; border-radius: 4px;
-    box-shadow: 0 1px 4px rgba(0,0,0,.5); user-select: none; }
-  .table-grip:hover { background: #3d5f47; border-color: #4a8a5c; color: #fff; }
+    color: var(--t1); background: var(--s4); border: 1px solid var(--line-3); border-radius: 5px;
+    box-shadow: 0 1px 4px rgb(0 0 0 / .5); user-select: none; }
+  .table-grip:hover { background: var(--acc-dim); border-color: var(--acc-line); color: #fff; }
   /* Per-column and per-row size buttons, also body-level so they never save. */
   .size-handle { position: fixed; z-index: 70; width: 18px; height: 18px; padding: 0;
     display: flex; align-items: center; justify-content: center; font-size: 10px; line-height: 1;
-    color: #bbb; background: #262626; border: 1px solid #444; border-radius: 4px; }
+    color: var(--t2); background: var(--s3); border: 1px solid var(--line-3); border-radius: 5px; }
   .size-handle:hover { background: #35506b; border-color: #5b8cc0; color: #fff; }
   .size-handle.col { cursor: ew-resize; }
   .size-handle.row { cursor: ns-resize; }
   /* Children never start their own drag: the wrapper owns the gesture. */
   .inline-media img, .inline-media video, .inline-media .inline-ph { -webkit-user-drag: none; user-drag: none; }
+  /* Inline media: an atomic, non-editable wrapper carrying only data-mid/data-kind.
+     The 1px border and the 320x240 image cap below are geometry the PDF writer
+     mirrors (mediaBox), so only their colours may change here. */
   .inline-media { position: relative; display: inline-block; vertical-align: bottom; max-width: 100%;
-    border: 1px solid #333; border-radius: 6px; overflow: hidden; background: #1c1c1c;
+    border: 1px solid var(--line-2); border-radius: 8px; overflow: hidden; background: var(--s2);
     user-select: none; transition: border-color .12s, opacity .12s; }
-  .inline-media:hover { border-color: #555; }
-  /* Draggable to reposition among the text; dims while it is being dragged. */
-  .loose-drop-bar { margin: 6px 8px; padding: 10px 12px; border: 1px dashed #444; border-radius: 6px;
-    text-align: center; font-size: 12px; color: #888; background: #161616; transition: border-color .12s, color .12s, background-color .12s; }
-  .loose-drop-bar.over { border-color: #ea5; color: #ea5; background: #22201a; }
+  .inline-media:hover { border-color: var(--line-3); }
   .inline-media[draggable="true"] { cursor: grab; }
   .inline-media.dragging { opacity: .4; }
   #main.readonly .inline-media[draggable="true"] { cursor: default; }
@@ -373,144 +516,178 @@
   /* View-only overlays inside a wrapper (decrypting / missing / corrupt / video poster);
      they never touch data-mid/data-kind, so the reference still round-trips on save. */
   .inline-ph { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 10px;
-    font-family: system-ui, sans-serif; font-size: 12px; color: #888; cursor: pointer; box-sizing: border-box; }
-  .inline-ph.warn, .inline-ph.warn .inline-glyph { color: #ea5; }
-  .inline-glyph { font-size: 14px; line-height: 1; color: #aaa; }
-  /* A read-only trash view has to LOOK read-only, not just refuse keystrokes. */
-  #main.readonly #title, #main.readonly #editor { color: #999; background: #181818; cursor: default; }
-  .bar { display: flex; gap: 6px; padding: 8px; border-bottom: 1px solid #333; align-items: center; }
-  .bar button { padding: 6px 12px; font-size: 13px; line-height: 1.2; white-space: nowrap; }
-  #pull-banner, #trash-banner { display: none; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid #333; border-left: 3px solid #ea5; font-size: 13px; background: #1a1a14; }
-  #pull-banner span, #trash-banner span { flex: 1; }
-  #pull-banner button, #trash-banner button { padding: 2px 8px; font-size: 12px; }
-  #status-detail { display: none; border-top: 1px solid #333; background: #161616; max-height: 180px; overflow-y: auto; padding: 6px 12px 10px; font-size: 12px; }
+    font-family: var(--ui); font-size: 12px; color: var(--t3); cursor: pointer; box-sizing: border-box; }
+  .inline-ph.warn, .inline-ph.warn .inline-glyph { color: var(--warn); }
+  .inline-glyph { font-size: 14px; line-height: 1; color: var(--t2); }
+
+  /* ---------- Status detail panel ---------- */
+  #status-detail { display: none; border-top: 1px solid var(--line); background: var(--s0); max-height: 180px; overflow-y: auto; padding: 6px 12px 10px; font-size: 12px; }
   #status-detail.open { display: block; }
-  .detail-head { display: flex; align-items: center; font-size: 11px; letter-spacing: .05em; color: #888; text-transform: uppercase; margin: 8px 0 2px; }
-  .detail-close { margin-left: auto; background: none; border: 0; color: #888; cursor: pointer; font-size: 12px; padding: 0 2px; }
-  .detail-close:hover { color: #ddd; background: none; }
-  .detail-row { display: flex; gap: 12px; padding: 4px 8px; border-radius: 4px; align-items: baseline; }
+  .detail-head { display: flex; align-items: center; font-size: 10.5px; font-weight: 600; letter-spacing: .08em; color: var(--t3); text-transform: uppercase; margin: 8px 0 2px; }
+  .detail-close { margin-left: auto; background: none; border: 0; color: var(--t3); cursor: pointer; font-size: 12px; padding: 0 2px; }
+  .detail-close:hover { color: var(--t1); background: none; }
+  .detail-row { display: flex; gap: 12px; padding: 4px 8px; border-radius: 6px; align-items: baseline; }
   .detail-row.click { cursor: pointer; }
-  .detail-row.click:hover { background: #2a2a2a; }
-  .detail-row .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #ddd; }
-  .detail-row .t.untitled { color: #666; font-style: italic; }
-  .detail-row .m { color: #888; flex: none; }
+  .detail-row.click:hover { background: var(--s3); }
+  .detail-row .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--t1); }
+  .detail-row .t.untitled { color: var(--t4); font-style: italic; }
+  .detail-row .m { color: var(--t3); flex: none; font-variant-numeric: tabular-nums; }
   .detail-row button { padding: 2px 8px; font-size: 12px; }
   .detail-row input { padding: 4px 8px; font-size: 12px; flex: 1; }
-  .detail-note { color: #888; padding: 2px 8px; overflow-wrap: break-word; }
-  .danger { border-color: #e66; color: #e66; }
-  /* ---------- context menu (one submenu level) ---------- */
-  .ctxmenu { position: fixed; z-index: 60; min-width: 168px; padding: 4px; background: #1c1c1c;
-    border: 1px solid #333; border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.5);
+  .detail-note { color: var(--t3); padding: 2px 8px; overflow-wrap: break-word; }
+  /* Destructive buttons anywhere (trash purge, overwrite remote, a destructive dialog confirm). */
+  .danger { background: var(--bad-dim); border-color: var(--bad-line); color: var(--bad); }
+  button.danger:hover { background: #3a1f1a; border-color: #7a3e33; color: #f08b78; }
+
+  /* ---------- Context menu ---------- */
+  .ctxmenu { position: fixed; z-index: 60; min-width: 176px; padding: 5px; background: var(--s2);
+    border: 1px solid var(--line-2); border-radius: 10px; box-shadow: 0 16px 40px rgb(0 0 0 / .5);
     font-size: 13px; opacity: 0; transition: opacity .12s; }
   .ctxmenu.show { opacity: 1; }
   .ctxmenu.closing { pointer-events: none; }   /* fading out must not eat the dismissing click */
-  .ctxmenu.sub { max-height: 50vh; overflow-y: auto; scrollbar-color: #333 transparent; scrollbar-width: thin; }
-  .ctxitem { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 4px;
-    color: #ddd; cursor: pointer; white-space: nowrap; user-select: none; }
-  .ctxitem:hover, .ctxitem.open { background: #2a2a2a; }
-  .ctxitem.danger { color: #e66; }
+  .ctxmenu.sub { max-height: 50vh; overflow-y: auto; scrollbar-color: var(--s4) transparent; scrollbar-width: thin; }
+  .ctxitem { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px;
+    color: var(--t1); cursor: pointer; white-space: nowrap; user-select: none; }
+  .ctxitem:hover, .ctxitem.open { background: var(--s4); }
+  .ctxitem.danger { color: var(--bad); background: transparent; border: 0; }
+  .ctxitem.danger:hover { background: var(--bad-dim); }
   .ctxitem.disabled { opacity: .45; cursor: default; }
   .ctxitem.disabled:hover { background: transparent; }
   .ctxitem .lbl { flex: 1; overflow: hidden; text-overflow: ellipsis; }
-  .ctxitem .arrow { flex: none; color: #888; font-size: 11px; }
-  .ctxsep { height: 1px; margin: 4px 2px; background: #333; }
+  .ctxitem .arrow { flex: none; color: var(--t3); font-size: 11px; }
+  .ctxsep { height: 1px; margin: 4px 4px; background: var(--line-2); }
   .swatch-row { display: flex; gap: 6px; padding: 6px 10px; }
-  .swatch { flex: none; width: 16px; height: 16px; padding: 0; border-radius: 50%; border: 1px solid #333;
+  .swatch { flex: none; width: 16px; height: 16px; padding: 0; border-radius: 50%; border: 1px solid var(--line-2);
     cursor: pointer; line-height: 1; font-size: 10px; }
-  .swatch:hover { border-color: #888; background-clip: padding-box; }
-  .swatch.sel { border-color: #ddd; }
-  .swatch.none { background: transparent; color: #888; border-color: #555; }
-  .swatch.none:hover { background: #2a2a2a; }
-  /* ---------- modal ---------- */
+  .swatch:hover { border-color: var(--t3); background-clip: padding-box; }
+  .swatch.sel { border-color: var(--t1); }
+  .swatch.none { background: transparent; color: var(--t3); border-color: var(--line-3); }
+  .swatch.none:hover { background: var(--s3); }
+
+  /* ---------- Modal ---------- */
   .modal-back { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center;
-    background: rgba(0,0,0,.55); opacity: 0; transition: opacity .12s; }
+    background: rgb(8 7 6 / .62); opacity: 0; transition: opacity .12s; }
   .modal-back.show { opacity: 1; }
   .modal-back.closing { pointer-events: none; }
-  .modal { width: 400px; max-width: calc(100vw - 32px); padding: 16px; background: #1c1c1c;
-    border: 1px solid #333; border-radius: 8px; box-shadow: 0 8px 30px rgba(0,0,0,.5);
+  .modal { width: 420px; max-width: calc(100vw - 32px); padding: 20px 20px 16px; background: var(--s1);
+    border: 1px solid var(--line-2); border-radius: 14px; box-shadow: 0 24px 60px rgb(0 0 0 / .5);
     transform: translateY(-4px); transition: transform .12s; }
   .modal-back.show .modal { transform: none; }
-  .modal h3 { margin: 0 0 8px; font-size: 15px; font-weight: 600; }
-  .modal p { margin: 0 0 12px; font-size: 13px; line-height: 1.45; color: #aaa; overflow-wrap: break-word; }
-  .modal input { width: 100%; margin-bottom: 12px; font-size: 13px; }
+  .modal h3 { margin: 0 0 8px; font: 600 17px/1.3 var(--serif); color: var(--t1); }
+  .modal p { margin: 0 0 16px; font-size: 13px; line-height: 1.5; color: var(--t2); overflow-wrap: break-word; }
+  .modal input { width: 100%; margin-bottom: 14px; font-size: 13px; }
   .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
   .modal-actions.stack { flex-direction: column; align-items: stretch; }   /* reading order = choice order */
-  .modal-actions button { padding: 6px 12px; font-size: 13px; }
-  /* ---------- attachments strip + lightbox ---------- */
+  .modal-actions button { padding: 7px 14px; font-size: 13px; }
+  /* The first choice is always the confirm (reading order = choice order), so it is the filled one unless it destroys something. */
+  .modal-actions button:first-child:not(.danger) { background: var(--acc); border-color: var(--acc); color: var(--acc-ink); font-weight: 600; }
+  .modal-actions button:first-child:not(.danger):hover { background: #b6d3a8; border-color: #b6d3a8; }
+  .modal-actions button.danger { font-weight: 600; }
+
+  /* ---------- Attachments strip + lightbox ---------- */
   /* Tiles are fixed 72x72 in EVERY state (pending, image, video poster,
      "not on this device", corrupted), inside a fixed-height strip that scrolls
      horizontally, so a decrypt landing never reflows the strip or the editor. */
-  #attachments { display: none; flex: none; align-items: center; gap: 8px; height: 90px; padding: 9px 12px;
-    border-top: 1px solid #333; background: #161616; overflow-x: auto; overflow-y: hidden;
-    scrollbar-color: #333 transparent; scrollbar-width: thin; }
-  .att { position: relative; flex: none; width: 72px; height: 72px; border: 1px solid #333; border-radius: 6px;
-    background: #1c1c1c; overflow: hidden; cursor: pointer; user-select: none; }
-  .att:hover { border-color: #555; }
-  .att:focus-visible { outline: none; border-color: #555; }
+  #attachments { display: none; flex: none; align-items: center; gap: 8px; height: 90px; padding: 9px var(--ed-pad-x);
+    border-top: 1px solid var(--line); background: var(--s0); overflow-x: auto; overflow-y: hidden;
+    scrollbar-color: var(--s4) transparent; scrollbar-width: thin; }
+  .att { position: relative; flex: none; width: 72px; height: 72px; border: 1px solid var(--line-2); border-radius: 8px;
+    background: var(--s2); overflow: hidden; cursor: pointer; user-select: none; }
+  .att:hover { border-color: var(--line-3); }
+  .att:focus-visible { outline: none; border-color: var(--acc-line); }
   .att img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .att-ph { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
-    justify-content: center; gap: 1px; padding: 4px; text-align: center; font-size: 9px; line-height: 1.25; color: #888; }
-  .att-ph .glyph { font-size: 15px; line-height: 1; color: #aaa; }
-  .att-ph .nm { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #bbb; }
-  .att-ph.warn, .att-ph.warn .glyph { color: #ea5; }
+    justify-content: center; gap: 1px; padding: 4px; text-align: center; font-size: 9px; line-height: 1.25; color: var(--t3); }
+  .att-ph .glyph { font-size: 15px; line-height: 1; color: var(--t2); }
+  .att-ph .nm { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--t2); }
+  .att-ph.warn, .att-ph.warn .glyph { color: var(--warn); }
   /* Subtle drop highlight; an inset outline cannot reflow the editor. */
-  #main.drag-over { outline: 2px dashed #555; outline-offset: -3px; }
+  #main.drag-over { outline: 2px dashed var(--acc-line); outline-offset: -4px; }
   .lb-back { position: fixed; inset: 0; z-index: 90; display: flex; align-items: center; justify-content: center;
-    padding: 32px; background: rgba(0,0,0,.85); opacity: 0; transition: opacity .12s; }
+    padding: 32px; background: rgb(6 5 4 / .88); opacity: 0; transition: opacity .12s; }
   .lb-back.show { opacity: 1; }
   .lb-back.closing { pointer-events: none; }
-  .lb-back img, .lb-back video { max-width: 100%; max-height: 100%; object-fit: contain; background: #000; border-radius: 4px; }
+  .lb-back img, .lb-back video { max-width: 100%; max-height: 100%; object-fit: contain; background: #000; border-radius: 6px; }
   /* PDF viewer frame: near-fullscreen, white page background (the viewer's own). */
-  .lb-back iframe.lb-pdf { width: min(92vw, 960px); height: 92vh; border: 0; background: #fff; border-radius: 4px; }
+  .lb-back iframe.lb-pdf { width: min(92vw, 960px); height: 92vh; border: 0; background: #fff; border-radius: 6px; }
   .lb-back pre.lb-text { width: min(92vw, 860px); max-height: 88vh; overflow: auto; margin: 0;
-    padding: 16px 20px; background: #1c1c1c; border: 1px solid #333; border-radius: 6px;
-    font: 13px/1.5 ui-monospace, Consolas, monospace; color: #ddd; white-space: pre-wrap; word-break: break-word; }
-  .lb-cap { position: fixed; left: 0; right: 0; bottom: 10px; text-align: center; font-size: 12px; color: #888; pointer-events: none; }
-  #statusbar { display: flex; align-items: center; gap: 6px; min-height: 34px; padding: 6px 12px; border-top: 1px solid #333; background: #161616; font-size: 12px; color: #888; }
-  /* Reserved widths: the labels swap to "Syncing..."/"Saved" mid-action and the
-     whole bar used to jump sideways under the cursor. */
-  #sync, #backup, #lock-btn { padding: 4px 12px; font-size: 12px; flex: none; text-align: center; }
-  #sync { min-width: 82px; }
-  #last-synced { flex: none; margin-left: 4px; }
-  #status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+    padding: 16px 20px; background: var(--s1); border: 1px solid var(--line-2); border-radius: 10px;
+    font: 13px/1.55 var(--mono); color: var(--t1); white-space: pre-wrap; word-break: break-word; }
+  .lb-cap { position: fixed; left: 0; right: 0; bottom: 12px; text-align: center; font-size: 12px; color: var(--t3); pointer-events: none; }
+
+  /* ---------- Status bar ---------- */
+  #statusbar { display: flex; align-items: center; gap: 6px; min-height: 42px; padding: 6px 12px; border-top: 1px solid var(--line);
+    background: var(--s0); font-size: 12px; color: var(--t3); }
+  /* Sync is the filled primary; Backup and Lock are borderless with an icon. Reserved
+     widths: the labels swap to "Syncing..."/"Saved" mid-action and the whole bar used
+     to jump sideways under the cursor. */
+  #sync, #backup, #lock-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 5px 12px; font-size: 12.5px; flex: none; }
+  #sync { --icon: var(--i-sync); min-width: 96px; }
+  #backup { --icon: var(--i-archive); }
+  #lock-btn { --icon: var(--i-lock); }
+  #backup, #lock-btn { background: transparent; border-color: transparent; color: var(--t2); }
+  #backup:hover, #lock-btn:hover { background: var(--s3); border-color: transparent; color: var(--t1); }
+  /* The sync glyph turns while a sync runs (the button is disabled exactly then). */
+  #sync:disabled::before { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { #sync:disabled::before { animation: none; } }
+  #last-synced { flex: none; margin-left: 6px; font-variant-numeric: tabular-nums; }
+  #status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; color: var(--t2); }
   #chips { display: flex; gap: 6px; flex: none; }
-  /* Digits only: the parentheses sit outside so 9 -> 10 cannot widen the chip
-     and shove its neighbour out from under the cursor. */
-  .chip .n { display: inline-block; min-width: 2.2ch; text-align: left; }
-  .chip { display: none; background: transparent; border: 1px solid #4a3a22; border-radius: 4px; padding: 2px 8px; font-size: 12px; color: #ea5; cursor: pointer; }
-  .chip:hover { background: #22201a; }
-  .chip.open { background: #22201a; border-color: #665233; }
-  .chip.err { color: #e66; border-color: #5a3333; }
-  .chip.err:hover { background: #221a1a; }
-  #token-row { display: none; flex-direction: column; gap: 8px; }
-  #restore-row { display: flex; flex-direction: column; gap: 8px; }
-  #restore-toggle { background: none; border: 0; color: #888; font-size: 12px; padding: 2px;
-    text-align: left; text-decoration: underline; }
-  #restore-toggle:hover { background: none; color: #ddd; }
+  /* Chips are pills with a leading dot: amber for pending work, red for a failed sync. */
+  .chip { display: none; align-items: center; background: var(--warn-dim); border: 1px solid var(--warn-line); border-radius: 999px;
+    padding: 3px 10px 3px 9px; font-size: 12px; color: var(--warn); cursor: pointer; }
+  .chip::before { content: ""; display: inline-block; width: 6px; height: 6px; margin: 0 7px 1px 0; border-radius: 50%; background: currentColor; vertical-align: middle; }
+  .chip:hover { background: #352816; border-color: #6e542f; }
+  .chip.open { background: #352816; border-color: #6e542f; }
+  .chip.err { color: var(--bad); background: var(--bad-dim); border-color: var(--bad-line); }
+  .chip.err:hover { background: #3a1f1a; }
+  /* The count sits inside the label's parentheses. It used to reserve 2.2ch so 9 -> 10
+     could not widen the chip, but that printed "(2 )" for every single digit. */
+  .chip .n { font-variant-numeric: tabular-nums; }
+
+  /* ---------- Lock screen extras ---------- */
+  #token-row { display: none; flex-direction: column; gap: 10px; }
+  #restore-row { display: flex; flex-direction: column; gap: 8px; margin-top: 2px; }
+  #restore-toggle { align-self: flex-start; background: none; border: 0; color: var(--t3); font-size: 12px; padding: 2px 0;
+    text-align: left; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-3); }
+  #restore-toggle:hover { background: none; color: var(--t1); text-decoration-color: var(--t3); }
   #restore-box { display: flex; flex-direction: column; gap: 8px; }
-  ::-webkit-scrollbar { width: 8px; }
-  ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+  #vault-file { font-size: 12px; color: var(--t2); }
+  #lock-msg { font-size: 13px; }
+  #backup-sel { color: var(--warn); font-size: 13px; }
+
+  /* ---------- Scrollbars ---------- */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--s4); border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background-color: var(--line-3); }
   ::-webkit-scrollbar-track { background: transparent; }
-  #notelist, #editor, #status-detail { scrollbar-color: #333 transparent; scrollbar-width: thin; }
+  #notelist, #editor, #status-detail { scrollbar-color: var(--s4) transparent; scrollbar-width: thin; }
 </style>
 </head>
 <body>
 
 <div id="lock">
   <form id="unlock-form">
-    <h2 style="margin:0">notes</h2>
+    <!-- Mark, name and one line of what the app does; the inputs below are unchanged. -->
+    <div class="lock-head">
+      <svg class="lock-mark" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="14" width="20" height="14" rx="3"/><path d="M10.5 14v-3.5a5.5 5.5 0 0 1 11 0V14"/><path d="M16 19.5v3.5" stroke-linecap="round"/></svg>
+      <h1>notes</h1>
+      <p>Encrypted before anything leaves this page.</p>
+    </div>
     <input id="password" type="password" placeholder="Master password" autofocus>
-    <div id="autovault-msg" style="display:none;color:#888;font-size:13px">Found a synced vault
+    <div id="autovault-msg" class="lock-note" style="display:none">Found a synced vault
     next to this file. Enter your master password to unlock it.</div>
     <div id="token-row">
       <!-- There is no password recovery, so a typo here would be unrecoverable. -->
       <input id="password2" type="password" placeholder="Confirm master password">
       <input id="token" type="password" placeholder="GitHub fine-grained token">
-      <small style="color:#888">First run: choose a master password and paste a GitHub token
-      (Settings, Developer settings, Fine-grained tokens; access to this repo only;
-      Contents: read and write). Both are stored only inside the encrypted vault.</small>
+      <small>First run: choose a master password and paste a fine-grained GitHub token
+      (Settings, Developer settings, Fine-grained tokens) with access to your notes repo only
+      and Contents set to read and write. Both are kept only inside the encrypted vault.</small>
     </div>
-    <button>Unlock</button>
+    <button class="primary">Unlock</button>
     <div id="lock-msg" style="color:#e66;font-size:13px"></div>
     <div id="guard-msg" style="display:none"></div>
     <!-- Outside #token-row on purpose: in a clone the auto-detected vault hides
@@ -518,13 +695,13 @@
     <div id="restore-row">
       <button id="restore-toggle" type="button">Restore from a file instead</button>
       <div id="restore-box" style="display:none">
-        <small style="color:#888">Pick a <code>vault.enc</code>, <code>vault.enc.js</code> or a
+        <small>Pick a <code>vault.enc</code>, <code>vault.enc.js</code> or a
         <code>notes-backup-*.enc</code> file, then unlock with its master password.</small>
         <input id="vault-file" type="file" accept=".enc,.json,.js">
       </div>
     </div>
     <div id="backup-row" style="display:none;flex-direction:column;gap:6px">
-      <small style="color:#888">Backups found next to this file. View one read-only first;
+      <small>Backups found next to this file. View one read-only first;
       converting it back is a button inside.</small>
       <button id="view-weekly" type="button"></button>
       <button id="view-monthly" type="button"></button>
@@ -573,9 +750,10 @@
         <button id="pull-details">Details</button>
         <button id="pull-dismiss">Dismiss</button>
       </div>
+      <!-- Toolbar icons are one drawn set (16px grid, 1.5px strokes) instead of mixed unicode glyphs and emoji. -->
       <div id="fmt-bar">
-        <button id="undo-btn" title="Undo (Ctrl+Z)" type="button">&#8630;</button>
-        <button id="redo-btn" title="Redo (Ctrl+Y)" type="button">&#8631;</button>
+        <button id="undo-btn" title="Undo (Ctrl+Z)" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 3.5 2.5 6.5l3 3"/><path d="M2.5 6.5h7a3.5 3.5 0 0 1 0 7H7"/></svg></button>
+        <button id="redo-btn" title="Redo (Ctrl+Y)" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m10.5 3.5 3 3-3 3"/><path d="M13.5 6.5h-7a3.5 3.5 0 0 0 0 7H9"/></svg></button>
         <span class="fmt-sep"></span>
         <button data-cmd="bold" title="Bold (Ctrl+B)" type="button"><b>B</b></button>
         <button data-cmd="italic" title="Italic (Ctrl+I)" type="button"><i>I</i></button>
@@ -586,20 +764,19 @@
         <select id="fmt-font" title="Font"></select>
         <select id="fmt-size" title="Size"></select>
         <span class="fmt-sep"></span>
-        <button data-cmd="justifyLeft" title="Align left" type="button">◧</button>
-        <button data-cmd="justifyCenter" title="Center" type="button">◫</button>
-        <button data-cmd="justifyRight" title="Align right" type="button">◨</button>
-        <button data-cmd="justifyFull" title="Justify" type="button">▤</button>
+        <button data-cmd="justifyLeft" title="Align left" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4h11M2.5 8h7M2.5 12h9"/></svg></button>
+        <button data-cmd="justifyCenter" title="Center" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4h11M4.5 8h7M3.5 12h9"/></svg></button>
+        <button data-cmd="justifyRight" title="Align right" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4h11M6.5 8h7M4.5 12h9"/></svg></button>
+        <button data-cmd="justifyFull" title="Justify" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg></button>
         <span class="fmt-sep"></span>
         <button id="fmt-color" title="Text colour" type="button">A<span class="swatch-bar" id="color-bar"></span></button>
-        <button id="fmt-highlight" title="Highlight" type="button">▨<span class="swatch-bar" id="hl-bar"></span></button>
-        <button id="fmt-link" title="Add or edit a link" type="button">🔗</button>
+        <button id="fmt-highlight" title="Highlight" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.8 2.7 13.3 6.2 7.5 12H4V8.5z"/><path d="m8.3 4.2 3.5 3.5"/></svg><span class="swatch-bar" id="hl-bar"></span></button>
+        <button id="fmt-link" title="Add or edit a link" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.8 9.2 9.2 6.8"/><path d="m7.4 4.6 1.2-1.2a2.6 2.6 0 0 1 3.7 3.7l-1.2 1.2"/><path d="m8.6 11.4-1.2 1.2a2.6 2.6 0 0 1-3.7-3.7l1.2-1.2"/></svg></button>
         <span class="fmt-sep"></span>
-        <button data-cmd="insertUnorderedList" title="Bullet list" type="button">• —</button>
-        <button data-cmd="insertOrderedList" title="Numbered list" type="button">1. —</button>
-        <button id="fmt-table" title="Table" type="button">▦</button>
-        <button data-cmd="removeFormat" title="Clear formatting" type="button">✕</button>
-        <span class="fmt-sep"></span>
+        <button data-cmd="insertUnorderedList" title="Bullet list" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 4h7M6.5 8h7M6.5 12h7"/><circle cx="3" cy="4" r="1" fill="currentColor" stroke="none"/><circle cx="3" cy="8" r="1" fill="currentColor" stroke="none"/><circle cx="3" cy="12" r="1" fill="currentColor" stroke="none"/></svg></button>
+        <button data-cmd="insertOrderedList" title="Numbered list" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4h6.5M7 8h6.5M7 12h6.5"/><g fill="currentColor" stroke="none" font-family="system-ui,sans-serif" font-size="5.2" font-weight="700"><text x="1.4" y="5.9">1</text><text x="1.4" y="9.9">2</text><text x="1.4" y="13.9">3</text></g></svg></button>
+        <button id="fmt-table" title="Table" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><path d="M2.5 6.5h11M2.5 10h11M7 6.5v7"/></svg></button>
+        <button data-cmd="removeFormat" title="Clear formatting" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3.5h7M6.5 3.5 5 12.5"/><path d="m9.5 9.5 4 4M13.5 9.5l-4 4"/></svg></button>
         <span class="fmt-hint">Right-click an image or file to resize and align it</span>
       </div>
       <div id="page-tabs"></div>
