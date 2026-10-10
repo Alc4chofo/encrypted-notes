@@ -30,7 +30,7 @@ On another computer, clone your private repo and open `index.html`: the synced v
 - **Attachments**: any file type up to 200 MB, inline or attached. Images are re-encoded on import to strip EXIF and GPS data; SVG and HTML are download-only and never rendered.
 - **Sync**: a real merge, not last-write-wins. A genuine conflict keeps both versions as a "(conflict ...)" copy.
 - **Trash**: deleted notes stay for 30 days, read-only, and can be restored or purged.
-- **Backups**: weekly and monthly encrypted backups, with a reminder when one is overdue, plus a manual backup file you can keep anywhere.
+- **Backups**: weekly and monthly encrypted backups, with a reminder at unlock when one is overdue (after 7 and 30 days by default, adjustable in **Settings**), plus a manual backup file you can keep anywhere.
 
 ## Security
 

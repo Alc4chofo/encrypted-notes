@@ -682,6 +682,8 @@
   /* One setting per row: name and explanation on the left, the control on the right, ruled above and below. */
   .set-row { display: flex; align-items: center; gap: 16px; margin: 6px 0 12px; padding: 12px 0;
     border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  /* Stacked rows share one rule: the negative margin cancels the 12px gap, and the top line is dropped. */
+  .set-row + .set-row { margin-top: -12px; border-top: 0; }
   .set-words { flex: 1; min-width: 0; }
   .set-name { display: block; font-size: 13.5px; font-weight: 600; color: var(--t1); }
   .set-help { margin-top: 2px; font-size: 12px; line-height: 1.45; color: var(--t3); }
@@ -9360,14 +9362,38 @@ $("backup").onclick = async () => {
   status("Backup saved: " + name);
 };
 
+// ---------- Settings (per device) ----------
+// Kept in plain localStorage under "settings": they hold no note content, and a
+// laptop and a phone sharing one vault may well want different lock times.
+// Only the listed values are accepted when reading back, so a hand-edited
+// entry cannot set something odd like a fraction of a second.
+// Defined here, above the backups, because backupZone reads the reminder limits.
+const AUTOLOCK_CHOICES = [0, 1, 2, 5, 10, 15, 30, 60];   // minutes; 0 = never
+// Days after which each backup counts as overdue, so unlock asks to update it.
+const BACKUP_DAY_CHOICES = { weekly: [1, 2, 3, 5, 7, 10, 14], monthly: [14, 21, 30, 45, 60, 90] };
+// The defaults: lock after 10 idle minutes, ask for the weekly backup after 7 days and the monthly after 30.
+let settings = { autoLockMin: 10, weeklyDays: 7, monthlyDays: 30 };
+try {
+  const saved = JSON.parse(localStorage.getItem("settings"));
+  // So a stored value is only taken if it is one of the offered choices; anything else keeps the default.
+  if (saved && AUTOLOCK_CHOICES.includes(saved.autoLockMin)) settings.autoLockMin = saved.autoLockMin;
+  if (saved && BACKUP_DAY_CHOICES.weekly.includes(saved.weeklyDays)) settings.weeklyDays = saved.weeklyDays;
+  if (saved && BACKUP_DAY_CHOICES.monthly.includes(saved.monthlyDays)) settings.monthlyDays = saved.monthlyDays;
+} catch {}
+function saveSettings() { localStorage.setItem("settings", JSON.stringify(settings)); }
+const fmtMinutes = m => (m === 0 ? "Never" : m === 60 ? "1 hour" : m === 1 ? "1 minute" : m + " minutes");
+const fmtDays = d => (d === 1 ? "1 day" : d + " days");
+
 // ---------- Weekly / monthly backups ----------
 // Sealed snapshots of the whole vault written next to index.html as script
 // wrappers (so the lock screen detects and reads them on file:// exactly like
 // vault.enc.js) AND pushed to the repo, so a destroyed device still has a cloud
 // copy. Only `at` is plaintext - age must be readable before unlock.
 const BACKUP_KINDS = {
-  weekly:  { file: "backup-weekly.enc.js",  varName: "__BACKUP_WEEKLY__",  limit: 7 * 864e5,  zones: [3 * 864e5, 4 * 864e5] },
-  monthly: { file: "backup-monthly.enc.js", varName: "__BACKUP_MONTHLY__", limit: 30 * 864e5, zones: [12 * 864e5, 18 * 864e5] },
+  // zones: where the age pill turns yellow and orange, as fractions of the overdue limit (3 and 4 of 7 days,
+  // 12 and 18 of 30 at the defaults), so they scale when Settings changes the limit.
+  weekly:  { file: "backup-weekly.enc.js",  varName: "__BACKUP_WEEKLY__",  zones: [3 / 7, 4 / 7] },
+  monthly: { file: "backup-monthly.enc.js", varName: "__BACKUP_MONTHLY__", zones: [0.4, 0.6] },
 };
 let pendingBackupKind = null;   // chosen on the lock screen, consumed by unlock
 let backupMeta = { weeklyAt: 0, monthlyAt: 0 };
@@ -9388,7 +9414,9 @@ function backupZone(kind) {
   const at = backupAt(kind);
   if (!at) return 3;   // never taken = unsafe
   const age = Date.now() - at, k = BACKUP_KINDS[kind];
-  return age >= k.limit ? 3 : age >= k.zones[1] ? 2 : age >= k.zones[0] ? 1 : 0;
+  // The overdue limit is the user's choice in Settings (settings.weeklyDays / monthlyDays).
+  const limit = settings[kind + "Days"] * 864e5;
+  return age >= limit ? 3 : age >= k.zones[1] * limit ? 2 : age >= k.zones[0] * limit ? 1 : 0;
 }
 function fmtAge(at) {
   if (!at) return "none";   // "never" is wider than the pill's share of a 230px sidebar; the red + tooltip carry the meaning
@@ -9612,21 +9640,7 @@ refreshLockBackupRow();
 // Drops every decrypted artefact: the vault object, the derived keys, the
 // master password and every live blob: URL. The ciphertext in localStorage and
 // IndexedDB is untouched, so unlocking again restores everything.
-// ---------- Settings (per device) ----------
-// Kept in plain localStorage under "settings": they hold no note content, and a
-// laptop and a phone sharing one vault may well want different lock times.
-// Only the listed values are accepted when reading back, so a hand-edited
-// entry cannot set something odd like a fraction of a second.
-const AUTOLOCK_CHOICES = [0, 1, 2, 5, 10, 15, 30, 60];   // minutes; 0 = never
-let settings = { autoLockMin: 10 };                        // the default: lock after 10 idle minutes
-try {
-  const saved = JSON.parse(localStorage.getItem("settings"));
-  // So a stored value is only taken if it is one of the offered choices; anything else keeps the default.
-  if (saved && AUTOLOCK_CHOICES.includes(saved.autoLockMin)) settings.autoLockMin = saved.autoLockMin;
-} catch {}
-function saveSettings() { localStorage.setItem("settings", JSON.stringify(settings)); }
-const fmtMinutes = m => (m === 0 ? "Never" : m === 60 ? "1 hour" : m === 1 ? "1 minute" : m + " minutes");
-
+// ---------- Settings dialog ----------
 // The Settings dialog rides on the shared modal machinery (modalOpenCount and
 // modalCancel), so Escape closes it and Ctrl+S / Ctrl+L stay quiet while it is
 // open, exactly as for every other dialog.
@@ -9639,26 +9653,38 @@ function openSettings() {
   card.setAttribute("role", "dialog");
   card.setAttribute("aria-modal", "true");
   card.appendChild(mk("h3", null, "Settings"));
-  // Auto-lock row: name and explanation on the left, the choice on the right.
-  const row = mk("div", "set-row");
-  const words = mk("div", "set-words");
-  words.appendChild(mk("label", "set-name", "Auto-lock"));
-  words.appendChild(mk("div", "set-help", "Lock the vault after this long with no typing, clicking or scrolling."));
-  row.appendChild(words);
-  const sel = mk("select");
-  sel.id = "set-autolock";
-  words.firstChild.htmlFor = "set-autolock";
-  for (const m of AUTOLOCK_CHOICES) {
-    const o = mk("option", null, fmtMinutes(m));
-    o.value = String(m);
-    sel.appendChild(o);
-  }
-  sel.value = String(settings.autoLockMin);
-  // A change applies at once and the idle clock restarts from now, so it never locks the instant it is changed.
-  sel.onchange = () => { settings.autoLockMin = Number(sel.value); saveSettings(); lastActivity = Date.now(); };
-  row.appendChild(sel);
-  card.appendChild(row);
-  card.appendChild(mk("p", "set-note", "Saved on this device only. Unsaved edits are saved before it locks."));
+  // One row per setting: name and explanation on the left, the choice on the right.
+  // key is the settings field it edits; every change is saved at once, then after() applies it.
+  const addRow = (key, name, help, choices, fmt, after) => {
+    const row = mk("div", "set-row");
+    const words = mk("div", "set-words");
+    const label = mk("label", "set-name", name);
+    label.htmlFor = "set-" + key;
+    words.appendChild(label);
+    words.appendChild(mk("div", "set-help", help));
+    row.appendChild(words);
+    const sel = mk("select");
+    sel.id = "set-" + key;
+    for (const v of choices) {
+      const o = mk("option", null, fmt(v));
+      o.value = String(v);
+      sel.appendChild(o);
+    }
+    sel.value = String(settings[key]);
+    sel.onchange = () => { settings[key] = Number(sel.value); saveSettings(); after(); };
+    row.appendChild(sel);
+    card.appendChild(row);
+    return sel;
+  };
+  // A new lock time restarts the idle clock from now, so it never locks the instant it is changed.
+  const first = addRow("autoLockMin", "Auto-lock", "Lock the vault after this long with no typing, clicking or scrolling. Unsaved edits are saved first.",
+    AUTOLOCK_CHOICES, fmtMinutes, () => { lastActivity = Date.now(); });
+  // A new reminder limit recolours the backup pills straight away; the question itself comes at the next unlock.
+  addRow("weeklyDays", "Weekly backup reminder", "When you unlock, ask to update the weekly backup once it is this old.",
+    BACKUP_DAY_CHOICES.weekly, fmtDays, renderBackupBar);
+  addRow("monthlyDays", "Monthly backup reminder", "When you unlock, ask to update the monthly backup once it is this old.",
+    BACKUP_DAY_CHOICES.monthly, fmtDays, renderBackupBar);
+  card.appendChild(mk("p", "set-note", "Saved on this device only."));
   const actions = mk("div", "modal-actions");
   const done = mk("button", "primary", "Done");
   done.type = "button";
@@ -9673,7 +9699,7 @@ function openSettings() {
   modalOpenCount++;
   modalCancel = closeSettings;
   requestAnimationFrame(() => back.classList.add("show"));
-  sel.focus();
+  first.focus();
 }
 function closeSettings() {
   // Nothing open means nothing to do (Escape and Done can both arrive).

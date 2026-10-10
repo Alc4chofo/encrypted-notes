@@ -139,7 +139,7 @@ Commit messages are fixed strings (`sync`, `media`, `purge`, `weekly backup`, `m
 | `localStorage` | `vault.prev`, `vault.prevAt` | a sealed snapshot taken before the last merge, for recovery |
 | `localStorage` | `syncMeta` | random ids, timestamps and file hashes from the last sync. No titles, no bodies |
 | `localStorage` | `authGuard` | the failed-attempt counter (section 5) |
-| `localStorage` | `settings` | `{"autoLockMin": <minutes>}`, the auto-lock delay (section 5). Per device, not synced |
+| `localStorage` | `settings` | `{"autoLockMin", "weeklyDays", "monthlyDays"}`: the auto-lock delay (section 5) and how old each backup may get before unlock asks to update it. Per device, not synced |
 | `localStorage` | `backupMeta`, `pullBanner`, UI preferences | timestamps, counts, colours, which sections are collapsed |
 | IndexedDB `notes-media` | `<uuid>` | encrypted attachment records `{id, bytes: iv \|\| ciphertext \|\| tag}` |
 | IndexedDB `notes-media` | `__authGuard__`, `__notesDir__` | the second copy of the attempt counter, and the folder handle backups are written to |
