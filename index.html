@@ -202,7 +202,9 @@
   #backup-bar button { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between;
     gap: 5px; padding: 5px 6px 5px 9px; background: var(--s1); border: 1px solid var(--line); border-radius: 7px; }
   #backup-bar button:hover { background: var(--s2); border-color: var(--line-2); }
-  #backup-bar .bk-label { font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--t3);
+  /* Sentence case: spaced capitals made "Monthly" wider than its half of the
+     sidebar, and it showed as "MONT...". */
+  #backup-bar .bk-label { font-size: 12px; font-weight: 500; color: var(--t2);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .bk-age { flex: none; font-family: var(--mono); font-size: 10px; font-weight: 600;
     font-variant-numeric: tabular-nums; line-height: 1; padding: 3px 6px; border-radius: 999px;
@@ -266,6 +268,7 @@
     padding: 0 7px; font-size: 13px; background: transparent; border: 1px solid transparent; border-radius: 6px; color: var(--t2); line-height: 1; }
   #fmt-bar button:hover { background: var(--s3); color: var(--t1); }
   #fmt-bar button.on { background: var(--acc-dim); border-color: transparent; color: var(--acc); }
+  #fmt-bar button:disabled:hover { background: transparent; border-color: transparent; color: var(--t2); }
   #fmt-bar svg { width: 16px; height: 16px; flex: none; }
   /* The B / I / U / S letters are set in the serif so they look like type samples, not labels. */
   #fmt-bar button[data-cmd="bold"], #fmt-bar button[data-cmd="italic"],
@@ -274,6 +277,9 @@
     border-radius: 6px; color: var(--t2); max-width: 130px; }
   #fmt-bar select:hover { border-color: var(--line-3); color: var(--t1); }
   #fmt-bar .fmt-sep { width: 1px; height: 18px; background: var(--line-2); margin: 0 6px; }
+  /* Related buttons stay together: a narrow window wraps the bar group by group,
+     never leaving one button stranded on a line of its own. */
+  #fmt-bar .fmt-group { display: inline-flex; align-items: center; gap: 2px; flex: none; }
   /* The toolbar starts where the text column starts (minus the first button's own padding) but may run past
      it to the right, so it stays on one line. The hint only shows where there is room for it; on narrower
      windows it just wrapped into clutter. */
@@ -283,9 +289,12 @@
   /* Colour/highlight buttons carry a bar showing the last colour used, under the glyph. */
   #fmt-color, #fmt-highlight { flex-direction: column; gap: 2px; padding-top: 3px; }
   #fmt-bar .swatch-bar { display: block; width: 14px; height: 3px; border-radius: 2px; background: #666; }
-  /* Censor: a small black slab with spaced capitals, the look of a redaction stamp. */
+  /* Censor: a small black slab with spaced capitals, the look of a redaction stamp.
+     On (typing is censored, or the selection is) it lights up: white type and a
+     sage underline, so the state is never in doubt. */
   #fmt-censor { font-size: 10px; font-weight: 600; letter-spacing: .1em; background: #050505; color: var(--t3); border-color: var(--line-2); }
   #fmt-censor:hover { color: #fff; background: #000; border-color: var(--line-3); }
+  #fmt-bar #fmt-censor.on { background: #000; color: #fff; border-color: var(--acc-line); box-shadow: inset 0 -2px 0 var(--acc); }
 
   /* ---------- Tables and links, in the dark editor and on the white page sheets ---------- */
   /* table-layout:fixed keeps typing from stretching a column (it wraps and the
@@ -321,17 +330,29 @@
   .pal-add:hover { background: var(--s4); color: var(--t1); }
 
   /* ---------- Censored text ---------- */
-  /* Censored text: a solid box in the app, revealed on hover so it stays
-     editable. The EXPORT does not rely on this - it removes the text entirely. */
-  [data-censor] { background: #000; color: transparent; border-radius: 2px;
-    padding: 0 2px; box-decoration-break: clone; }
-  [data-censor]::selection { background: #000; color: transparent; }
+  /* Censored text: a solid bar in the app, revealed on hover so it stays
+     editable. The bar covers whatever formatting sits under the mark (bold,
+     a colour, a highlight all stay in the note, but none may show through it),
+     hence !important. The EXPORT does not rely on this - it removes the text
+     entirely. The faint edge keeps a bar visible on the dark editor. */
+  [data-censor] { background-color: #000 !important; color: transparent !important; border-radius: 2px;
+    padding: 0 2px; box-decoration-break: clone; -webkit-box-decoration-break: clone;
+    box-shadow: 0 0 0 1px rgb(255 255 255 / .08); caret-color: #f2efe9; }
+  [data-censor] * { color: transparent !important; background-color: transparent !important; }
+  [data-censor]::selection, [data-censor] *::selection { background: #000; color: transparent; }
+  /* A picture inside a censored run is covered by the bar as well. */
+  [data-censor] .inline-media { background-color: #000 !important; border-color: #000; }
+  [data-censor] .inline-media img, [data-censor] .inline-media video { filter: brightness(0); }
   /* Ctrl+P on the app itself: transparent text still becomes real, extractable
      glyphs in the browser's PDF, and print styles may drop the black background
      entirely. The characters must not be painted at all. (The proper export
      paths destroy them; this covers printing the raw page.) */
   @media print { [data-censor] { visibility: hidden; } }
-  .sheet-body [data-censor]:hover, #editor [data-censor]:hover { color: #bbb; }
+  /* Hover reads it, in a muted ink on a softer bar so it still reads as censored. */
+  .sheet-body [data-censor]:hover, #editor [data-censor]:hover { color: #cfc8bc !important; background-color: #2a2725 !important; }
+  .sheet-body [data-censor]:hover *, #editor [data-censor]:hover * { color: inherit !important; }
+  .sheet-body [data-censor]:hover .inline-media img, #editor [data-censor]:hover .inline-media img,
+  .sheet-body [data-censor]:hover .inline-media video, #editor [data-censor]:hover .inline-media video { filter: none; }
   /* Bullets follow the text alignment: with the marker outside the box it always
      hangs at the left margin no matter how the line is aligned. */
   #editor ul, #editor ol, .sheet-body ul, .sheet-body ol { list-style-position: inside; padding-left: 0; margin: 4px 0 4px 12px; }
@@ -450,6 +471,7 @@
   #split-controls button { padding: 4px 11px; font-size: 12px; }
   #split-btn { --icon: var(--i-split); display: inline-flex; align-items: center; gap: 6px; background: transparent; border-color: var(--acc-line); color: var(--acc); }
   #split-btn:hover, #split-save:hover { background: var(--acc-dim); color: #bcd9ad; }
+  #split-btn:disabled:hover { background: transparent; border-color: var(--acc-line); color: var(--acc); }
   #split-save { border-color: var(--acc-line); color: var(--acc); background: transparent; }
   body.split-edit #split-btn { background: var(--acc-dim); color: #bcd9ad; border-color: #5f8054; }
   /* Only meaningful inside the second screen, where they can be undone. */
@@ -576,7 +598,8 @@
     transform: translateY(-4px); transition: transform .12s; }
   .modal-back.show .modal { transform: none; }
   .modal h3 { margin: 0 0 8px; font: 600 17px/1.3 var(--serif); color: var(--t1); }
-  .modal p { margin: 0 0 16px; font-size: 13px; line-height: 1.5; color: var(--t2); overflow-wrap: break-word; }
+  /* pre-line: a body's \n starts a new line (a folder path, a quoted commit message). */
+  .modal p { margin: 0 0 16px; font-size: 13px; line-height: 1.5; color: var(--t2); overflow-wrap: break-word; white-space: pre-line; }
   .modal input { width: 100%; margin-bottom: 14px; font-size: 13px; }
   .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
   .modal-actions.stack { flex-direction: column; align-items: stretch; }   /* reading order = choice order */
@@ -688,6 +711,7 @@
   .set-name { display: block; font-size: 13.5px; font-weight: 600; color: var(--t1); }
   .set-help { margin-top: 2px; font-size: 12px; line-height: 1.45; color: var(--t3); }
   .set-row select { flex: none; min-width: 132px; padding: 7px 10px; font-size: 13px; }
+  .set-row button { flex: none; min-width: 132px; padding: 7px 10px; font-size: 13px; }
   .modal p.set-note { font-size: 12px; color: var(--t3); }
 
   /* ---------- Password strength meter (first run) ---------- */
@@ -739,7 +763,7 @@
       and Contents set to read and write. Both are kept only inside the encrypted vault.</small>
     </div>
     <button class="primary">Unlock</button>
-    <div id="lock-msg" style="color:#e66;font-size:13px"></div>
+    <div id="lock-msg" style="color:var(--bad);font-size:13px"></div>
     <div id="guard-msg" style="display:none"></div>
     <!-- Outside #token-row on purpose: in a clone the auto-detected vault hides
          that row, and a backup file would have had nowhere to be selected. -->
@@ -756,7 +780,7 @@
       converting it back is a button inside.</small>
       <button id="view-weekly" type="button"></button>
       <button id="view-monthly" type="button"></button>
-      <div id="backup-sel" style="display:none;color:#ea5;font-size:13px"></div>
+      <div id="backup-sel" style="display:none;color:var(--warn);font-size:13px"></div>
     </div>
   </form>
 </div>
@@ -803,31 +827,43 @@
       </div>
       <!-- Toolbar icons are one drawn set (16px grid, 1.5px strokes) instead of mixed unicode glyphs and emoji. -->
       <div id="fmt-bar">
-        <button id="undo-btn" title="Undo (Ctrl+Z)" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 3.5 2.5 6.5l3 3"/><path d="M2.5 6.5h7a3.5 3.5 0 0 1 0 7H7"/></svg></button>
-        <button id="redo-btn" title="Redo (Ctrl+Y)" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m10.5 3.5 3 3-3 3"/><path d="M13.5 6.5h-7a3.5 3.5 0 0 0 0 7H9"/></svg></button>
+        <span class="fmt-group">
+          <button id="undo-btn" title="Undo (Ctrl+Z)" type="button" disabled><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 3.5 2.5 6.5l3 3"/><path d="M2.5 6.5h7a3.5 3.5 0 0 1 0 7H7"/></svg></button>
+          <button id="redo-btn" title="Redo (Ctrl+Y)" type="button" disabled><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m10.5 3.5 3 3-3 3"/><path d="M13.5 6.5h-7a3.5 3.5 0 0 0 0 7H9"/></svg></button>
+        </span>
         <span class="fmt-sep"></span>
-        <button data-cmd="bold" title="Bold (Ctrl+B)" type="button"><b>B</b></button>
-        <button data-cmd="italic" title="Italic (Ctrl+I)" type="button"><i>I</i></button>
-        <button data-cmd="underline" title="Underline (Ctrl+U)" type="button"><u>U</u></button>
-        <button data-cmd="strikeThrough" title="Strikethrough" type="button"><s>S</s></button>
-        <button id="fmt-censor" title="Censor: prints as a solid black box with the text removed from the file" type="button">CENSOR</button>
+        <span class="fmt-group">
+          <button data-cmd="bold" title="Bold (Ctrl+B)" type="button"><b>B</b></button>
+          <button data-cmd="italic" title="Italic (Ctrl+I)" type="button"><i>I</i></button>
+          <button data-cmd="underline" title="Underline (Ctrl+U)" type="button"><u>U</u></button>
+          <button data-cmd="strikeThrough" title="Strikethrough" type="button"><s>S</s></button>
+          <button id="fmt-censor" title="Censor, on and off like bold: censors the selection, or what you type next. Shows as a black bar (hover to read); every export keeps only the bar, never the text" type="button" aria-pressed="false">CENSOR</button>
+        </span>
         <span class="fmt-sep"></span>
-        <select id="fmt-font" title="Font"></select>
-        <select id="fmt-size" title="Size"></select>
+        <span class="fmt-group">
+          <select id="fmt-font" title="Font"></select>
+          <select id="fmt-size" title="Size"></select>
+        </span>
         <span class="fmt-sep"></span>
-        <button data-cmd="justifyLeft" title="Align left" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4h11M2.5 8h7M2.5 12h9"/></svg></button>
-        <button data-cmd="justifyCenter" title="Center" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4h11M4.5 8h7M3.5 12h9"/></svg></button>
-        <button data-cmd="justifyRight" title="Align right" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4h11M6.5 8h7M4.5 12h9"/></svg></button>
-        <button data-cmd="justifyFull" title="Justify" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg></button>
+        <span class="fmt-group">
+          <button data-cmd="justifyLeft" title="Align left" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4h11M2.5 8h7M2.5 12h9"/></svg></button>
+          <button data-cmd="justifyCenter" title="Center" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4h11M4.5 8h7M3.5 12h9"/></svg></button>
+          <button data-cmd="justifyRight" title="Align right" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4h11M6.5 8h7M4.5 12h9"/></svg></button>
+          <button data-cmd="justifyFull" title="Justify" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg></button>
+        </span>
         <span class="fmt-sep"></span>
-        <button id="fmt-color" title="Text colour" type="button">A<span class="swatch-bar" id="color-bar"></span></button>
-        <button id="fmt-highlight" title="Highlight" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.8 2.7 13.3 6.2 7.5 12H4V8.5z"/><path d="m8.3 4.2 3.5 3.5"/></svg><span class="swatch-bar" id="hl-bar"></span></button>
-        <button id="fmt-link" title="Add or edit a link" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.8 9.2 9.2 6.8"/><path d="m7.4 4.6 1.2-1.2a2.6 2.6 0 0 1 3.7 3.7l-1.2 1.2"/><path d="m8.6 11.4-1.2 1.2a2.6 2.6 0 0 1-3.7-3.7l1.2-1.2"/></svg></button>
+        <span class="fmt-group">
+          <button id="fmt-color" title="Text colour" type="button">A<span class="swatch-bar" id="color-bar"></span></button>
+          <button id="fmt-highlight" title="Highlight" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.8 2.7 13.3 6.2 7.5 12H4V8.5z"/><path d="m8.3 4.2 3.5 3.5"/></svg><span class="swatch-bar" id="hl-bar"></span></button>
+          <button id="fmt-link" title="Add or edit a link" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.8 9.2 9.2 6.8"/><path d="m7.4 4.6 1.2-1.2a2.6 2.6 0 0 1 3.7 3.7l-1.2 1.2"/><path d="m8.6 11.4-1.2 1.2a2.6 2.6 0 0 1-3.7-3.7l1.2-1.2"/></svg></button>
+        </span>
         <span class="fmt-sep"></span>
-        <button data-cmd="insertUnorderedList" title="Bullet list" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 4h7M6.5 8h7M6.5 12h7"/><circle cx="3" cy="4" r="1" fill="currentColor" stroke="none"/><circle cx="3" cy="8" r="1" fill="currentColor" stroke="none"/><circle cx="3" cy="12" r="1" fill="currentColor" stroke="none"/></svg></button>
-        <button data-cmd="insertOrderedList" title="Numbered list" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4h6.5M7 8h6.5M7 12h6.5"/><g fill="currentColor" stroke="none" font-family="system-ui,sans-serif" font-size="5.2" font-weight="700"><text x="1.4" y="5.9">1</text><text x="1.4" y="9.9">2</text><text x="1.4" y="13.9">3</text></g></svg></button>
-        <button id="fmt-table" title="Table" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><path d="M2.5 6.5h11M2.5 10h11M7 6.5v7"/></svg></button>
-        <button data-cmd="removeFormat" title="Clear formatting" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3.5h7M6.5 3.5 5 12.5"/><path d="m9.5 9.5 4 4M13.5 9.5l-4 4"/></svg></button>
+        <span class="fmt-group">
+          <button data-cmd="insertUnorderedList" title="Bullet list" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 4h7M6.5 8h7M6.5 12h7"/><circle cx="3" cy="4" r="1" fill="currentColor" stroke="none"/><circle cx="3" cy="8" r="1" fill="currentColor" stroke="none"/><circle cx="3" cy="12" r="1" fill="currentColor" stroke="none"/></svg></button>
+          <button data-cmd="insertOrderedList" title="Numbered list" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4h6.5M7 8h6.5M7 12h6.5"/><g fill="currentColor" stroke="none" font-family="system-ui,sans-serif" font-size="5.2" font-weight="700"><text x="1.4" y="5.9">1</text><text x="1.4" y="9.9">2</text><text x="1.4" y="13.9">3</text></g></svg></button>
+          <button id="fmt-table" title="Table" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><path d="M2.5 6.5h11M2.5 10h11M7 6.5v7"/></svg></button>
+          <button data-cmd="removeFormat" title="Clear formatting" type="button"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3.5h7M6.5 3.5 5 12.5"/><path d="m9.5 9.5 4 4M13.5 9.5l-4 4"/></svg></button>
+        </span>
         <span class="fmt-hint">Right-click an image or file to resize and align it</span>
       </div>
       <div id="page-tabs"></div>
@@ -882,7 +918,12 @@
 // and localStorage only ever see ciphertext; media bytes live encrypted in
 // IndexedDB (ciphertext only, never plaintext).
 const OWNER = "YOUR_GITHUB_USER", REPO = "YOUR_PRIVATE_REPO", FILE = "vault.enc", WRAPPER = "vault.enc.js";
-const API = path => `https://api.github.com/repos/${OWNER}/${REPO}/contents/${path}`;
+// Which build of the app this file is. Sync compares it with the index.html in
+// the repo and offers the newer one (see App updates). Bump it with every change
+// to the app: "YYYY-MM-DD.N", N counting that day's builds from 1.
+const APP_BUILD = "2026-10-23.1", APP_FILE = "index.html";
+const REPO_API = sub => `https://api.github.com/repos/${OWNER}/${REPO}/${sub}`;
+const API = path => REPO_API(`contents/${path}`);
 // The ONLY defence that survives someone copying vault.enc to their own
 // machine: every guess costs this much PBKDF2. Raised 600k -> 1.2M (~2x the
 // offline attack cost); existing blobs keep their own iter and are re-sealed at
@@ -2224,13 +2265,13 @@ const searchTextCache = new Map();   // note id -> { mtime, text }
 function bodyPlainText(b) {
   // A plain (v1) body is already text, so it is used as it is.
   if (b.bodyV !== 2) return b.body || "";
-  // A v2 body is sanitized HTML; a <template> parses it inert (nothing loads or runs).
-  const tpl = document.createElement("template");
-  tpl.innerHTML = b.body || "";
+  // A v2 body is sanitized (parsed inert: nothing loads or runs) and laid out in
+  // the same lines the page shows, so the words of two lines never fuse.
+  const holder = document.createElement("div");
+  holder.appendChild(bodyFragment(b.body, 2));
   // Censored spans are removed before reading the text, so they never match and never show.
-  for (const el of tpl.content.querySelectorAll("[data-censor]")) el.remove();
-  // textContent of what is left is the words on the page.
-  return tpl.content.textContent || "";
+  for (const el of holder.querySelectorAll("[data-censor]")) el.remove();
+  return plainLines(holder);
 }
 function noteSearchText(id) {
   const n = vault.notes[id];
@@ -2759,21 +2800,27 @@ function collectRuns(root, mediaFor) {
       } else if (EDITOR_BLOCK_TAGS.has(child.tagName) || child.tagName === "LI") {
         if (cur.items.length) pushBlock();
         const style = child.getAttribute ? (child.getAttribute("style") || "") : "";
-        const al = /text-align:\s*(center|right|justify)/.exec(style);
+        const al = /text-align:\s*(left|center|right|justify)/.exec(style);
         const prev = cur.align, prevFrame = cur.frame;
         // A design's header/footer is furniture belonging to THIS page, marked
         // so it can never open a page of its own - a footer that did not quite
         // fit used to print alone on the next sheet, three times over.
         if (child.dataset && child.dataset.frame) cur.frame = child.dataset.frame;
-        cur.align = al ? al[1] : "left";
+        // A line with no alignment of its own takes its container's, exactly as
+        // CSS inherits it: the lines of a centred frame print centred.
+        cur.align = al ? al[1] : prev;
         // Numbered lists count; bullet lists get the bullet.
         if (child.tagName === "LI") {
           const marker = st.olIndex ? st.olIndex + ".  " : "•  ";
           cur.items.push({ t: "text", s: marker, ...st });
           if (st.ol) st.olIndex++;
         }
+        const before = blocks.length;
         walk(child, st);
-        pushBlock();
+        // A line prints as a line even when it is empty, and a <br> that ends it
+        // (the placeholder an empty line holds) adds none of its own; a block
+        // that only held other blocks (a frame of lines) adds nothing either.
+        if (cur.items.length || (blocks.length === before && child.firstChild)) pushBlock();
         cur.align = prev;
         cur.frame = prevFrame;
       } else if (child.tagName === "UL" || child.tagName === "OL") {
@@ -2790,24 +2837,29 @@ function collectRuns(root, mediaFor) {
         const tag = child.tagName;
         const style = child.getAttribute ? (child.getAttribute("style") || "") : "";
         const fam = /font-family:\s*([^;]+)/.exec(style);
-        const size = /font-size:\s*(\d+(?:\.\d+)?)pt/.exec(style);
-        const col = /color:\s*(#[0-9a-f]{3,8})/i.exec(style);
+        const size = /font-size:\s*(\d+(?:\.\d+)?)(pt|px)/.exec(style);
+        // Anchored to the start of a declaration: unanchored, "color:" also
+        // matched inside "background-color:", and highlighted text printed in
+        // its highlight colour.
+        const col = /(?:^|;)\s*color:\s*(#[0-9a-f]{3,8})/i.exec(style);
+        const bg = /background-color:\s*(#[0-9a-f]{3,8})/i.exec(style);
         const next = {
           bold: st.bold || tag === "B" || tag === "STRONG" || /font-weight:\s*(bold|[6-9]00)/.test(style),
           italic: st.italic || tag === "I" || tag === "EM" || /font-style:\s*italic/.test(style),
           under: st.under || tag === "U" || /text-decoration:\s*underline/.test(style),
           strike: st.strike || tag === "S" || tag === "STRIKE" || /line-through/.test(style),
           family: fam ? fam[1].trim() : st.family,
-          size: size ? +size[1] : st.size,
+          size: size ? +size[1] * (size[2] === "px" ? 0.75 : 1) : st.size,
           color: col ? col[1] : st.color,
+          bg: bg ? bg[1] : st.bg,
         };
-        const al = /text-align:\s*(center|right|justify)/.exec(style);
-        if (al) cur.align = al[1];
+        // (text-align on a piece of text does nothing on the sheet, so it does
+        // nothing here either.)
         walk(child, next);
       }
     }
   };
-  walk(root, { bold: false, italic: false, under: false, strike: false, family: "", size: 12, color: "#000000" });
+  walk(root, { bold: false, italic: false, under: false, strike: false, family: "", size: 12, color: "#000000", bg: null });
   if (cur.items.length) blocks.push(cur);
   return blocks;
 }
@@ -2995,12 +3047,25 @@ async function buildNotePdf(n, opts) {
   // it and off the top of the page.
   const lineAscent = (maxSize, maxImgH) => Math.max(maxSize * 0.85, maxImgH);
   const lineDescent = maxSize => maxSize * 0.7;   // 0.85 + 0.7 = the sheet's 1.55
-  const drawLine = (items, align, lineW, lineH, maxSize, ascent) => {
+  const drawLine = (items, align, lineW, lineH, maxSize, ascent, wrapped) => {
     let x = MARGIN_X;
     if (align === "center") x += (usableW - lineW) / 2;
     else if (align === "right") x += usableW - lineW;
+    // Justified: a line the paragraph wrapped from (never its last) is spread to
+    // the full width by widening its spaces, as the sheet does. Trailing spaces
+    // do not count.
+    let gap = 0;
+    if (align === "justify" && wrapped) {
+      let end = items.length;
+      while (end > 0 && items[end - 1].t === "text" && !/\S/.test(items[end - 1].s)) end--;
+      const body = items.slice(0, end);
+      const spaces = body.filter(it => it.t === "text" && !/\S/.test(it.s)).length;
+      const w = body.reduce((a, it) => a + it.w, 0);
+      if (spaces && w < usableW) gap = (usableW - w) / spaces;
+    }
     const base = y - (ascent === undefined ? maxSize * 0.85 : ascent);
     for (const it of items) {
+      if (gap && it.t === "text" && !/\S/.test(it.s)) it.w += gap;
       if (it.t === "img") {
         // Sits on the line's baseline, like an inline-block on the sheet.
         // Claim the XObject HERE, not where the image was queued: a line is
@@ -3045,7 +3110,21 @@ async function buildNotePdf(n, opts) {
         x += it.w;
         continue;
       }
-      const [r, g, b] = hexToRgb(it.color || "#000000");
+      let [r, g, b] = hexToRgb(it.color || "#000000");
+      if (it.bg) {
+        // The highlight, drawn first so the text sits on it (the same box a
+        // redaction bar uses).
+        const [hr, hg, hb] = hexToRgb(it.bg);
+        page.ops.push(`${hr.toFixed(3)} ${hg.toFixed(3)} ${hb.toFixed(3)} rg ${x.toFixed(2)} ${(base - it.size * 0.22).toFixed(2)} ` +
+          `${it.w.toFixed(2)} ${(it.size * 1.05).toFixed(2)} re f`);
+        // Text that cannot be read against its highlight (dark ink on a black
+        // highlight is the classic one) would look redacted in the PDF while
+        // every character stayed in the file, ready to be copied out. It is
+        // printed readable instead; only Censor removes text.
+        const lum = (x1, x2, x3) => 0.2126 * x1 + 0.7152 * x2 + 0.0722 * x3;
+        const lt = lum(r, g, b), lb = lum(hr, hg, hb);
+        if (Math.abs(lt - lb) < 0.35) [r, g, b] = lb < 0.5 ? [1, 1, 1] : [0, 0, 0];
+      }
       const ref = fontRef(it.font);
       page.uses.add(it.font.name);
       page.ops.push(`BT ${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} rg /${ref} ${it.size} Tf ` +
@@ -3063,10 +3142,17 @@ async function buildNotePdf(n, opts) {
   const renderBlock = blk => {
     const line = [];
     let lineW = 0, maxSize = 12, maxImgH = 0;
-    const flush = () => {
-      // An empty line costs a real line, the same 1.55 the sheet gives it:
-      // charging less here fitted more per page than the screen did.
-      if (!line.length) { y -= 12 * 1.55; sink(); return; }
+    // Whether this block put anything on the page yet. A block that only holds a
+    // table or a pinned item must not also cost an empty line: flushing an empty
+    // line before and after every table printed two blank lines around each one
+    // that the sheet does not have.
+    let drew = false;
+    const isPinnedItem = it => (it.t === "media" || it.t === "table") && it.fx !== null && it.fx !== undefined;
+    // wrapped: the line ends because the next thing did not fit (so a justified
+    // paragraph spreads it), not because the paragraph ended.
+    const flush = wrapped => {
+      if (!line.length) return;
+      drew = true;
       // A line is as tall as its tallest thing: images share the line with text
       // exactly as they do on the sheet, instead of each taking a line of its own.
       // Text-only, this is 0.85 + 0.7 = the sheet's 1.55 line-height, so the
@@ -3086,7 +3172,7 @@ async function buildNotePdf(n, opts) {
       // would print the footer straight through the last lines of the page.
       if (blk.frame) { if (y - lh < 12) y = 12 + lh; }
       else need(lh);
-      drawLine(line.slice(), blk.align, lineW, lh, maxSize, asc);
+      drawLine(line.slice(), blk.align, lineW, lh, maxSize, asc, wrapped === true);
       line.length = 0; lineW = 0; maxSize = 12; maxImgH = 0;
     };
     for (const item of blk.items) {
@@ -3177,7 +3263,7 @@ async function buildNotePdf(n, opts) {
           y = top - rowH;
         });
         if (pinned) y = savedY;    // the flow carries on as if the table were not there
-        else { y -= 8; sink(); }
+        else { y -= 8; sink(); drew = true; }
         continue;
       }
       if (item.t === "media") {
@@ -3210,12 +3296,13 @@ async function buildNotePdf(n, opts) {
             page.uses.add("img:" + item.mid);
             y -= h + 8;
             sink();
+            drew = true;
             continue;
           }
           // Otherwise it flows in the line like any other inline thing, so a row
           // of pictures prints as a row - matching the sheet, and therefore the
           // same number of pages.
-          if (lineW + w > usableW && lineW > 0) flush();
+          if (lineW + w > usableW && lineW > 0) flush(true);
           line.push({ t: "img", mid: item.mid, w, h });
           lineW += w;
           if (h > maxImgH) maxImgH = h;
@@ -3244,7 +3331,7 @@ async function buildNotePdf(n, opts) {
           const chipLabel = { video: "Play video", pdf: "Open PDF", text: "View text", file: "Download file" }[item.kind] || "Download file";
           // 14px glyph + 6px gap + 2x10px padding (in pt) + the label at ~9pt.
           const w = Math.min(usableW, 30 + textWidth(chipLabel, fTxt, 9) + CARD_GAP);
-          if (lineW + w > usableW + 0.5 && lineW > 0) flush();
+          if (lineW + w > usableW + 0.5 && lineW > 0) flush(true);
           line.push({ t: "card", label, text: name + size, w, h: CARD_H,
             uri: target ? "files/" + encodeURIComponent(target) : null });
           lineW += w;
@@ -3257,7 +3344,7 @@ async function buildNotePdf(n, opts) {
         // wrap test and lineW too, or aligned lines would drift off the margin.
         const size = item.size || 12;
         const w = censorBarW(item.len, size);
-        if (lineW + w > usableW && lineW > 0) flush();
+        if (lineW + w > usableW && lineW > 0) flush(true);
         line.push({ t: "censor", w, size });
         lineW += w;
         if (size > maxSize) maxSize = size;
@@ -3269,13 +3356,17 @@ async function buildNotePdf(n, opts) {
       for (const word of item.s.split(/(\s+)/)) {
         if (!word) continue;
         const w = textWidth(word, font, size);
-        if (lineW + w > usableW && lineW > 0 && /\S/.test(word)) flush();
-        line.push({ t: "text", s: word, font, size, w, color: item.color, under: item.under, strike: item.strike });
+        if (lineW + w > usableW && lineW > 0 && /\S/.test(word)) flush(true);
+        line.push({ t: "text", s: word, font, size, w, color: item.color, bg: item.bg, under: item.under, strike: item.strike });
         lineW += w;
         if (size > maxSize) maxSize = size;
       }
     }
     flush();
+    // An empty line costs a real line, the same 1.55 the sheet gives it:
+    // charging less here fitted more per page than the screen did. A block of
+    // nothing but pinned items is out of the flow and costs nothing.
+    if (!drew && !(blk.items.length && blk.items.every(isPinnedItem))) { y -= 12 * 1.55; sink(); }
   };
 
   const bodies = noteBodies(n);
@@ -3297,8 +3388,8 @@ async function buildNotePdf(n, opts) {
     const b = bodies[i];
     if (paged && i > 0) newPage();                 // one sheet per page, as on screen
     const holder = document.createElement("div");
-    if (b.bodyV === 2) holder.appendChild(packAttachmentRuns(sanitizeBodyFragment(b.body || "")));
-    else holder.textContent = b.body || "";
+    // The same lines the sheet shows, so both lay out (and paginate) alike.
+    holder.appendChild(bodyFragment(b.body, b.bodyV));
     for (const blk of collectRuns(holder, metaFor)) renderBlock(blk);
   }
 
@@ -3517,9 +3608,10 @@ async function exportNotePdf(id) {
   if (id === currentId) flushSave();
   status("Preparing PDF...", false, true);
   const esc = s => String(s).replace(/[&<>]/g, c => (c === "&" ? "&amp;" : c === "<" ? "&lt;" : "&gt;"));
-  // Decrypt each referenced image ONCE into a data: URL.
+  // Decrypt each referenced image ONCE into a data: URL - only those outside a
+  // censored run: a censored picture is never even decrypted for an export.
   const wanted = new Set();
-  for (const b of noteBodies(n)) if (b.bodyV === 2) for (const mid of bodyMediaIds(b.body, 2)) wanted.add(mid);
+  for (const b of noteBodies(n)) if (b.bodyV === 2) for (const mid of visibleMediaIds(b.body)) wanted.add(mid);
   const dataUrls = new Map();
   for (const mid of wanted) {
     const meta = (n.media || []).find(m => m.id === mid);
@@ -3542,10 +3634,10 @@ async function exportNotePdf(id) {
   const pageHtml = b => {
     if (b.bodyV !== 2) return "<div class=\"pg-text\">" + esc(b.body || "") + "</div>";
     const holder = document.createElement("div");
-    // Same packing as the sheets and the native writer: this was the one render
-    // path that skipped it, so attachment-only lines stayed block-level here and
-    // printed one per row.
-    holder.appendChild(packAttachmentRuns(sanitizeBodyFragment(b.body || "")));
+    // Same packing and lines as the sheets and the native writer: this was the
+    // one render path that skipped it, so attachment-only lines stayed
+    // block-level here and printed one per row.
+    holder.appendChild(bodyFragment(b.body, 2));
     // CENSORED TEXT IS DESTROYED HERE, not hidden. A black background over live
     // text would still be selectable, copyable and searchable in the PDF; the
     // characters must never reach the file. Each span becomes an empty box
@@ -3610,7 +3702,7 @@ async function exportNotePdf(id) {
     h1 { font-size: 20pt; margin: 0 0 4pt; }
     .meta { color: #666; font-size: 9pt; margin-bottom: 14pt;
       border-bottom: 1px solid #ddd; padding-bottom: 8pt; }
-    .pg { break-inside: auto; }
+    .pg { break-inside: auto; white-space: pre-wrap; overflow-wrap: break-word; }
     .pg.brk { break-before: page; padding-top: 4pt; }
     .pg-head { font-size: 13pt; margin: 0 0 6pt; color: #333;
       border-left: 3px solid #bbb; padding-left: 8pt; }
@@ -3759,15 +3851,20 @@ const designNoteIds = () => {
 // content, so it can be shared, edited by hand and kept in version control.
 const DESIGN_FILE_KIND = "notes-design";
 // A design file is PLAINTEXT on disk, so censored text must not travel in it:
-// the characters are destroyed here, leaving an empty bar. (The vault copy is
-// untouched - only the exported file loses them.)
+// the characters (and any picture under the mark) are destroyed here and only
+// the bar is kept, as blank space of the same coarse length bucket the PDF
+// uses, so even the exact length stays behind. (The vault copy is untouched -
+// only the exported file loses them.)
 function stripCensoredForExport(body) {
   const holder = document.createElement("div");
   holder.appendChild(sanitizeBodyFragment(String(body || "")));
-  for (const el of holder.querySelectorAll('[data-censor="1"]')) el.textContent = "";
-  const acc = { s: "" };
-  serializeBodyInto(holder, acc);
-  return acc.s;
+  normalizeLines(holder);
+  for (const el of [...holder.querySelectorAll('[data-censor="1"]')]) {
+    if (!holder.contains(el)) continue;   // inside a mark already blanked
+    const n = el.textContent.length + el.querySelectorAll(".inline-media").length;
+    el.textContent = " ".repeat(censorLenBucket(n));
+  }
+  return canonicalBody(holder);
 }
 function exportDesign(id) {
   const n = vault && vault.notes[id];
@@ -3792,11 +3889,9 @@ function importDesignDoc(doc) {
   const pages = doc.pages.slice(0, 60).map((p, i) => {
     const holder = document.createElement("div");
     holder.appendChild(sanitizeBodyFragment(String(p.body || "")));
-    const acc = { s: "" };
-    serializeBodyInto(holder, acc);
     const sec = SECTIONS.includes(p.section) ? p.section : "body";
     return { id: crypto.randomUUID(), name: String(p.name || "Page " + (i + 1)).slice(0, 60),
-      body: acc.s, bodyV: 2, ...(sec !== "body" ? { section: sec } : {}) };
+      body: canonicalBody(holder), bodyV: 2, ...(sec !== "body" ? { section: sec } : {}) };
   });
   sortPagesBySection(pages);
   return { name, pages };
@@ -3948,6 +4043,8 @@ const FONT_ALLOW = new Set(FONT_CHOICES.slice(1).map(f => f.toLowerCase()));
 const SIZE_CHOICES = ["8pt", "9pt", "10pt", "11pt", "12pt", "14pt", "16pt", "18pt", "20pt",
   "24pt", "28pt", "32pt", "40pt", "48pt", "60pt", "72pt", "96pt"];
 const ALIGN_OK = new Set(["left", "center", "right"]);
+// The toolbar's alignment buttons and the alignment each applies to a paragraph.
+const ALIGN_CMDS = { justifyLeft: "left", justifyCenter: "center", justifyRight: "right", justifyFull: "justify" };
 const LIST_TAGS = new Set(["UL", "OL", "LI"]);
 const TABLE_TAGS = new Set(["TABLE", "THEAD", "TBODY", "TFOOT", "TR", "TD", "TH"]);
 // Links: only schemes that cannot execute anything. javascript:, data: and
@@ -3992,6 +4089,13 @@ function rememberSelection() {
   if (r) lastFmtRange = r;
 }
 function restoreSelection() {
+  // Still in the text (toolbar buttons never take focus): leave the selection
+  // as it is. Setting it again, even to the same place, makes the browser drop
+  // the formats waiting at the caret, so B then I typed italic only, and B
+  // then Censor typed censored text that was not bold.
+  const live = currentEditorRange();
+  const liveSurf = live && surfaceOfNode(live.commonAncestorContainer);
+  if (liveSurf && document.activeElement === liveSurf) { lastFmtRange = live; return liveSurf; }
   if (!lastFmtRange || !surfaceOfNode(lastFmtRange.commonAncestorContainer)) return null;
   const surf = surfaceOfNode(lastFmtRange.commonAncestorContainer);
   surf.focus();
@@ -4000,10 +4104,20 @@ function restoreSelection() {
   sel.addRange(lastFmtRange);
   return surf;
 }
+// Each formatting change is an undo step of its own: what is on screen is
+// committed and marked first, so Ctrl+Z takes back the formatting alone rather
+// than the typing before it too. (In the second screen nothing is committed
+// before Save edit, so there it stays part of the edit around it.)
+function markFormatStep() {
+  if (!currentId || splitMode || trashViewId || backupView || !vault || !vault.notes[currentId]) return;
+  flushSave();
+  historyMark(currentId);
+}
 function runFmt(cmd, value) {
   if (trashViewId || backupView || syncing) return;
   const surf = restoreSelection();
   if (!surf) { status("Put the cursor in the text first", true); return; }
+  if (!window.getSelection().isCollapsed) markFormatStep();
   try {
     document.execCommand("styleWithCSS", false, true);   // spans with style, never <font>
     document.execCommand(cmd, false, value);
@@ -4020,16 +4134,51 @@ function markDirtyFromFormatting() {
   if (!splitMode) { clearTimeout(saveTimer); saveTimer = setTimeout(saveCurrent, 400); }
   renderStatus();
 }
+// The toolbar mirrors the caret: pressed buttons for the formats in effect
+// there, the paragraph's alignment, the censor state typing would get, and the
+// font and size of the text at the caret in the two lists.
 function syncFmtState() {
+  const r = currentEditorRange();
+  const surf = r ? surfaceOfNode(r.startContainer) : null;
   for (const b of $("fmt-bar").querySelectorAll("button[data-cmd]")) {
+    const cmd = b.dataset.cmd;
     let on = false;
-    try { on = document.queryCommandState(b.dataset.cmd); } catch {}
-    b.classList.toggle("on", !!on);
+    if (ALIGN_CMDS[cmd]) on = !!surf && caretAlign(r, surf) === ALIGN_CMDS[cmd];
+    else if (cmd !== "removeFormat") { try { on = !!surf && document.queryCommandState(cmd); } catch {} }
+    b.classList.toggle("on", on);
+    if (cmd !== "removeFormat") b.setAttribute("aria-pressed", on ? "true" : "false");
   }
+  const censorOn = !!surf && censorStateAt(r, surf);
+  $("fmt-censor").classList.toggle("on", censorOn);
+  $("fmt-censor").setAttribute("aria-pressed", censorOn ? "true" : "false");
+  syncFontLists(r, surf);
+}
+// The font and size lists show what the text at the caret uses ("Default" and
+// "Size" when it uses the page's own).
+function syncFontLists(r, surf) {
+  const fsel = $("fmt-font"), ssel = $("fmt-size");
+  if (!surf || document.activeElement === fsel || document.activeElement === ssel) return;
+  let el = r.startContainer.nodeType === 1 ? r.startContainer : r.startContainer.parentElement;
+  let fam = "Default", size = "";
+  for (let n = el; n && n !== surf; n = n.parentElement) {
+    if (fam === "Default" && n.style && n.style.fontFamily) {
+      const f = n.style.fontFamily.replace(/["']/g, "").split(",")[0].trim().toLowerCase();
+      const hit = FONT_CHOICES.find(c => c.toLowerCase() === f);
+      if (hit) fam = hit;
+    }
+    if (!size && n.style && /^\d+(\.\d+)?pt$/.test(n.style.fontSize || "")) size = n.style.fontSize;
+  }
+  fsel.value = fam;
+  ssel.value = SIZE_CHOICES.includes(size) ? size : "";
 }
 for (const b of $("fmt-bar").querySelectorAll("button[data-cmd]")) {
   b.addEventListener("mousedown", e => e.preventDefault());   // keep the selection
-  b.onclick = () => runFmt(b.dataset.cmd);
+  b.onclick = () => {
+    const cmd = b.dataset.cmd;
+    if (ALIGN_CMDS[cmd]) applyAlignment(ALIGN_CMDS[cmd]);
+    else if (cmd === "removeFormat") clearFormatting();
+    else runFmt(cmd);
+  };
 }
 {
   const fsel = $("fmt-font"), ssel = $("fmt-size");
@@ -4042,31 +4191,37 @@ for (const b of $("fmt-bar").querySelectorAll("button[data-cmd]")) {
   ssel.addEventListener("mousedown", rememberSelection);
   fsel.onchange = () => {
     // "Default" removes the family instead of setting one, so the page keeps the
-    // print stylesheet's font (what the PDF uses).
+    // print stylesheet's font (what the PDF uses). The list then shows the font
+    // at the caret again (syncFmtState), like a word processor's.
     if (fsel.value === "Default") runFmt("fontName", "inherit");
     else runFmt("fontName", fsel.value);
-    fsel.selectedIndex = 0;
   };
   ssel.onchange = () => {
     const v = ssel.value;
-    ssel.selectedIndex = 0;
-    if (!v) return;
+    if (!v) { syncFmtState(); return; }
     const surf = restoreSelection();
-    if (!surf) { status("Select some text first", true); return; }
-    // execCommand's fontSize only speaks 1-7; wrap the selection ourselves so
-    // the real pt value (the one the PDF uses) is what gets stored.
+    if (!surf) { status("Select some text first", true); syncFmtState(); return; }
+    markFormatStep();
+    // execCommand's fontSize only speaks 1-7; let it mark the selection, then
+    // turn exactly what it marked into the real pt value (the one the PDF uses).
+    // What it marks carries a keyword size ("large"), which nothing else in a
+    // note ever has: rewriting every sized span instead resized all text sized
+    // earlier and dropped its other styles, colour included.
     try {
       document.execCommand("styleWithCSS", false, true);
       document.execCommand("fontSize", false, "4");
-      for (const el of surf.querySelectorAll('span[style*="font-size"], font[size="4"]')) {
-        const span = document.createElement("span");
-        span.style.fontSize = v;
-        while (el.firstChild) span.appendChild(el.firstChild);
-        el.replaceWith(span);
+      for (const el of [...surf.querySelectorAll('[style*="font-size"], font[size]')]) {
+        if (el.tagName === "FONT") {
+          const span = document.createElement("span");
+          span.style.fontSize = v;
+          while (el.firstChild) span.appendChild(el.firstChild);
+          el.replaceWith(span);
+        } else if (/^[a-z-]+$/i.test(el.style.fontSize)) el.style.fontSize = v;
       }
     } catch {}
     rememberSelection();
     markDirtyFromFormatting();
+    syncFmtState();
   };
 }
 // ---------- Colour, highlight, links, tables ----------
@@ -4078,6 +4233,7 @@ function clearInlineProp(prop) {
   if (!surf) return false;
   const sel = window.getSelection();
   if (!sel.rangeCount) return false;
+  markFormatStep();
   const r = sel.getRangeAt(0);
   for (const el of [...surf.querySelectorAll("span[style], font[color]")]) {
     if (!r.intersectsNode(el)) continue;
@@ -4097,6 +4253,7 @@ function applyColor(kind, hex) {
   if (!hex) { if (!clearInlineProp(prop)) status("Select some text first", true); return; }
   const surf = restoreSelection();
   if (!surf) { status("Select some text first", true); return; }
+  markFormatStep();
   try {
     document.execCommand("styleWithCSS", false, true);
     document.execCommand(kind === "fore" ? "foreColor" : "hiliteColor", false, hex);
@@ -4200,6 +4357,7 @@ $("fmt-link").onclick = async () => {
       { sep: true },
       { label: "Open link", onClick: () => window.open(existing.href, "_blank", "noopener,noreferrer") },
       { label: "Remove link", danger: true, onClick: () => {
+        markFormatStep();
         while (existing.firstChild) existing.parentNode.insertBefore(existing.firstChild, existing);
         existing.remove();
         markDirtyFromFormatting();
@@ -4215,6 +4373,7 @@ $("fmt-link").onclick = async () => {
   if (!safe) { status("Only http, https, mailto and tel links are allowed", true); return; }
   const surf2 = restoreSelection();
   if (!surf2) return;
+  markFormatStep();
   try { document.execCommand("createLink", false, safe); } catch {}
   // execCommand cannot set target/rel; the sanitizer adds them on the way back
   // in, but set them now so the live editor behaves too.
@@ -4272,13 +4431,37 @@ async function insertTable() {
   if (!m) { status('Use "rows x columns", for example 3x4', true); return; }
   const rows = Math.min(50, Math.max(1, +m[1])), cols = Math.min(20, Math.max(1, +m[2]));
   const t = buildTable(rows, cols, true);
-  const r = restoreSelection() ? window.getSelection().getRangeAt(0) : null;
-  if (r) { r.collapse(false); r.insertNode(t); }
-  else surf.appendChild(t);
-  // A trailing line after the table, or there is no way to type past it.
-  const after = document.createElement("div");
-  after.appendChild(document.createElement("br"));
-  t.after(after);
+  const host = restoreSelection();
+  if (host) ensureLines(host);
+  const r = host ? window.getSelection().getRangeAt(0) : null;
+  const line = r ? lineOf(r.startContainer, host) : null;
+  if (line) {
+    // A table is a block of its own: it goes between lines, never inside one.
+    // The line is cut at the caret and what followed it continues under the table.
+    r.collapse(false);
+    const head = document.createRange();
+    head.setStart(line, 0);
+    head.setEnd(r.startContainer, r.startOffset);
+    if (!head.toString().trim() && !head.cloneContents().querySelector(".inline-media")) line.before(t);
+    else {
+      const tail = document.createRange();
+      tail.setStart(r.startContainer, r.startOffset);
+      tail.setEnd(line, line.childNodes.length);
+      const rest = line.cloneNode(false);
+      rest.appendChild(tail.extractContents());
+      if (!atomsOf(rest).length) rest.replaceChildren(document.createElement("br"));
+      line.after(t);
+      t.after(rest);
+    }
+  } else {
+    // In a table cell or a list item the table nests where the caret is.
+    if (r) { r.collapse(false); r.insertNode(t); }
+    else surf.appendChild(t);
+    // A trailing line after the table, or there is no way to type past it.
+    const after = document.createElement("div");
+    after.appendChild(document.createElement("br"));
+    t.after(after);
+  }
   const first = t.querySelector("th,td");
   if (first) {
     const nr = document.createRange();
@@ -4377,48 +4560,617 @@ $("edit-wrap").addEventListener("contextmenu", e => {
   openMenu(e.clientX, e.clientY, tableMenuItems(cell));
 }, true);
 
-// Censor: wraps the selection in a marker the export turns into a solid box
-// with the text REMOVED (not merely covered). Toggles off if you re-apply it.
-$("fmt-censor").addEventListener("mousedown", e => e.preventDefault());
-$("fmt-censor").onclick = () => {
+// ---------- Atoms: the characters a format sits on ----------
+// Text and inline attachments, in document order. Placeholder text inside an
+// attachment ("Decrypting...") is part of the attachment, not of the note.
+const inMedia = n => { for (let p = n.parentNode; p; p = p.parentNode) if (isMediaEl(p)) return true; return false; };
+function atomsOf(root) {
+  const out = [];
+  (function walk(n) {
+    for (const c of n.childNodes) {
+      if (c.nodeType === 3) { if (c.data) out.push(c); }
+      else if (c.nodeType === 1 && !isSelMarker(c)) { if (isMediaEl(c)) { if (!isFloatEl(c)) out.push(c); } else walk(c); }
+    }
+  })(root);
+  return out;
+}
+const atomLen = a => a.nodeType === 3 ? a.data.length : 1;
+const childIndex = n => Array.prototype.indexOf.call(n.parentNode.childNodes, n);
+const atomStart = a => a.nodeType === 3 ? [a, 0] : [a.parentNode, childIndex(a)];
+// Is the boundary point (n1,o1) before the point (n2,o2)?
+function pointBefore(n1, o1, n2, o2) {
+  const r = document.createRange();
+  r.setStart(n2, o2);
+  return r.comparePoint(n1, o1) < 0;
+}
+// The atoms on either side of a caret inside root.
+function neighbourAtoms(node, off, root) {
+  if (node.nodeType === 3 && node.data && off > 0 && off < node.data.length && !inMedia(node)) return { before: node, after: node };
+  let before = null, after = null;
+  for (const a of atomsOf(root)) {
+    const [n, o] = atomStart(a);
+    if (a === node ? off > 0 : pointBefore(n, o, node, off)) before = a;
+    else { after = a; break; }
+  }
+  return { before, after };
+}
+// Characters from the start of root to a point (an attachment counts as one).
+function textOffset(root, node, off) {
+  let k = 0;
+  for (const a of atomsOf(root)) {
+    if (a === node) return k + off;
+    const [n, o] = atomStart(a);
+    if (!pointBefore(n, o, node, off)) break;
+    k += atomLen(a);
+  }
+  return k;
+}
+// The point that many characters into root (the end of a text it lands at the
+// end of, so a range starting there takes in nothing before it).
+function pointAtOffset(root, k) {
+  let last = null;
+  for (const a of atomsOf(root)) {
+    if (a.nodeType === 3) { if (k <= a.data.length) return [a, k]; k -= a.data.length; }
+    else { if (k <= 0) return atomStart(a); k -= 1; }
+    last = a;
+  }
+  if (last) return last.nodeType === 3 ? [last, last.data.length] : [last.parentNode, childIndex(last) + 1];
+  return [root, root.childNodes.length];
+}
+// Same caret place: nothing typed or attached lies between the two points.
+function samePlace(n1, o1, n2, o2) {
+  const r = document.createRange();
+  if (pointBefore(n2, o2, n1, o1)) { r.setStart(n2, o2); r.setEnd(n1, o1); }
+  else { r.setStart(n1, o1); r.setEnd(n2, o2); }
+  return r.toString() === "" && !r.cloneContents().querySelector(".inline-media");
+}
+// Splits the text at the ends of a range, so every text node is either wholly
+// inside it or wholly outside; returns the equivalent range.
+function splitRangeEnds(r) {
+  let sc = r.startContainer, so = r.startOffset, ec = r.endContainer, eo = r.endOffset;
+  if (ec.nodeType === 3 && eo > 0 && eo < ec.data.length) ec.splitText(eo);
+  if (sc.nodeType === 3 && so > 0 && so < sc.data.length) {
+    const right = sc.splitText(so);
+    if (ec === sc) { ec = right; eo -= so; }
+    sc = right; so = 0;
+  }
+  const out = document.createRange();
+  out.setStart(sc, so);
+  out.setEnd(ec, eo);
+  return out;
+}
+// The atoms lying wholly inside a range.
+function atomsIn(r, surf) {
+  const c = r.commonAncestorContainer;
+  const root = c.nodeType === 1 ? c : c.parentNode;
+  return atomsOf(root.contains(surf) ? surf : root).filter(a => {
+    const [n, o] = atomStart(a);
+    return !pointBefore(n, o, r.startContainer, r.startOffset) &&
+      !pointBefore(r.endContainer, r.endOffset, ...(a.nodeType === 3 ? [a, a.data.length] : [a.parentNode, childIndex(a) + 1]));
+  });
+}
+// The atoms a range touches with at least one character, without splitting anything.
+function atomsTouched(r, surf) {
+  const c = r.commonAncestorContainer;
+  const root = c.nodeType === 1 ? c : c.parentNode;
+  return atomsOf(root.contains(surf) ? surf : root).filter(a => {
+    if (!r.intersectsNode(a)) return false;
+    if (a.nodeType !== 3) return true;
+    if (a === r.startContainer && r.startOffset >= a.data.length) return false;
+    if (a === r.endContainer && r.endOffset === 0) return false;
+    return true;
+  });
+}
+function unwrapEl(el) {
+  while (el.firstChild) el.parentNode.insertBefore(el.firstChild, el);
+  el.remove();
+}
+// Cuts an inline element in three around the atoms first..last (both inside
+// it) and returns the middle part, which holds exactly them. The parts before
+// and after keep the element's formatting.
+function isolate(el, first, last) {
+  const tail = document.createRange();
+  tail.setStartAfter(last);
+  tail.setEnd(el, el.childNodes.length);
+  if (!tail.collapsed) { const t = el.cloneNode(false); t.appendChild(tail.extractContents()); el.after(t); }
+  const head = document.createRange();
+  head.setStart(el, 0);
+  head.setEndBefore(first);
+  if (!head.collapsed) { const h = el.cloneNode(false); h.appendChild(head.extractContents()); el.before(h); }
+  return el;
+}
+const INLINE_FORMAT_EL = /^(B|I|U|S|STRIKE|STRONG|EM|FONT|SPAN|SUB|SUP)$/;
+// Inline wrappers a split left empty go, and censor marks that ended up side by
+// side become one.
+function tidyInline(root) {
+  for (const el of [...root.querySelectorAll("b,i,u,s,strike,strong,em,font,span,sub,sup,a")].reverse()) {
+    if (isMediaEl(el) || isSelMarker(el) || inMedia(el)) continue;
+    if (!el.firstChild || (el.textContent === "" && !el.querySelector("br,.inline-media,[data-sel]"))) el.remove();
+  }
+  for (const sp of [...root.querySelectorAll('span[data-censor="1"]')]) {
+    if (!sp.isConnected || !isBareMark(sp)) continue;
+    for (;;) {
+      let n = sp.nextSibling;
+      while (n && n.nodeType === 3 && !n.data) { const x = n.nextSibling; n.remove(); n = x; }
+      if (!isBareMark(n)) break;
+      while (n.firstChild) sp.appendChild(n.firstChild);
+      n.remove();
+    }
+  }
+}
+function selectAtoms(first, last) {
+  const r = document.createRange();
+  if (first.nodeType === 3) r.setStart(first, 0); else r.setStartBefore(first);
+  if (last.nodeType === 3) r.setEnd(last, last.data.length); else r.setEndAfter(last);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(r);
+  return r;
+}
+
+// ---------- Alignment ----------
+// Alignment belongs to PARAGRAPHS, and a paragraph here is a run of lines with
+// no empty line between them: pressing Enter twice is what starts a new one.
+// The buttons align the paragraph the caret is in (every paragraph a selection
+// touches). On an empty line they align that line and the lines after it, never
+// the paragraph above, so an empty line under a centred paragraph is where a
+// differently aligned one can start. Enter keeps the alignment of the line it
+// splits; Enter on an empty line starts the next paragraph at the default.
+// Lines the user aligned while still empty: Enter on one keeps its alignment
+// (that is what the user just chose for what comes next) instead of resetting.
+let alignedEmpty = new WeakSet();
+const alignOf = el => {
+  const a = getComputedStyle(el).textAlign;
+  return a === "center" || a === "-webkit-center" ? "center"
+    : a === "right" || a === "end" || a === "-webkit-right" ? "right" : a === "justify" ? "justify" : "left";
+};
+// What alignment applies to at a node: its line, or failing that the list item,
+// the table cell or the frame it is in.
+function alignBlockOf(node, surf) {
+  for (let n = node && (node.nodeType === 1 ? node : node.parentNode); n && n !== surf; n = n.parentNode)
+    if (isLineEl(n) || isFrameEl(n) || n.tagName === "LI" || n.tagName === "TD" || n.tagName === "TH") return n;
+  return null;
+}
+function caretAlign(r, surf) {
+  const b = alignBlockOf(r.startContainer, surf);
+  return alignOf(b || surf);
+}
+const isParaLine = n => isLineEl(n) || (!!n && n.nodeType === 1 && n.tagName === "LI");
+// The neighbouring line of the same kind, looking past pinned items (they sit
+// outside the text flow); null at anything else.
+function siblingLine(n, dir) {
+  for (let s = n[dir]; s; s = s[dir]) {
+    if (isFloatEl(s) || isSelMarker(s) || (s.nodeType === 3 && !s.data)) continue;
+    return isParaLine(s) && (s.tagName === "LI") === (n.tagName === "LI") ? s : null;
+  }
+  return null;
+}
+// Does the range only touch the very start of block b (a drag that ends at the
+// start of the next line selects nothing on it)?
+function endsAtStartOf(r, b) {
+  if (!b.contains(r.endContainer) || b.contains(r.startContainer)) return false;
+  const t = document.createRange();
+  t.setStart(b, 0);
+  t.setEnd(r.endContainer, r.endOffset);
+  return t.toString() === "" && !t.cloneContents().querySelector(".inline-media");
+}
+function alignTargets(r, surf) {
+  let blocks = [];
+  if (r.collapsed) { const b = alignBlockOf(r.startContainer, surf); if (b) blocks.push(b); }
+  else for (const b of surf.querySelectorAll("div, p, li, td, th")) {
+    if (alignBlockOf(b, surf) !== b || !r.intersectsNode(b) || endsAtStartOf(r, b)) continue;
+    // A cell or frame holding lines is aligned through its lines.
+    if (!isParaLine(b) && b.querySelector("div, p, li")) continue;
+    blocks.push(b);
+  }
+  const out = new Set();
+  for (const b of blocks) {
+    if (!isParaLine(b)) { out.add(b); continue; }
+    if (isEmptyLine(b)) {
+      out.add(b);
+      if (blocks.length === 1)
+        for (let n = siblingLine(b, "nextSibling"); n && !isEmptyLine(n); n = siblingLine(n, "nextSibling")) out.add(n);
+      continue;
+    }
+    let first = b;
+    for (let p = siblingLine(first, "previousSibling"); p && !isEmptyLine(p); p = siblingLine(p, "previousSibling")) first = p;
+    for (let n = first; n && !isEmptyLine(n); n = siblingLine(n, "nextSibling")) out.add(n);
+  }
+  return [...out];
+}
+// Left is the default, so it is stored as no alignment at all, unless the line
+// sits in something aligned otherwise (a centred frame) and must say "left".
+function setAlign(el, align) {
+  if (align === "left" && (!el.parentElement || alignOf(el.parentElement) === "left")) el.style.removeProperty("text-align");
+  else el.style.textAlign = align;
+  if (!el.getAttribute("style")) el.removeAttribute("style");
+}
+function applyAlignment(align) {
   if (trashViewId || backupView || syncing) return;
   const surf = restoreSelection();
-  if (!surf) { status("Select the text to censor first", true); return; }
+  if (!surf) { status("Put the cursor in the text first", true); return; }
+  markFormatStep();
+  ensureLines(surf);
   const sel = window.getSelection();
-  if (!sel.rangeCount || sel.isCollapsed) { status("Select the text to censor first", true); return; }
+  if (!sel.rangeCount) return;
   const r = sel.getRangeAt(0);
-  // Which censored spans does this selection touch? Looking only at the common
-  // ancestor missed them whenever the selection started or ended outside the
-  // span (or spanned several), so the button silently re-censored instead of
-  // toggling. Collect every censored span that INTERSECTS the range.
-  const hits = [];
-  const asEl = n => n && (n.nodeType === 1 ? n : n.parentElement);
-  for (const c of [asEl(r.startContainer), asEl(r.endContainer), asEl(r.commonAncestorContainer)]) {
-    const sp = c && c.closest && c.closest("[data-censor]");
-    if (sp && surf.contains(sp) && !hits.includes(sp)) hits.push(sp);
-  }
-  for (const sp of surf.querySelectorAll("[data-censor]"))
-    if (!hits.includes(sp) && r.intersectsNode(sp)) hits.push(sp);
-  if (hits.length) {
-    // Any overlap at all means "remove the censoring" - unwrap every span the
-    // selection touches, so a partial or multi-span selection still toggles off.
-    for (const sp of hits) {
-      while (sp.firstChild) sp.parentNode.insertBefore(sp.firstChild, sp);
-      sp.remove();
-    }
-    surf.normalize();   // merge the text nodes back so a re-censor sees one run
-  } else {
-    const span = document.createElement("span");
-    span.setAttribute("data-censor", "1");
-    try { span.appendChild(r.extractContents()); r.insertNode(span); }
-    catch { status("Select plain text to censor", true); return; }
-  }
+  const targets = alignTargets(r, surf);
+  if (!targets.length) return;
+  for (const t of targets) setAlign(t, align);
+  if (r.collapsed && isParaLine(targets[0]) && isEmptyLine(targets[0])) alignedEmpty.add(targets[0]);
   rememberSelection();
   markDirtyFromFormatting();
-};
+  syncFmtState();
+}
+// Enter starts a new line of the same paragraph, keeping its alignment; Enter on
+// an empty line starts the next paragraph at the default. Shift+Enter is the
+// same as Enter (a line is a line; a bare "\n" in the text was the shape that
+// made alignment scramble lines). Lists and table cells keep the browser's own
+// Enter: a new item, or leaving the list.
+$("edit-wrap").addEventListener("keydown", e => {
+  if (e.key !== "Enter" || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || e.keyCode === 229) return;
+  if (trashViewId || backupView || syncing) return;
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) return;
+  const surf = surfaceOfNode(sel.getRangeAt(0).startContainer);
+  if (!surf || !surf.isContentEditable) return;
+  const at = sel.getRangeAt(0).startContainer;
+  const host = (at.nodeType === 1 ? at : at.parentElement).closest("li, td, th");
+  if (host && surf.contains(host)) return;
+  ensureLines(surf);
+  const r = sel.getRangeAt(0);
+  const line = lineOf(r.startContainer, surf);
+  if (!line) return;
+  e.preventDefault();
+  const fresh = r.collapsed && isEmptyLine(line) && !alignedEmpty.has(line);
+  const align = line.style.textAlign || "";
+  const pend = r.collapsed ? pendingCensorAt(r) : null;
+  document.execCommand("insertParagraph");
+  if (!sel.rangeCount) return;
+  const r2 = sel.getRangeAt(0);
+  const next = lineOf(r2.startContainer, surf);
+  if (next && next !== line) {
+    if (fresh) setAlign(next, "left");
+    else if (align) next.style.textAlign = align;
+    scrubCensorLook(next);
+  }
+  // A censor state chosen at the caret carries over to the new line, the way a
+  // pending bold does.
+  if (pend !== null) setCensorPending(pend, r2, surf);
+  syncFmtState();
+});
+
+// ---------- Censor ----------
+// Censoring is a format, like bold: a state at the caret that typing follows,
+// and a mark that goes on or comes off a selection. The mark is a
+// <span data-censor="1"> placed directly around the text, inside whatever
+// formatting was there, so bold, fonts, sizes and colours stay where they were
+// and come back unchanged when the mark is removed. In the app it shows as a
+// black bar (hover to read it); every export destroys the characters and keeps
+// only the bar.
+// A censor state chosen at a caret (the button pressed with nothing selected),
+// for what is typed there next. It lapses as soon as the caret moves.
+let censorPending = null;   // { on, node, off }
+function censorAncestor(node, surf) {
+  for (let n = node && (node.nodeType === 1 ? node : node.parentNode); n && n !== surf; n = n.parentNode)
+    if (isCensorEl(n)) return n;
+  return null;
+}
+// The state typing at a caret takes when nothing was chosen there: that of the
+// character before it on its line (what typing extends), or at the start of a
+// line that of the character after it.
+function caretCensored(r, surf) {
+  const root = lineOf(r.startContainer, surf) || alignBlockOf(r.startContainer, surf) || surf;
+  const { before, after } = neighbourAtoms(r.startContainer, r.startOffset, root);
+  const a = before || after;
+  return !!censorAncestor(a || r.startContainer, surf);
+}
+function pendingCensorAt(r) {
+  if (!censorPending) return null;
+  if (!censorPending.node.isConnected || !samePlace(censorPending.node, censorPending.off, r.startContainer, r.startOffset)) {
+    censorPending = null;
+    return null;
+  }
+  return censorPending.on;
+}
+function setCensorPending(on, r, surf) {
+  censorPending = on === caretCensored(r, surf) ? null : { on, node: r.startContainer, off: r.startOffset };
+}
+// What the button shows: for a caret the state typing would get, for a
+// selection whether all of it is censored. (Read from a copy of just the
+// selected content, so dragging a selection across a long note stays cheap.)
+function censorStateAt(r, surf) {
+  if (r.collapsed) { const p = pendingCensorAt(r); return p !== null ? p : caretCensored(r, surf); }
+  if (censorAncestor(r.commonAncestorContainer, surf)) return true;
+  let any = false;
+  const all = (function walk(n, inMark) {
+    for (const c of n.childNodes) {
+      if (c.nodeType === 3) { if (c.data) { any = true; if (!inMark) return false; } }
+      else if (c.nodeType === 1 && !isSelMarker(c)) {
+        if (isMediaEl(c)) { any = true; if (!inMark) return false; }
+        else if (!walk(c, inMark || isCensorEl(c))) return false;
+      }
+    }
+    return true;
+  })(r.cloneContents(), false);
+  return any && all;
+}
+// Censors (on=true) or uncensors (on=false) exactly the characters in a range,
+// leaving every other format alone. Returns the first and last atom, or null.
+function setCensorRange(range, surf, on) {
+  const r = splitRangeEnds(range);
+  const atoms = atomsIn(r, surf);
+  if (!atoms.length) return null;
+  if (on === undefined) on = !atoms.every(a => censorAncestor(a, surf));
+  const lines = new Set(atoms.map(a => lineOf(a, surf) || alignBlockOf(a, surf) || surf));
+  if (on) {
+    for (const a of atoms) if (!censorAncestor(a, surf)) {
+      const sp = censorMark(document.createElement("span"));
+      a.parentNode.insertBefore(sp, a);
+      sp.appendChild(a);
+    }
+  } else {
+    for (let i = 0; i < atoms.length;) {
+      const c = censorAncestor(atoms[i], surf);
+      if (!c) { i++; continue; }
+      let j = i;
+      while (j + 1 < atoms.length && censorAncestor(atoms[j + 1], surf) === c) j++;
+      const mid = isolate(c, atoms[i], atoms[j]);
+      // The mark comes off; anything else the element carried (a size the
+      // browser put on it, say) stays.
+      uncensorMark(mid);
+      if (!mid.attributes.length) unwrapEl(mid);
+      i = j + 1;
+    }
+  }
+  for (const l of lines) if (l.isConnected) tidyInline(l);
+  return { first: atoms[0], last: atoms[atoms.length - 1], on };
+}
+// The browser copies the LOOK of censored text (transparent ink on a black box)
+// onto what is typed after censored text is deleted, as inline styles: no
+// data-censor mark, so it would be saved and exported as ordinary text while
+// looking hidden on screen. That look is stripped wherever it is not a real mark.
+function scrubCensorLook(root) {
+  if (!root || !root.querySelectorAll) return;
+  let leaked = false;
+  for (const el of [...root.querySelectorAll("font[color], [style*='color']")]) {
+    if (inMedia(el)) continue;
+    const c = el.tagName === "FONT" && el.hasAttribute("color") ? el.getAttribute("color") : el.style.color;
+    if (!c || cssColorHex(c) !== "transparent") continue;
+    leaked = true;
+    if (el.tagName === "FONT") el.removeAttribute("color");
+    el.style.removeProperty("color");
+  }
+  if (!leaked) return;
+  for (const el of [...root.querySelectorAll("[style*='background']")]) {
+    if (inMedia(el) || isCensorEl(el)) continue;
+    const b = cssColorHex(el.style.backgroundColor);
+    if (b === "#000" || b === "#000000") el.style.removeProperty("background-color");
+  }
+  for (const el of [...root.querySelectorAll("font, span")]) {
+    if (inMedia(el) || isMediaEl(el) || isCensorEl(el) || isSelMarker(el)) continue;
+    if (!el.getAttribute("style")) el.removeAttribute("style");
+    if (!el.attributes.length) unwrapEl(el);
+  }
+}
+function toggleCensor() {
+  if (trashViewId || backupView || syncing) return;
+  const surf = restoreSelection();
+  if (!surf) { status("Put the cursor in the text first", true); return; }
+  const sel = window.getSelection();
+  if (!sel.rangeCount) return;
+  let r = sel.getRangeAt(0);
+  if (r.collapsed) {
+    // Nothing selected: switch the state typing will get here, like bold.
+    const now = censorStateAt(r, surf);
+    setCensorPending(!now, r, surf);
+    syncFmtState();
+    status(now ? "Censor off: what you type now stays readable" : "Censor on: what you type now is censored");
+    return;
+  }
+  markFormatStep();
+  ensureLines(surf);
+  r = sel.getRangeAt(0);
+  const res = setCensorRange(r, surf);
+  if (!res) { status("Select some text to censor", true); return; }
+  selectAtoms(res.first, res.last);
+  rememberSelection();
+  markDirtyFromFormatting();
+  syncFmtState();
+}
+$("fmt-censor").addEventListener("mousedown", e => e.preventDefault());
+$("fmt-censor").onclick = toggleCensor;
+
+// Clear formatting: bold, italic, underline, strikethrough, fonts, sizes,
+// colours and highlights come off the selection. Censoring stays (it is a
+// redaction, not a look) and so do links and paragraph alignment. Done here
+// rather than with the browser's removeFormat, which "clears" text by writing
+// the editor's own colours onto it, censored text included.
+function clearFormatting() {
+  if (trashViewId || backupView || syncing) return;
+  const surf = restoreSelection();
+  if (!surf) { status("Select the text to clear first", true); return; }
+  const sel = window.getSelection();
+  if (!sel.rangeCount || sel.isCollapsed) { status("Select the text to clear first", true); return; }
+  markFormatStep();
+  ensureLines(surf);
+  const r = splitRangeEnds(sel.getRangeAt(0));
+  const atoms = atomsIn(r, surf);
+  if (!atoms.length) return;
+  const lines = new Set(atoms.map(a => lineOf(a, surf) || alignBlockOf(a, surf) || surf));
+  const fmtOf = a => {   // the outermost formatting element around an atom, inside its line
+    let found = null;
+    for (let n = a.parentNode; n && n !== surf && !isLineEl(n) && !isFrameEl(n) && !isStructEl(n); n = n.parentNode)
+      if (n.nodeType === 1 && INLINE_FORMAT_EL.test(n.tagName) && !isCensorEl(n)) found = n;
+    return found;
+  };
+  for (let guard = 0; guard < atoms.length * 8 + 64; guard++) {
+    const i = atoms.findIndex(a => fmtOf(a));
+    if (i < 0) break;
+    const f = fmtOf(atoms[i]);
+    let j = i;
+    while (j + 1 < atoms.length && f.contains(atoms[j + 1])) j++;
+    unwrapEl(isolate(f, atoms[i], atoms[j]));
+  }
+  // Styles the browser put on a censor mark itself go too; the mark stays.
+  for (const a of atoms) { const c = censorAncestor(a, surf); if (c) c.removeAttribute("style"); }
+  for (const l of lines) if (l.isConnected) tidyInline(l);
+  selectAtoms(atoms[0], atoms[atoms.length - 1]);
+  rememberSelection();
+  markDirtyFromFormatting();
+  syncFmtState();
+}
+
+// ---------- Typing and the censor state ----------
+// The browser decides where typed text lands; the app then gives that text the
+// censor state the user chose. Plans are made in beforeinput (what was
+// selected, where the caret was) and carried out in input, once the text is in.
+let typingPlan = null, deletePlan = null, compositionPlan = null, inPlainPaste = false;
+function insertPlanAt(r, surf) {
+  let want = r.collapsed ? pendingCensorAt(r) : null;
+  // Typing over a selection keeps the state of what it replaces, like bold.
+  if (want === null && !r.collapsed) { const a = atomsTouched(r, surf)[0]; if (a) want = !!censorAncestor(a, surf); }
+  if (want === null) return null;
+  const root = lineOf(r.startContainer, surf) || surf;
+  return { surf, want, root, start: textOffset(root, r.startContainer, r.startOffset) };
+}
+function carryOutInsert(plan) {
+  const sel = window.getSelection();
+  censorPending = null;   // used up: from here the caret sits in the text it chose
+  if (!plan || !sel.rangeCount || !plan.root.isConnected) return;
+  const end = sel.getRangeAt(0);
+  const [sn, so] = pointAtOffset(plan.root, plan.start);
+  const r = document.createRange();
+  try { r.setStart(sn, so); r.setEnd(end.startContainer, end.startOffset); } catch { return; }
+  if (r.collapsed) return;
+  const res = setCensorRange(r, plan.surf, plan.want);
+  if (!res) return;
+  // The caret goes back to the end of what was typed, inside its new mark.
+  const c = document.createRange();
+  if (res.last.nodeType === 3) c.setStart(res.last, res.last.data.length); else c.setStartAfter(res.last);
+  c.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(c);
+}
+$("edit-wrap").addEventListener("beforeinput", e => {
+  const surf = surfaceOfNode(e.target);
+  if (!surf || trashViewId || backupView) return;
+  const t = e.inputType || "";
+  // The browser's own undo (Edit menu, context menu) would rewind the text
+  // behind the app's history: route it there instead.
+  if (t === "historyUndo" || t === "historyRedo") {
+    e.preventDefault();
+    if (currentId) (t === "historyUndo" ? historyUndo : historyRedo)();
+    return;
+  }
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) return;
+  const r = sel.getRangeAt(0);
+  if (t === "insertText" || t === "insertReplacementText" || t === "insertFromDrop" || t === "insertFromPaste") {
+    typingPlan = inPlainPaste ? null : insertPlanAt(r, surf);
+  } else if (t.startsWith("delete")) {
+    let ranges = [];
+    try { ranges = e.getTargetRanges().map(s => { const x = document.createRange(); x.setStart(s.startContainer, s.startOffset); x.setEnd(s.endContainer, s.endOffset); return x; }); } catch {}
+    if (!ranges.length && !r.collapsed) ranges = [r];
+    const touched = ranges.flatMap(x => atomsTouched(x, surf));
+    deletePlan = { surf, censored: touched.some(a => censorAncestor(a, surf)),
+      backward: /Backward|ByCut|ByDrag/.test(t) || !r.collapsed };
+  }
+});
+$("edit-wrap").addEventListener("input", e => {
+  const surf = surfaceOfNode(e.target);
+  if (!surf || e.isComposing) return;
+  const t = e.inputType || "";
+  const sel = window.getSelection();
+  if (typingPlan && /^insert/.test(t) && !inPlainPaste) { const p = typingPlan; typingPlan = null; carryOutInsert(p); }
+  if (deletePlan && /^delete/.test(t)) {
+    const p = deletePlan;
+    deletePlan = null;
+    // Deleting censored text backwards and typing on continues censored, as a
+    // deleted bold word's typing does; the button shows it, and one click ends it.
+    if (p.censored && p.backward && sel.rangeCount && sel.isCollapsed) {
+      const r = sel.getRangeAt(0);
+      if (!caretCensored(r, surf)) setCensorPending(true, r, surf);
+    }
+  }
+  const r = sel.rangeCount ? sel.getRangeAt(0) : null;
+  scrubCensorLook((r && lineOf(r.startContainer, surf)) || surf);
+  syncFmtState();
+});
+// Composed input (accents typed with a dead key, an IME) cannot be redirected
+// while it is being composed: the state is applied to the finished text.
+$("edit-wrap").addEventListener("compositionstart", () => {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) { compositionPlan = null; return; }
+  const r = sel.getRangeAt(0);
+  const surf = surfaceOfNode(r.startContainer);
+  compositionPlan = surf && !trashViewId && !backupView ? insertPlanAt(r, surf) : null;
+});
+$("edit-wrap").addEventListener("compositionend", () => {
+  const p = compositionPlan;
+  compositionPlan = null;
+  if (p) setTimeout(() => { carryOutInsert(p); scrubCensorLook(p.root); markDirtyFromFormatting(); syncFmtState(); }, 0);
+});
+
+// ---------- Copying never carries censored text out ----------
+// The clipboard and drag-and-drop are ways out of the app like any export: in
+// what they carry, every censored run becomes a row of blocks, sized by the
+// same coarse rule as the export's bars. Plain text only, since the rich copy
+// would hold the hidden characters with nothing but a style over them.
+function plainLines(root) {
+  const out = [];
+  let cur = "";
+  const push = () => { out.push(cur); cur = ""; };
+  (function walk(n) {
+    for (const c of n.childNodes) {
+      if (c.nodeType === 3) cur += c.data;
+      else if (c.nodeType !== 1 || isMediaEl(c)) continue;
+      else if (isCensorEl(c)) cur += "█".repeat(censorLenBucket((c.textContent || "").length));
+      else if (c.tagName === "BR") push();
+      else if (LINE_TAG(c.tagName) || c.tagName === "LI" || c.tagName === "TR") {
+        if (cur) push();
+        walk(c);
+        if (cur || !c.textContent) push();
+      } else if (c.tagName === "TD" || c.tagName === "TH") { walk(c); cur += "\t"; }
+      else walk(c);
+    }
+  })(root);
+  if (cur) push();
+  return out.join("\n").replace(/\t(?=\n|$)/g, "");
+}
+function censoredCopy(r) {
+  const holder = document.createElement("div");
+  holder.appendChild(r.cloneContents());
+  return holder.querySelector('[data-censor="1"]') ? plainLines(holder) : null;
+}
+function rangeTouchesCensor(r, surf) {
+  if (censorAncestor(r.startContainer, surf) || censorAncestor(r.endContainer, surf)) return true;
+  return !!r.cloneContents().querySelector('[data-censor="1"]');
+}
+for (const type of ["copy", "cut"]) document.addEventListener(type, e => {
+  const r = currentEditorRange();
+  if (!r || r.collapsed) return;
+  const surf = surfaceOfNode(r.startContainer);
+  if (!surf || !rangeTouchesCensor(r, surf)) return;
+  // A selection that starts or ends inside a mark takes the mark with it.
+  const c = r.cloneRange();
+  const s = censorAncestor(c.startContainer, surf), en = censorAncestor(c.endContainer, surf);
+  if (s) c.setStartBefore(s);
+  if (en) c.setEndAfter(en);
+  e.preventDefault();
+  e.clipboardData.setData("text/plain", censoredCopy(c) || "");
+  if (type === "cut" && !trashViewId && !backupView && !syncing) document.execCommand("delete");
+});
+
+// Every format the browser applies is written as a styled span, never as a
+// <font> tag the sanitizer would strip: from the first time a page is entered.
+$("edit-wrap").addEventListener("focusin", () => { try { document.execCommand("styleWithCSS", false, true); } catch {} });
 
 document.addEventListener("selectionchange", () => {
-  if (!currentEditorRange()) return;
+  const r = currentEditorRange();
+  if (!r) return;
+  // A censor state chosen at the caret lapses when the caret moves.
+  if (censorPending) pendingCensorAt(r);
   rememberSelection();
   syncFmtState();
 });
@@ -4429,9 +5181,13 @@ document.addEventListener("keydown", e => {
   const k = e.key.toLowerCase();
   // Undo/redo is ours, not the browser's: the native contenteditable stack
   // knows nothing about pages, designs or attachments, and letting it run would
-  // put the text and the note structure out of step.
+  // put the text and the note structure out of step. Only for the note itself
+  // (its pages and its title): in the search box or a dialog's field Ctrl+Z
+  // undid the NOTE behind it instead of the typing in the field.
   if (k === "z" || k === "y") {
-    if (!vault || !currentId || backupView || trashViewId) return;
+    if (!vault || !currentId || backupView || trashViewId || uiLayerOpen()) return;
+    const t = e.target;
+    if (t && t !== $("title") && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
     e.preventDefault();
     if (k === "y" || e.shiftKey) historyRedo(); else historyUndo();
     return;
@@ -4841,8 +5597,7 @@ function renderPrevPane() {
       sheet.appendChild(host);
       box.appendChild(sheet);
     }
-    if (p.bodyV === 2) host.appendChild(packAttachmentRuns(sanitizeBodyFragment(p.body || "")));
-    else host.appendChild(document.createTextNode(p.body || ""));
+    host.appendChild(bodyFragment(p.body, p.bodyV));
   });
   // Not draggable here: these wrappers belong to a frozen snapshot, and the
   // editor's reposition handler would try to move a node that is not in it.
@@ -5127,9 +5882,7 @@ function undesignPages(n) {
     const frames = [...holder.querySelectorAll("[data-frame]")];
     if (frames.length) {
       for (const f of frames) f.remove();          // drop the old design's frame
-      const acc = { s: "" };
-      serializeBodyInto(holder, acc);
-      return { name: p.name, body: acc.s.replace(/^\n+|\n+$/g, ""), bodyV: 2 };
+      return { name: p.name, body: canonicalBody(holder).replace(/^\n+|\n+$/g, ""), bodyV: 2 };
     }
     return { name: p.name, body: p.body || "", bodyV: p.bodyV };
   });
@@ -5181,9 +5934,7 @@ async function resetNoteLayout(id) {
       el.removeAttribute("style");
     }
     for (const el of holder.querySelectorAll("[data-split]")) el.removeAttribute("data-split");
-    const acc = { s: "" };
-    serializeBodyInto(holder, acc);
-    return acc.s.trim();
+    return canonicalBody(holder).trim();
   }).filter(Boolean);
   n.body = kept.join("\n");
   n.bodyV = 2;
@@ -5284,17 +6035,49 @@ $("split-save").onclick = () => {
 };
 
 const EDITOR_BLOCK_TAGS = new Set(["DIV", "P"]);
-function sanitizeStyle(style) {
+// The browser writes every colour it applies as rgb()/rgba(), never as the hex
+// the palette handed it, and a hex-only rule silently dropped them all: text
+// colour and highlight never survived a save. A strictly numeric rgb()/rgba()
+// becomes hex again here; anything looser still never gets through. Returns
+// "transparent" for a fully transparent colour, null for anything unreadable.
+function cssColorHex(val) {
+  const v = String(val || "").trim().toLowerCase();
+  if (/^#[0-9a-f]{3}$|^#[0-9a-f]{6}$|^#[0-9a-f]{8}$/.test(v)) return v;
+  if (v === "transparent") return "transparent";
+  const m = /^rgba?\(\s*(\d{1,3})\s*(?:,\s*|\s+)(\d{1,3})\s*(?:,\s*|\s+)(\d{1,3})\s*(?:[,/]\s*(\d*\.?\d+)(%?)\s*)?\)$/.exec(v);
+  if (!m) return null;
+  const rgb = [m[1], m[2], m[3]].map(Number);
+  if (rgb.some(n => n > 255)) return null;
+  let a = m[4] === undefined ? 1 : Number(m[4]) / (m[5] ? 100 : 1);
+  if (!(a >= 0 && a <= 1)) return null;
+  if (a === 0) return "transparent";
+  const hx = n => n.toString(16).padStart(2, "0");
+  return "#" + rgb.map(hx).join("") + (a < 1 ? hx(Math.round(a * 255)) : "");
+}
+// Colours the browser itself writes when it preserves a style while moving or
+// clearing text: the editor's own ink and paper. Nobody picks them, and keeping
+// them would print the dark editor's pale default text onto the white page.
+const BROWSER_COLORS = new Set(["#dcd6cc", "#111111"]);
+const BROWSER_BACKGROUNDS = new Set(["#181715", "#fffdf7"]);
+// inline=true for a text element (span, b, ...): alignment and sizes do nothing
+// there, so they are not kept (the browser leaves text-align on a span when two
+// lines with different alignment are joined).
+function sanitizeStyle(style, inline) {
   const out = [];
+  let color = null, background = null;
   for (const decl of String(style || "").split(";")) {
     const i = decl.indexOf(":");
     if (i < 0) continue;
     const prop = decl.slice(0, i).trim().toLowerCase();
     let val = decl.slice(i + 1).trim();
+    // Colours first: they are the one place a function, rgb(), is accepted, and
+    // only in the strict numeric form cssColorHex reads.
+    if (prop === "color") { color = cssColorHex(val); continue; }
+    if (prop === "background-color" || prop === "background") { background = cssColorHex(val); continue; }
     // Nothing that can fetch, position or escape: no url(), no functions, no
     // backslashes, no at-rules.
     if (/[\\(){}@;]|url|expression|import|var\s*\(/i.test(val)) continue;
-    if (prop === "text-align" && /^(left|right|center|justify)$/i.test(val)) out.push("text-align:" + val.toLowerCase());
+    if (prop === "text-align" && /^(left|right|center|justify)$/i.test(val)) { if (!inline) out.push("text-align:" + val.toLowerCase()); }
     else if (prop === "font-weight" && /^(bold|bolder|normal|[1-9]00)$/i.test(val)) out.push("font-weight:" + val.toLowerCase());
     else if (prop === "font-style" && /^(italic|normal)$/i.test(val)) out.push("font-style:" + val.toLowerCase());
     else if (prop === "text-decoration" && /^(underline|line-through|none)$/i.test(val)) out.push("text-decoration:" + val.toLowerCase());
@@ -5303,18 +6086,26 @@ function sanitizeStyle(style) {
       const fam = val.replace(/["']/g, "").split(",")[0].trim();
       if (FONT_ALLOW.has(fam.toLowerCase())) out.push("font-family:" + fam);
     }
-    else if (prop === "color" && /^#[0-9a-f]{3,8}$/i.test(val)) out.push("color:" + val.toLowerCase());
-    else if ((prop === "background-color" || prop === "background") && /^#[0-9a-f]{3,8}$/i.test(val))
-      out.push("background-color:" + val.toLowerCase());   // highlight; only a hex colour, never a url()
     else if (prop === "text-decoration-line" && /^(underline|line-through|none)$/i.test(val))
       out.push("text-decoration:" + val.toLowerCase());
     // Table cell sizing, bounded and px-only (no calc(), no percentages that
     // could blow the layout out of the page).
-    else if ((prop === "width" || prop === "height") && /^\d{1,4}px$/i.test(val)) {
+    else if (!inline && (prop === "width" || prop === "height") && /^\d{1,4}px$/i.test(val)) {
       const n = parseInt(val, 10);
       if (n >= 8 && n <= 2000) out.push(prop + ":" + n + "px");
     }
   }
+  // Transparent ink on a black box is the LOOK of censored text, which the
+  // browser copies onto new typing after censored text is deleted. Without the
+  // data-censor mark it is ordinary text that only looks hidden: drop the look
+  // rather than keep a redaction that is not one.
+  if (color === "transparent") {
+    color = null;
+    if (background === "#000" || background === "#000000") background = null;
+  }
+  if (color && !BROWSER_COLORS.has(color)) out.push("color:" + color);
+  if (background && background !== "transparent" && !BROWSER_BACKGROUNDS.has(background))
+    out.push("background-color:" + background);   // highlight; only a colour, never a url()
   return out.join(";");
 }
 // Image presentation, stored as data attributes rather than free-form CSS so the
@@ -5430,18 +6221,21 @@ function packAttachmentRuns(root) {
   const cardLine = n => n && n.nodeType === 1 && (n.tagName === "DIV" || n.tagName === "P")
     && !(n.dataset && n.dataset.frame)
     && [...n.childNodes].some(isCard)
-    && [...n.childNodes].every(c => isCard(c) || blank(c));
+    && [...n.childNodes].every(c => isCard(c) || blank(c) || (c.nodeType === 1 && c.tagName === "BR"));
   const walk = el => {
     el.normalize();
-    // Dissolve those lines: the cards join the surrounding flow, so a run of
-    // them packs across the row and wraps onto the next when it runs out.
+    // A run of those lines becomes ONE line, the cards side by side, so they
+    // pack across the row and wrap onto the next when they run out of room.
+    // (Merged rather than dissolved into the page: every line stays a line.)
     for (const b of [...el.children]) {
-      if (!cardLine(b)) { walk(b); continue; }
-      for (const c of [...b.childNodes]) if (isCard(c)) {
-        el.insertBefore(c, b);
-        el.insertBefore(document.createTextNode(" "), b);
+      if (b.parentNode !== el) continue;                 // merged into an earlier line
+      if (!cardLine(b)) { if (!isMediaEl(b)) walk(b); continue; }
+      for (let n = near(b, "nextSibling"); n && cardLine(n); n = near(b, "nextSibling")) {
+        while (b.nextSibling !== n) b.nextSibling.remove();   // the blank text between them
+        for (const c of [...n.childNodes]) if (isCard(c)) { b.appendChild(document.createTextNode(" ")); b.appendChild(c); }
+        n.remove();
       }
-      b.remove();
+      for (const c of [...b.childNodes]) if (c.nodeType === 1 && c.tagName === "BR") c.remove();
     }
     el.normalize();
     // And a line break between two attachments is just a space.
@@ -5509,19 +6303,19 @@ function sanitizeBodyInto(src, dest) {
         a.setAttribute("href", href);
         a.setAttribute("target", "_blank");
         a.setAttribute("rel", "noopener noreferrer");
-        const st = sanitizeStyle(child.getAttribute("style"));
+        const st = sanitizeStyle(child.getAttribute("style"), true);
         if (st) a.setAttribute("style", st);
         sanitizeBodyInto(child, a);
         dest.appendChild(a);
       } else if (INLINE_FMT_TAGS.has(child.tagName)) {
         const tag = INLINE_FMT_TAGS.get(child.tagName);
-        const st = sanitizeStyle(child.getAttribute("style"));
+        const st = sanitizeStyle(child.getAttribute("style"), true);
         const censored = child.getAttribute("data-censor") === "1";
         // A <span> that carries nothing we allow is pure noise: unwrap it.
         if (tag === "span" && !st && !censored) { sanitizeBodyInto(child, dest); return; }
         const el = document.createElement(tag);
         if (st) el.setAttribute("style", st);
-        if (censored) el.setAttribute("data-censor", "1");
+        if (censored) censorMark(el);
         sanitizeBodyInto(child, el);
         dest.appendChild(el);
       } else {
@@ -5540,17 +6334,342 @@ function sanitizeBodyFragment(html) {
   return frag;
 }
 
+// ---------- Lines ----------
+// The editor works in LINES: every visual line of a note is a <div> of its own,
+// directly in the page or in a design frame. That is what lets alignment, Enter
+// and censoring act on exactly the line or paragraph the caret is in. Stored
+// bodies keep their old shape (plain lines joined by "\n", a styled line as
+// <div style>, tables, lists and frames as blocks), so older copies of the app
+// read them unchanged. normalizeLines turns that shape, or whatever the browser
+// produced while typing, into one <div> per line, by the same rules the browser
+// lays the markup out with under white-space: pre-wrap, so nothing moves:
+//   - "\n" and <br> end a line, and an empty line between two breaks is a line;
+//   - a break at the end of a run adds no line ("a\n" is one line), while one at
+//     its start does ("<div>b</div>\nc" has an empty line between b and c);
+//   - a table, a list, a frame and a styled line sit on lines of their own, and
+//     a plain <div> just contributes the lines it holds.
+// Formatting that spans a break (<b>a\nb</b>) is cloned onto each line, and a
+// table or list found inside a censored span takes the censoring down into its
+// own text, so restructuring can never uncensor anything.
+const LINE_TAG = t => t === "DIV" || t === "P";
+const isFrameEl = n => !!n && n.nodeType === 1 && LINE_TAG(n.tagName) &&
+  (n.getAttribute("data-frame") === "top" || n.getAttribute("data-frame") === "bottom");
+const isLineEl = n => !!n && n.nodeType === 1 && LINE_TAG(n.tagName) && !isFrameEl(n);
+const isMediaEl = n => !!n && n.nodeType === 1 && !!n.classList && n.classList.contains("inline-media");
+// Pinned pictures and tables sit at their own spot on the page, out of the text flow.
+const isFloatEl = n => !!n && n.nodeType === 1 && !!n.classList && n.classList.contains("floating");
+// The two zero-size markers keepSelection parks the selection on while lines are rebuilt.
+const isSelMarker = n => !!n && n.nodeType === 1 && n.hasAttribute("data-sel");
+const isCensorEl = n => !!n && n.nodeType === 1 && n.getAttribute("data-censor") === "1";
+// Makes el a censor mark. Spell-checking is off inside it: squiggles under a bar
+// would show where its words end and which are misspelt. (spellcheck is a live
+// attribute only; the serializer never writes it.)
+function censorMark(el) {
+  el.setAttribute("data-censor", "1");
+  el.setAttribute("spellcheck", "false");
+  return el;
+}
+function uncensorMark(el) {
+  el.removeAttribute("data-censor");
+  el.removeAttribute("spellcheck");
+}
+// A mark carrying nothing else, which can merge with a neighbouring one.
+const isBareMark = n => !!n && n.nodeType === 1 && n.tagName === "SPAN" && isCensorEl(n) &&
+  [...n.attributes].every(a => a.name === "data-censor" || a.name === "spellcheck");
+// Structure that stays as it is: never split into lines, never put inside one.
+const isStructEl = n => !!n && n.nodeType === 1 && /^(TABLE|UL|OL|LI|THEAD|TBODY|TFOOT|TR|TD|TH)$/.test(n.tagName);
+
+// A line already in shape: no block inside it, no "\n", and no <br> except one
+// placeholder at its very end (which is what gives an empty line its height).
+function isCleanLine(el) {
+  if (!isLineEl(el)) return false;
+  let brs = 0, last = null, ok = true;
+  (function scan(node) {
+    for (const c of node.childNodes) {
+      if (!ok) return;
+      if (c.nodeType === 3) { if (c.data.includes("\n")) ok = false; else if (c.data) last = c; }
+      else if (c.nodeType === 1) {
+        if (isMediaEl(c)) { if (isFloatEl(c)) ok = false; else last = c; }
+        else if (c.tagName === "BR") { brs++; last = c; }
+        else if (LINE_TAG(c.tagName) || isStructEl(c)) ok = false;
+        else if (!isSelMarker(c)) scan(c);
+      }
+    }
+  })(el);
+  return ok && (brs === 0 || (brs === 1 && !!last && last.tagName === "BR"));
+}
+
+// Flattens a run of nodes into pieces: { leaf, chain } for text, attachments and
+// markers (chain = the inline elements around it, outermost first), LINE_BREAK,
+// { open: style } / { close } around a plain <div>'s own lines, { block } for
+// structure that stays whole and { float } for pinned items.
+const LINE_BREAK = { br: true };
+function flattenRun(nodes, chain, out) {
+  for (const c of nodes) {
+    if (c.nodeType === 3) {
+      if (!c.data) continue;
+      if (!c.data.includes("\n")) { out.push({ leaf: c, chain }); continue; }
+      c.data.split("\n").forEach((part, i) => {
+        if (i) out.push(LINE_BREAK);
+        if (part) out.push({ leaf: document.createTextNode(part), chain });
+      });
+    } else if (c.nodeType === 1) {
+      if (c.tagName === "BR") out.push(LINE_BREAK);
+      else if (isSelMarker(c)) out.push({ leaf: c, chain, marker: true });
+      else if (isFloatEl(c)) out.push({ float: c });
+      else if (isMediaEl(c)) out.push({ leaf: c, chain });
+      else if (isFrameEl(c) || isStructEl(c)) out.push({ block: c, chain });
+      else if (LINE_TAG(c.tagName)) {
+        out.push({ open: c.getAttribute("style") || "" });
+        flattenRun([...c.childNodes], chain, out);
+        out.push({ close: true });
+      } else flattenRun([...c.childNodes], [...chain, c], out);
+    }
+  }
+}
+// The declarations of two style strings, the inner one winning.
+function mergeStyle(outer, inner) {
+  if (!outer) return inner || "";
+  if (!inner) return outer;
+  const decls = new Map();
+  for (const s of [outer, inner]) for (const d of s.split(";")) {
+    const i = d.indexOf(":");
+    if (i > 0) decls.set(d.slice(0, i).trim().toLowerCase(), d.slice(i + 1).trim());
+  }
+  return [...decls].map(([k, v]) => k + ":" + v).join(";");
+}
+// One line <div> from its pieces, re-creating the inline formatting around each
+// piece (shared between neighbours, so "<b>ab</b>" stays one <b>).
+function buildLine(pieces, style) {
+  const div = document.createElement("div");
+  if (style) div.setAttribute("style", style);
+  const open = [];   // { orig, el }: clones of the formatting chain currently open
+  for (const p of pieces) {
+    let k = 0;
+    while (k < open.length && k < p.chain.length && open[k].orig === p.chain[k]) k++;
+    open.length = k;
+    let parent = k ? open[k - 1].el : div;
+    // A caret marker never opens formatting of its own (that would leave an
+    // empty <b></b> behind once the marker is gone).
+    if (!p.marker) for (let j = k; j < p.chain.length; j++) {
+      const cl = p.chain[j].cloneNode(false);
+      parent.appendChild(cl);
+      open.push({ orig: p.chain[j], el: cl });
+      parent = cl;
+    }
+    parent.appendChild(p.leaf);
+  }
+  if (!pieces.some(p => !p.marker)) div.appendChild(document.createElement("br"));
+  return div;
+}
+function appendToLine(line, pieces) {
+  const br = line.lastChild && line.lastChild.nodeType === 1 && line.lastChild.tagName === "BR" ? line.lastChild : null;
+  for (const p of pieces) line.insertBefore(p.leaf, br);
+}
+// Wraps every piece of text and every attachment under root in a censor mark,
+// for structure lifted out of a censored span.
+function censorizeAll(root) {
+  const atoms = [];
+  (function walk(n) {
+    for (const c of n.childNodes) {
+      if (c.nodeType === 3) { if (c.data && !/^(TABLE|THEAD|TBODY|TFOOT|TR|UL|OL)$/.test(n.tagName)) atoms.push(c); }
+      else if (c.nodeType === 1 && !isCensorEl(c)) { if (isMediaEl(c)) { if (!isFloatEl(c)) atoms.push(c); } else walk(c); }
+    }
+  })(root);
+  for (const a of atoms) {
+    const sp = censorMark(document.createElement("span"));
+    a.parentNode.insertBefore(sp, a);
+    sp.appendChild(a);
+  }
+}
+function linesFromPieces(pieces) {
+  const made = [], styles = [""];
+  let seg = [], carry = [];
+  const lastLine = () => { for (let i = made.length - 1; i >= 0; i--) if (isLineEl(made[i])) return made[i]; return null; };
+  const end = byBreak => {
+    const s = carry.length ? carry.concat(seg) : seg;
+    carry = []; seg = [];
+    if (byBreak || s.some(p => !p.marker)) made.push(buildLine(s, styles[styles.length - 1]));
+    else if (s.length) {
+      // Only a caret marker, at the end of a run: it belongs at the end of the
+      // line before, not on a line of its own that the layout does not have.
+      const ln = lastLine();
+      if (ln) appendToLine(ln, s); else carry = s;
+    }
+  };
+  for (const p of pieces) {
+    if (p === LINE_BREAK) end(true);
+    else if (p.open !== undefined) { end(false); styles.push(mergeStyle(styles[styles.length - 1], p.open)); }
+    else if (p.close) { end(false); styles.pop(); }
+    else if (p.float) made.push(p.float);
+    else if (p.block) {
+      end(false);
+      if (p.chain.some(isCensorEl)) censorizeAll(p.block);
+      if (isFrameEl(p.block)) normalizeLines(p.block);
+      made.push(p.block);
+    } else seg.push(p);
+  }
+  end(false);
+  if (carry.length) { const ln = lastLine(); if (ln) appendToLine(ln, carry); else made.push(buildLine(carry, "")); }
+  return made;
+}
+// Puts a container (a page, a frame, a fragment about to become one) into line
+// form. Lines already in shape stay exactly as they are, keeping their identity
+// (so a live caret or a selected picture is not disturbed); only the runs of
+// anything else are rebuilt. Returns true when it changed something.
+function normalizeLines(container) {
+  let changed = false, run = [];
+  const flush = () => {
+    if (!run.length) return;
+    const anchor = document.createComment("");
+    container.insertBefore(anchor, run[0]);
+    const pieces = [];
+    flattenRun(run, [], pieces);
+    const made = linesFromPieces(pieces);
+    for (const n of made) container.insertBefore(n, anchor);
+    // What is left of the run is husks: emptied wrappers and the text that was split.
+    for (const n of run) if (n.parentNode === container && !made.includes(n)) n.remove();
+    anchor.remove();
+    run = [];
+    changed = true;
+  };
+  for (const c of [...container.childNodes]) {
+    if ((c.nodeType === 3 && !c.data) || c.nodeType === 8) { c.remove(); changed = true; continue; }
+    if (isCleanLine(c) || isStructEl(c) || isFloatEl(c)) { flush(); continue; }
+    if (isFrameEl(c)) { flush(); if (normalizeLines(c)) changed = true; continue; }
+    run.push(c);
+  }
+  flush();
+  return changed;
+}
+function linesNeeded(container) {
+  for (const c of container.childNodes) {
+    if (isFrameEl(c)) { if (linesNeeded(c)) return true; continue; }
+    if (!(isCleanLine(c) || isStructEl(c) || isFloatEl(c))) return true;
+  }
+  return false;
+}
+// Runs fn, which may rebuild DOM under root, and puts the selection back on the
+// same characters afterwards. The selection rides along on two marker elements:
+// a rebuild moves nodes around, which would otherwise reset it.
+function keepSelection(root, fn) {
+  const sel = window.getSelection();
+  let s = null, e = null;
+  if (sel && sel.rangeCount) {
+    const r = sel.getRangeAt(0);
+    if (root.contains(r.startContainer) && root.contains(r.endContainer)) {
+      const mark = () => { const m = document.createElement("span"); m.setAttribute("data-sel", ""); return m; };
+      if (!r.collapsed) { e = mark(); const re = r.cloneRange(); re.collapse(false); re.insertNode(e); }
+      s = mark();
+      const rs = r.cloneRange(); rs.collapse(true); rs.insertNode(s);
+    }
+  }
+  try { return fn(); }
+  finally { if (s) selectFromMarkers(s, e); }
+}
+function selectFromMarkers(s, e) {
+  if (!s.isConnected) { s.remove(); if (e) e.remove(); return; }
+  const r = document.createRange();
+  r.setStartBefore(s);
+  if (e && e.isConnected) r.setEndBefore(e); else r.collapse(true);
+  const parents = new Set([s.parentNode, e && e.parentNode]);
+  s.remove();
+  if (e) e.remove();
+  // The markers split the text they were dropped into; join it back up. The
+  // range is live, so it follows the merge.
+  for (const p of parents) if (p && p.isConnected) p.normalize();
+  snapToText(r);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(r);
+}
+// A boundary between two nodes moves into the text beside it, where the caret
+// of a typing user actually lives.
+function snapToText(r) {
+  const snap = (node, off) => {
+    if (node.nodeType !== 1) return [node, off];
+    const before = node.childNodes[off - 1], after = node.childNodes[off];
+    if (before && before.nodeType === 3) return [before, before.data.length];
+    if (after && after.nodeType === 3) return [after, 0];
+    return [node, off];
+  };
+  const [sc, so] = snap(r.startContainer, r.startOffset);
+  if (r.collapsed) { r.setStart(sc, so); r.collapse(true); return; }
+  const [ec, eo] = snap(r.endContainer, r.endOffset);
+  r.setStart(sc, so);
+  r.setEnd(ec, eo);
+}
+// Makes sure the surface is in line form before an operation that works on
+// lines. Lines already in shape are left alone, so this is cheap when nothing
+// strayed (typing into an emptied page leaves bare text the browser never
+// wraps, for one).
+function ensureLines(surface) {
+  if (!surface || !linesNeeded(surface)) return false;
+  keepSelection(surface, () => normalizeLines(surface));
+  return true;
+}
+// A stored body as page content: sanitized, attachment rows packed, in lines.
+function bodyFragment(body, bodyV) {
+  let frag;
+  if (bodyV === 2) frag = sanitizeBodyFragment(body || "");
+  else {
+    // Legacy plain text stays text: it only ever becomes text nodes.
+    frag = document.createDocumentFragment();
+    if (body) frag.appendChild(document.createTextNode(body));
+  }
+  packAttachmentRuns(frag);
+  normalizeLines(frag);
+  // An empty page still has one (empty) line, so the first thing typed lands in
+  // a line like everything after it: into a bare page the browser types text
+  // that belongs to no line at all.
+  if (!frag.firstChild) frag.appendChild(buildLine([], ""));
+  return frag;
+}
+// sanitize + lines + serialize, for code that rewrites stored bodies.
+function canonicalBody(holder) {
+  normalizeLines(holder);
+  const acc = { s: "" };
+  serializeBodyInto(holder, acc);
+  return acc.s;
+}
+// The line (a <div> directly in a page or a frame) holding a node, or null.
+function lineOf(node, surf) {
+  for (let n = node && (node.nodeType === 1 ? node : node.parentNode); n && n !== surf; n = n.parentNode) {
+    if (isLineEl(n) && n.parentNode && (n.parentNode === surf || isFrameEl(n.parentNode))) return n;
+    if (isStructEl(n)) return null;   // inside a table or a list
+  }
+  return null;
+}
+// A line with nothing typed on it: no attachment and no visible character.
+const isEmptyLine = el => !el.querySelector(".inline-media") && !/[^\s\u200b]/.test(el.textContent || "");
+
 // ----- save side: canonical serializer (same allowlist, string out) -----
 // Line breaks (from <br> or block boundaries) canonicalize to "\n"; inline media
 // serialize from validated data-mid/data-kind ALONE (never from the live child),
 // so a device missing the bytes still round-trips the reference losslessly and no
 // blob:/data: src can ever reach the stored string. serialize(sanitize(B)) === B.
+// acc.at marks where a line is known to begin without a "\n": the start of a
+// container (the note, a frame, a list item, a cell) and the end of a block.
+// Writing a "\n" there as well put an empty line after every centred line, frame
+// or table each time the note was reopened, because under pre-wrap a newline
+// right after a block is an empty line of its own.
+// acc.pend: a plain line has just ended. Its "\n" is only written if more
+// inline content follows directly (a picture dropped after the last line, say),
+// which would otherwise join the line above it on the next load.
 function serializeBodyInto(node, acc) {
+  if (acc.at === undefined) acc.at = acc.s.length;
+  const lineStart = () => acc.s.length === acc.at || acc.s.endsWith("\n");
+  const inline = () => { if (acc.pend) { if (!lineStart()) acc.s += "\n"; acc.pend = false; } };
   node.childNodes.forEach(child => {
     if (child.nodeType === 3) {
+      if (!child.data) return;
+      inline();
       acc.s += escapeHtml(child.data);
     } else if (child.nodeType === 1) {
       const im = validInlineMedia(child);
+      if (im || child.tagName === "BR" || child.tagName === "A" || INLINE_FMT_TAGS.has(child.tagName)) inline();
+      else if (EDITOR_BLOCK_TAGS.has(child.tagName) || LIST_TAGS.has(child.tagName) || TABLE_TAGS.has(child.tagName))
+        acc.pend = false;   // a block writes its own line break
       if (im) {
         const lay = mediaLayout(child);
         acc.s += '<span class="inline-media" data-mid="' + im.mid + '" data-kind="' + im.kind + '"' +
@@ -5567,19 +6686,18 @@ function serializeBodyInto(node, acc) {
         // unformatted note round-trips byte-identically to the old format.
         const st = sanitizeStyle(child.getAttribute("style"));
         const fr = child.getAttribute && child.getAttribute("data-frame");
-        if (fr === "top" || fr === "bottom") {
-          if (acc.s.length && !acc.s.endsWith("\n")) acc.s += "\n";
-          acc.s += '<div data-frame="' + fr + '"' + (st ? ' style="' + st + '"' : "") + ">";
+        if (fr === "top" || fr === "bottom" || st) {
+          if (!lineStart()) acc.s += "\n";
+          acc.s += "<div" + (fr === "top" || fr === "bottom" ? ' data-frame="' + fr + '"' : "") +
+            (st ? ' style="' + st + '"' : "") + ">";
+          acc.at = acc.s.length;
           serializeBodyInto(child, acc);
           acc.s += "</div>";
-        } else if (st) {
-          if (acc.s.length && !acc.s.endsWith("\n")) acc.s += "\n";
-          acc.s += '<div style="' + st + '">';
-          serializeBodyInto(child, acc);
-          acc.s += "</div>";
+          acc.at = acc.s.length;
         } else {
-          if (acc.s.length && !acc.s.endsWith("\n")) acc.s += "\n";
+          if (!lineStart()) acc.s += "\n";
           serializeBodyInto(child, acc);
+          acc.pend = true;
         }
       } else if (LIST_TAGS.has(child.tagName) || TABLE_TAGS.has(child.tagName)) {
         const tag = child.tagName.toLowerCase();
@@ -5595,8 +6713,10 @@ function serializeBodyInto(node, acc) {
           if (v > 1 && v <= 50) attrs += ` ${a}="${v}"`;
         }
         acc.s += "<" + tag + attrs + ">";
+        acc.at = acc.s.length;
         serializeBodyInto(child, acc);
         acc.s += "</" + tag + ">";
+        acc.at = acc.s.length;
       } else if (child.tagName === "A") {
         const href = safeHref(child.getAttribute("href"));
         if (!href) { serializeBodyInto(child, acc); return; }
@@ -5605,7 +6725,7 @@ function serializeBodyInto(node, acc) {
         acc.s += "</a>";
       } else if (INLINE_FMT_TAGS.has(child.tagName)) {
         const tag = INLINE_FMT_TAGS.get(child.tagName);
-        const st = sanitizeStyle(child.getAttribute("style"));
+        const st = sanitizeStyle(child.getAttribute("style"), true);
         const censored = child.getAttribute("data-censor") === "1";
         if (tag === "span" && !st && !censored) { serializeBodyInto(child, acc); return; }
         acc.s += "<" + tag + (censored ? ' data-censor="1"' : "") + (st ? ' style="' + st + '"' : "") + ">";
@@ -5864,6 +6984,8 @@ function insertInlineWrapper(wrapper, range) {
   after.collapse(true);
   const sel = window.getSelection();
   if (sel) { sel.removeAllRanges(); sel.addRange(after); }
+  // Dropped past the last line it would sit in no line at all: give it one.
+  ensureLines(editor);
   updateEditorEmpty();
 }
 
@@ -5914,6 +7036,7 @@ function scheduleInlineSave() {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(saveCurrent, 400);
   }
+  scheduleRepaginate();   // a page that lost a picture may take lines back from the next
   renderStatus();
 }
 
@@ -5966,14 +7089,13 @@ function setEditorBody(body, opts) {
   opts = opts || {};
   const gen = ++editorSeq;
   const editor = $("editor");
+  // Both shapes are shown as lines: a legacy plain body only ever becomes text
+  // nodes inside them, so it stays exactly as inert as textContent made it.
+  editor.replaceChildren(bodyFragment(body, opts.bodyV));
   if (opts.bodyV === 2) {
-    editor.replaceChildren(packAttachmentRuns(sanitizeBodyFragment(body || "")));
     editorPlainOrig = null;
     hydrateInlineMedia(gen);
-  } else {
-    editor.textContent = body || "";
-    editorPlainOrig = body || "";
-  }
+  } else editorPlainOrig = body || "";
   editorBaseline = getEditorBody(editor);
   updateEditorEmpty();
 }
@@ -5986,7 +7108,7 @@ function fitSheets() {
   if (!box || !document.body.classList.contains("paged-view")) return;
   const sheets = [...box.querySelectorAll(".sheet")];
   if (!sheets.length) return;
-  const avail = box.clientWidth - 32;
+  const avail = box.clientWidth - 32;   // 16px clear on either side
   const natural = sheets[0].offsetWidth || 1;
   const k = Math.min(1, avail / natural);
   box.style.setProperty("--sheet-k", k.toFixed(4));
@@ -5994,7 +7116,7 @@ function fitSheets() {
     const h = s.offsetHeight;
     // scale(k) leaves the layout box full size: pull the leftover back.
     s.style.marginBottom = (20 - h * (1 - k)) + "px";
-    s.style.marginLeft = Math.max(0, (avail - natural * k) / 2) + "px";
+    s.style.marginLeft = 16 + Math.max(0, (avail - natural * k) / 2) + "px";
     s.style.marginRight = (-natural * (1 - k)) + "px";
   }
 }
@@ -6024,8 +7146,7 @@ function renderSheets() {
     bodyEl.contentEditable = ro ? "false" : "true";
     bodyEl.spellcheck = true;
     bodyEl.dataset.page = String(i);
-    if (p.bodyV === 2) bodyEl.replaceChildren(packAttachmentRuns(sanitizeBodyFragment(p.body || "")));
-    else bodyEl.textContent = p.body || "";
+    bodyEl.replaceChildren(bodyFragment(p.body, p.bodyV));
     sheet.appendChild(label);
     sheet.appendChild(bodyEl);
     box.appendChild(sheet);
@@ -6235,7 +7356,7 @@ function repaginateDom() {
       //   last  - move a whole trailing block down
       //   into  - the page is ONE block that is too big: split inside it
       //   (neither) - genuinely atomic, e.g. one huge picture: leave it alone
-      let last = null, into = null;
+      let last = null, into = null, lineRest = null, lineBox = null;
       if (tail.nodeType === 3 && tail.data.trim()) {
         last = splitTextTail(el, tail);          // typed prose: cut at the page bottom
         if (!last && kids.length > 1) last = tail;   // nothing of it fits here at all
@@ -6248,7 +7369,13 @@ function repaginateDom() {
         // point - it does not fit HERE, and anything with more than one child
         // can give one up.
         const box = tail.nodeType === 1 ? tail : (solid[0] && solid[0].nodeType === 1 ? solid[0] : null);
-        if (box && splitCount(box) > 1) into = box;
+        // One line - a paragraph typed without Enter - longer than a whole page:
+        // its text is cut where the page ends and the rest carries on at the top
+        // of the next page as the same line (data-split), rejoined below when
+        // room appears again.
+        const t = box && isLineEl(box) ? box.lastChild : null;
+        if (t && t.nodeType === 3 && t.data.trim() && (lineRest = splitTextTail(el, t))) lineBox = box;
+        else if (box && splitCount(box) > 1) into = box;
         else break;
       }
       let next = sheetEls()[i + 1];
@@ -6259,6 +7386,17 @@ function repaginateDom() {
       const nb = bodyOf(next);
       if (into) {
         if (!splitBox(nb, into)) break;
+      } else if (lineRest) {
+        const head = flowChildren(nb)[0];
+        if (head && isLineEl(head) && head.dataset.split === "1") head.insertBefore(lineRest, head.firstChild);
+        else {
+          const cont = lineBox.cloneNode(false);
+          cont.dataset.split = "1";
+          cont.appendChild(lineRest);
+          const at = flowStart(nb);
+          if (at) nb.insertBefore(cont, at); else nb.appendChild(cont);
+        }
+        nb.normalize();
       } else {
         const at = flowStart(nb);
         if (at) nb.insertBefore(last, at); else nb.appendChild(last);
@@ -6280,8 +7418,21 @@ function repaginateDom() {
       const first = flowChildren(ub)[0];
       if (!first) break;                       // empty: the remover below takes it
       // A block that had to be SPLIT across pages is left alone: pulling the
-      // continuation half up would stack it under its own first half.
-      if (first.nodeType === 1 && first.dataset && first.dataset.split === "1") break;
+      // continuation half up would stack it under its own first half. A split
+      // LINE is the exception: its rest rejoins the line it was cut from, when
+      // the whole of it fits again.
+      if (first.nodeType === 1 && first.dataset && first.dataset.split === "1") {
+        const prev = flowChildren(el).slice(-1)[0];
+        if (!(isLineEl(first) && prev && isLineEl(prev))) break;
+        const moving = [...first.childNodes];
+        for (const c of moving) prev.appendChild(c);
+        if (overflowing(el)) { for (const c of moving) first.appendChild(c); break; }
+        first.remove();
+        prev.normalize();
+        moved = true;
+        if (!flowChildren(ub).some(x => x.nodeType !== 3 || x.data.trim())) { up.remove(); up = sheetEls()[i + 1]; }
+        continue;
+      }
       const home = first.nextSibling;          // exactly where to put it back
       const at = flowEnd(el);
       if (at) el.insertBefore(first, at); else el.appendChild(first);
@@ -6579,8 +7730,10 @@ function saveCurrent() {
   const tgt = activeBody(n);
   // Migration is edit-triggered: a still-legacy body whose text is unchanged (and
   // has no inline media) stays plain with no bodyV, so renaming an old note never
-  // rewrites its body or forks it against a not-yet-upgraded device.
-  if (editorPlainOrig !== null && !editorHasInlineMedia() && $("editor").textContent === editorPlainOrig) {
+  // rewrites its body or forks it against a not-yet-upgraded device. "Unchanged"
+  // is judged against the load-time baseline: the page shows the text as lines,
+  // so its textContent no longer carries the newlines to compare with.
+  if (editorPlainOrig !== null && !editorHasInlineMedia() && html === editorBaseline) {
     // body unchanged; leave the body / bodyV as-is (only the title moved)
   } else {
     tgt.body = html;
@@ -6613,7 +7766,7 @@ let statusTimer = null, statusIsError = false;
 function status(msg, err, sticky) {
   clearTimeout(statusTimer);
   $("status").textContent = msg;
-  $("status").style.color = err ? "#e66" : "#888";
+  $("status").style.color = err ? "var(--bad)" : "var(--t3)";
   statusIsError = !!err;
   if (msg && !err && !sticky) statusTimer = setTimeout(() => { $("status").textContent = ""; }, 4000);
 }
@@ -6676,11 +7829,13 @@ function renderStatus() {
   sb.disabled = !dirty || syncing || !!trashViewId;
   sb.textContent = dirty ? "Save" : (currentId ? "Saved" : "Save");
   sb.style.minWidth = "62px";   // label swaps Save/Saved; do not resize the title input
+  // Second screen compares against the open note: with none open it could only do nothing.
+  $("split-btn").disabled = !splitMode && (!currentId || !!trashViewId || syncing);
 
   const ls = $("last-synced");
   if (syncMeta.lastSyncedAt == null) {
     ls.textContent = "Never synced";
-    ls.style.color = "#ea5";
+    ls.style.color = "var(--warn)";
   } else {
     const d = new Date(syncMeta.lastSyncedAt);
     const dOpts = { month: "short", day: "numeric" };
@@ -6688,7 +7843,7 @@ function renderStatus() {
     ls.textContent = "Last synced " +
       d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) + ", " +
       d.toLocaleDateString(undefined, dOpts);
-    ls.style.color = "#888";
+    ls.style.color = "var(--t3)";
   }
 
   const unsyncedN = unsyncedCount();   // notes + folders + trash + both deletion kinds
@@ -7823,9 +8978,25 @@ document.addEventListener("paste", e => {
   if (!trashViewId && editorHasFocus(e.target)) {
     e.preventDefault();
     const text = e.clipboardData ? e.clipboardData.getData("text/plain") : "";
-    if (text) document.execCommand("insertText", false, text);
+    if (text) insertPlainText(text);
   }
 });
+// Pasted or dropped text goes in as plain text, one line per line, and takes the
+// censor state of the caret exactly like typing does.
+function insertPlainText(text) {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) return;
+  const surf = surfaceOfNode(sel.getRangeAt(0).startContainer);
+  if (!surf) return;
+  const plan = insertPlanAt(sel.getRangeAt(0), surf);
+  inPlainPaste = true;
+  try { document.execCommand("insertText", false, String(text).replace(/\r\n?/g, "\n")); }
+  finally { inPlainPaste = false; }
+  if (plan) carryOutInsert(plan);
+  ensureLines(surf);
+  scrubCensorLook(surf);
+  syncFmtState();
+}
 
 // Drop target is the whole main column (editor, strip, banners).
 let dragDepth = 0;
@@ -7882,7 +9053,19 @@ document.addEventListener("drop", e => {
 // dragged image reappear as a duplicate instead of moving.
 $("edit-wrap").addEventListener("dragstart", e => {
   const w = (e.target && e.target.nodeType === 1) ? e.target.closest("span.inline-media") : null;
-  if (!wrapperOf(w) || !surfaceOfNode(w)) return;   // text-selection drag, or the read-only reference pane
+  if (!wrapperOf(w)) {
+    // Dragging selected text: like a copy, it never carries censored characters.
+    const r = currentEditorRange(), surf = r && surfaceOfNode(r.startContainer);
+    if (r && surf && !r.collapsed && e.dataTransfer && rangeTouchesCensor(r, surf)) {
+      const c = r.cloneRange();
+      const s = censorAncestor(c.startContainer, surf), en = censorAncestor(c.endContainer, surf);
+      if (s) c.setStartBefore(s);
+      if (en) c.setEndAfter(en);
+      try { e.dataTransfer.clearData(); e.dataTransfer.setData("text/plain", censoredCopy(c) || ""); } catch {}
+    }
+    return;
+  }
+  if (!surfaceOfNode(w)) return;   // the read-only reference pane
   if (ingestBlocked()) { e.preventDefault(); return; }
   // The handles must not travel with the node (they are not part of the
   // content, and removing them mid-drag would mutate the drag source).
@@ -7953,7 +9136,7 @@ $("edit-wrap").addEventListener("drop", e => {
   target.focus();
   const sel = window.getSelection();
   if (sel) { sel.removeAllRanges(); sel.addRange(r); }
-  document.execCommand("insertText", false, text);
+  insertPlainText(text);
 });
 
 // ---------- Attachments: strip ----------
@@ -8365,13 +9548,14 @@ for (const el of [$("title"), $("editor")])
 // one, removes the whole node as a unit (browsers handle a contentEditable=false child
 // inconsistently). Deleting an inline element NEVER touches note.media - the file stays
 // in the strip, downloadable; only the body reference and its placement are dropped.
-$("editor").addEventListener("keydown", e => {
-  if (trashViewId) return;
+// On every page of a paged note too, not only the single-page editor.
+$("edit-wrap").addEventListener("keydown", e => {
+  if (trashViewId || backupView || syncing) return;
   if (e.key !== "Backspace" && e.key !== "Delete") return;
   const sel = window.getSelection();
   if (!sel || !sel.rangeCount) return;
   const r = sel.getRangeAt(0);
-  if (!r.collapsed) return;   // a range delete already removes any wrapper inside it; 'input' persists
+  if (!r.collapsed || !surfaceOfNode(r.startContainer)) return;   // a range delete already removes any wrapper inside it; 'input' persists
   const target = e.key === "Backspace" ? wrapperOf(nodeBeforeCaret(r)) : wrapperOf(nodeAfterCaret(r));
   if (!target) return;        // caret not adjacent to a wrapper: ordinary character delete
   e.preventDefault();
@@ -8496,6 +9680,19 @@ async function ghRaw(path) {
   });
   if (!res.ok && res.status !== 404) throw await ghError(res);
   return res;
+}
+// A read-only call outside the contents API (the list of commits that touched a
+// file, for app updates), behind the same guard as gh and ghRaw. Never answered
+// from the browser cache: GitHub allows a minute of it, long enough to miss a
+// push made just before a Sync.
+async function ghApi(sub) {
+  await ensurePrivateRepo();
+  const res = await fetch(REPO_API(sub), {
+    headers: { Authorization: `Bearer ${vault.token}`, Accept: "application/vnd.github+json" },
+    cache: "no-store",
+  });
+  if (!res.ok) throw await ghError(res);
+  return res.json();
 }
 
 // Mirror the exact same ciphertext as vault.enc.js so a cloned repo can load
@@ -8930,27 +10127,38 @@ async function applyMerge(info, remote) {
   }
   // The open buffer may now be stale (or gone): re-seat it, or the next
   // keystroke would write the pre-merge text back with a fresh mtime.
+  // Re-seated by its MERGED shape, the way openNote does it: a note turned into
+  // pages on another device, shown here in the single-page editor from its old
+  // body, had that stale body saved over its first page by the next keystroke.
+  const reseat = n => {
+    if (isPaged(n)) {
+      currentPage = Math.min(currentPage, Math.max(0, notePages(n).length - 1));
+      renderSheets();
+      editorBaseline = sheetsSnapshot();
+    } else {
+      document.body.classList.remove("paged-view");
+      $("sheets").innerHTML = "";
+      currentPage = 0;
+      setEditorBody(n.body, { bodyV: n.bodyV });
+    }
+    renderPageTabs();
+  };
   if (currentId && !vault.notes[currentId]) {
     currentId = null;
     $("title").value = ""; clearEditor();
+    document.body.classList.remove("paged-view"); $("sheets").innerHTML = ""; renderPageTabs();
   } else if (currentId) {
     $("title").value = vault.notes[currentId].title;
-    // A paged note lives in #sheets, not #editor: re-seating only the editor
-    // left the merged note showing its PRE-merge pages, which the next reflow
-    // or save would then write back.
-    if (isPaged(vault.notes[currentId]) && pagedView()) {
-      currentPage = Math.min(currentPage, Math.max(0, (notePages(vault.notes[currentId]) || [1]).length - 1));
-      renderSheets();
-      editorBaseline = sheetsSnapshot();
-      renderPageTabs();
-    } else setEditorBody(vault.notes[currentId].body, { bodyV: vault.notes[currentId].bodyV });
+    reseat(vault.notes[currentId]);
   }
   if (trashViewId && !vault.trash[trashViewId]) {
     trashViewId = null;
     $("title").value = ""; clearEditor();
+    document.body.classList.remove("paged-view"); $("sheets").innerHTML = ""; renderPageTabs();
   } else if (trashViewId) {
     const d = vault.trash[trashViewId].data || {};
-    $("title").value = d.title || ""; setEditorBody(d.body || "", { bodyV: d.bodyV });
+    $("title").value = d.title || "";
+    reseat(d);
   }
   applyReadonly();
   dirty = false;
@@ -9305,9 +10513,10 @@ async function runSync(scope) {
   $("backup").disabled = true;
   $("sync").textContent = "Syncing...";
   status(scope ? `Syncing this ${scope.label}...` : "Syncing...", false, true);
+  let result = null;
   try {
     for (let attempt = 1; ; attempt++) {
-      try { await syncOnce(scope); break; }
+      try { result = await syncOnce(scope); break; }
       catch (e) {
         // 409: someone pushed between our GET and our PUT. Re-run the WHOLE
         // sync (fresh GET, fresh merge, fresh seal) - never re-PUT the old body
@@ -9333,6 +10542,10 @@ async function runSync(scope) {
     $("sync").textContent = "Sync";
     renderStatus();
   }
+  // A full Sync also brings the app itself up to date (App updates). After the
+  // notes and outside the freeze: the question waits for an answer, and the
+  // notes are synced whatever it is.
+  if (!scope && result === "ok" && !backupView) await appUpdateStep();
 }
 
 $("sync").onclick = () => runSync(null);
@@ -9501,6 +10714,197 @@ async function notesDirHandle() {
     return handle;
   } catch { return null; }   // cancelled, or blocked on this origin
 }
+// ---------- App updates ----------
+// Sync also looks for a newer index.html in the repo, so a change to the app
+// made on one computer reaches the others. The app is the code that holds the
+// password, so it never replaces itself silently: the user sees the new
+// build, when it was committed, by whom and why, plus a warning if the new
+// file would sync somewhere else or no longer refuses public repos, and
+// chooses. The notes sync either way. Per device, in localStorage "appUpdate":
+// the last commit looked at, its build, and a declined commit (not asked again
+// until the file changes; Settings can always check by hand).
+const buildParts = b => { const m = /^(\d{4}-\d{2}-\d{2})\.(\d+)$/.exec(String(b || "")); return m ? [m[1], +m[2]] : ["0000-00-00", 0]; };
+function compareBuild(a, b) {
+  const [da, na] = buildParts(a), [db, nb] = buildParts(b);
+  return da < db ? -1 : da > db ? 1 : na - nb;
+}
+const buildOf = text => { const m = /\bconst APP_BUILD = "(\d{4}-\d{2}-\d{2}\.\d+)"/.exec(text || ""); return m ? m[1] : null; };
+const repoOf = text => { const m = /^const OWNER = "([^"]*)", REPO = "([^"]*)"/m.exec(text || ""); return m ? { owner: m[1], repo: m[2] } : null; };
+function loadAppMeta() {
+  try { const m = JSON.parse(localStorage.getItem("appUpdate")); if (m && typeof m === "object") return m; } catch {}
+  return {};
+}
+function saveAppMeta(m) { try { localStorage.setItem("appUpdate", JSON.stringify(m)); } catch {} }
+// The file as of one commit: what the dialog describes is exactly what gets
+// installed, and a cached copy of an older version can never stand in for it.
+async function appFileAt(sha) {
+  const res = await ghRaw(`${APP_FILE}?ref=${sha}`);
+  return res.status === 404 ? null : res.text();
+}
+// A newer index.html in the repo, or null. The file itself (half a megabyte) is
+// only downloaded when its latest commit is one this device has not looked at.
+async function checkAppUpdate(manual) {
+  const list = await ghApi(`commits?path=${encodeURIComponent(APP_FILE)}&per_page=1`);
+  if (!Array.isArray(list) || !list.length) return null;          // no index.html in the repo
+  const commit = list[0];
+  if (!commit || !/^[0-9a-f]{40}$/.test(commit.sha || "")) return null;
+  let meta = loadAppMeta(), text = null;
+  if (meta.commit !== commit.sha) {
+    text = await appFileAt(commit.sha);
+    if (text == null) return null;
+    meta = { ...meta, commit: commit.sha, build: buildOf(text) || "" };
+    saveAppMeta(meta);
+  }
+  if (!meta.build || compareBuild(meta.build, APP_BUILD) <= 0) return null;
+  // Already written this session: it runs from the next reload.
+  if (!manual && (meta.declined === commit.sha || appUpdateWritten === commit.sha)) return null;
+  return { build: meta.build, commit, text };
+}
+let appUpdateWritten = null, appUpdateBusy = false;
+// The folder this page was opened from, to write the new index.html into. Only
+// a folder holding the running file will do; anywhere else the update would
+// land beside nothing, and it is downloaded instead. The remembered backup
+// folder is used when it is that folder; a different one the user chose for
+// backups is left as it is.
+async function appDirHandle() {
+  if (!("showDirectoryPicker" in window)) return null;
+  const app = appFolderInfo(), file = app ? app.file : APP_FILE;
+  let saved = null;
+  try { const rec = await idbGet("__notesDir__"); saved = (rec && rec.bytes) || null; } catch {}
+  try {
+    if (saved && (await saved.queryPermission({ mode: "readwrite" }) === "granted" ||
+        await saved.requestPermission({ mode: "readwrite" }) === "granted") && await dirHasFile(saved, file)) return saved;
+    const handle = await window.showDirectoryPicker({ id: "notes-folder", mode: "readwrite", startIn: startInFor(app) });
+    if (!await dirHasFile(handle, file)) {
+      await alertModal({ title: "That is not the app's folder",
+        body: `The app is ${file} in:\n${app ? app.display : "the folder you opened it from"}\n\n"${handle.name}" does not contain it, so the update is downloaded instead.` });
+      return null;
+    }
+    if (!saved) { try { await idbPut("__notesDir__", handle); } catch {} }
+    return handle;
+  } catch { return null; }   // cancelled, or blocked on this origin
+}
+// Asks, and installs on yes. Returns true when the file was replaced or downloaded.
+async function offerAppUpdate(u) {
+  const text = u.text != null ? u.text : await appFileAt(u.commit.sha);
+  // Only a complete copy of the app is ever offered: a cut-off file would leave
+  // nothing that opens.
+  if (!text || !/^\s*<!DOCTYPE html>/i.test(text) || !/<\/html>\s*$/i.test(text) || buildOf(text) !== u.build) {
+    status("The index.html in the repo is not a complete copy of the app, so it was not offered", true);
+    return false;
+  }
+  const c = u.commit.commit || {};
+  const when = (c.committer && c.committer.date) || (c.author && c.author.date) || "";
+  const who = (c.author && c.author.name) || (u.commit.author && u.commit.author.login) || "unknown";
+  const msg = String(c.message || "").split("\n")[0].trim().slice(0, 160);
+  // The two things a tampered copy would most want to change, checked against this one.
+  const warn = [];
+  const target = repoOf(text);
+  let install = text;
+  if (target && target.owner === "YOUR_GITHUB_USER" && target.repo === "YOUR_PRIVATE_REPO") {
+    // The public mirror's placeholders: this copy's own repo is carried over.
+    install = text.replace(/^const OWNER = "YOUR_GITHUB_USER", REPO = "YOUR_PRIVATE_REPO",/m,
+      () => `const OWNER = ${JSON.stringify(OWNER)}, REPO = ${JSON.stringify(REPO)},`);
+  } else if (!target || target.owner !== OWNER || target.repo !== REPO) {
+    warn.push(`It syncs with ${target ? target.owner + "/" + target.repo : "an unknown repo"}, not ${OWNER}/${REPO}.`);
+  }
+  if (!/\bfunction ensurePrivateRepo\b/.test(text)) warn.push("It no longer contains the check that refuses public repos.");
+  const choice = await showModal({
+    title: warn.length ? "Update the app? Read the warning first" : "Update the app?",
+    body: `There is a newer index.html in ${OWNER}/${REPO}:\n` +
+      `build ${u.build} (this copy is build ${APP_BUILD}),\n` +
+      `committed ${when ? new Date(when).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "on an unknown date"} by ${who}` + (msg ? `:\n"${msg}"` : ".") + "\n\n" +
+      (warn.length ? "WARNING: " + warn.join(" ") + "\n\n" : "") +
+      "Only update if you made this change yourself: anyone who can write to the repo could have pushed it, and the app runs whatever index.html contains. Your notes sync either way.",
+    choices: [
+      { id: "update", label: "Update index.html", danger: warn.length > 0 },
+      { id: "skip", label: "Not now" },
+    ],
+    defaultId: "skip",
+  });
+  if (choice !== "update") {
+    // Not asked again until the file changes; Settings can still install it.
+    saveAppMeta({ ...loadAppMeta(), declined: u.commit.sha });
+    return false;
+  }
+  // Straight away, while the click still counts as one: the folder picker and
+  // the permission prompt only open under a fresh user action.
+  const dir = await appDirHandle();
+  const name = (appFolderInfo() && appFolderInfo().file) || APP_FILE;
+  let how = "download";
+  if (dir) {
+    try {
+      const fh = await dir.getFileHandle(name);
+      const w = await fh.createWritable();
+      await w.write(new Blob([install], { type: "text/html" }));
+      await w.close();
+      how = "folder";
+    } catch {}
+  }
+  if (how === "download") {
+    // Not downloadPlain: that one refuses once the vault is locked, and this
+    // file holds no note content.
+    const url = URL.createObjectURL(new Blob([install], { type: "text/html" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+  appUpdateWritten = u.commit.sha;
+  saveAppMeta({ ...loadAppMeta(), declined: null });
+  status(how === "folder" ? `App updated to build ${u.build}: reload to use it`
+    : `Downloaded the new ${name} (build ${u.build})`);
+  if (how === "download") {
+    const app = appFolderInfo();
+    await alertModal({
+      title: "Update downloaded",
+      body: `The new ${name} (build ${u.build}) is in your downloads. Put it in place of the old one` +
+        (app ? ` in:\n${app.display}\n\n` : ", ") + "then reload this page to use it.",
+    });
+  } else {
+    const again = await showModal({
+      title: "App updated",
+      body: `${name} in "${dir.name}" is now build ${u.build}. It takes effect when the page reloads, and the vault asks for your master password again.`,
+      choices: [{ id: "reload", label: "Reload now" }, { id: "later", label: "Later" }],
+      defaultId: "later",
+    });
+    if (again === "reload") {
+      if (dirty) flushSave();
+      // The save is a sealed write to localStorage; let it land first.
+      await persistChain;
+      location.reload();
+    }
+  }
+  return true;
+}
+// The update step of a full Sync, run after the notes have synced. Never fails
+// the sync: a check that cannot run (offline, rate limited) waits for the next.
+async function appUpdateStep() {
+  if (appUpdateBusy) return;
+  appUpdateBusy = true;
+  try {
+    const u = await checkAppUpdate(false);
+    if (u && vault) await offerAppUpdate(u);
+  } catch {} finally { appUpdateBusy = false; }
+}
+// Settings > Check now: also offers a version declined before.
+async function manualAppUpdate() {
+  if (syncing || backupView || !vault || appUpdateBusy) return;
+  appUpdateBusy = true;
+  status("Checking the repo for a newer app...", false, true);
+  try {
+    const u = await checkAppUpdate(true);
+    if (!u) { status(`This copy is up to date (build ${APP_BUILD})`); return; }
+    status("");
+    await offerAppUpdate(u);
+  } catch (e) {
+    status("Could not check for an update: " + (e.guard ? ERR_EXPLAIN[e.guard] : e.message), true);
+  } finally { appUpdateBusy = false; }
+}
+
 async function writeFolderFile(name, text, dir) {
   if (dir) {
     try {
@@ -9684,7 +11088,21 @@ function openSettings() {
     BACKUP_DAY_CHOICES.weekly, fmtDays, renderBackupBar);
   addRow("monthlyDays", "Monthly backup reminder", "When you unlock, ask to update the monthly backup once it is this old.",
     BACKUP_DAY_CHOICES.monthly, fmtDays, renderBackupBar);
-  card.appendChild(mk("p", "set-note", "Saved on this device only."));
+  // Not a setting: which build this file is, and the update check Sync runs (App updates).
+  const ver = mk("div", "set-row");
+  const verWords = mk("div", "set-words");
+  verWords.appendChild(mk("div", "set-name", "App version"));
+  verWords.appendChild(mk("div", "set-help", `Build ${APP_BUILD}. Sync asks before installing a newer index.html from the repo. ` +
+    "Check now also offers one you said no to."));
+  ver.appendChild(verWords);
+  const check = mk("button", null, "Check now");
+  check.type = "button";
+  check.disabled = syncing || !!backupView || REPO_UNSET || appUpdateBusy;
+  if (REPO_UNSET) check.title = "No repo set: edit OWNER and REPO in index.html";
+  check.onclick = () => { closeSettings(); manualAppUpdate(); };
+  ver.appendChild(check);
+  card.appendChild(ver);
+  card.appendChild(mk("p", "set-note", "Settings are saved on this device only."));
   const actions = mk("div", "modal-actions");
   const done = mk("button", "primary", "Done");
   done.type = "button";
@@ -10075,7 +11493,7 @@ $("unlock-form").onsubmit = async e => {
   // slip (mismatched confirm, missing token) must not.
   let decrypted = false;
   const lockMsg = (t, err) => {
-    $("lock-msg").style.color = err ? "#e66" : "#888";
+    $("lock-msg").style.color = err ? "var(--bad)" : "var(--t3)";
     $("lock-msg").textContent = t;
   };
   attemptBusy = true;
@@ -10153,8 +11571,10 @@ $("unlock-form").onsubmit = async e => {
         salt = crypto.getRandomValues(new Uint8Array(16));
         key = await deriveKey(pw, salt, ITER);
         iterUsed = ITER;
-        vault = { v: 2, token: $("token").value.trim(), savedAt: 0,
-          notes: {}, folders: {}, trash: {}, purged: {} };
+        // Through migrateVault like every opened vault, so a brand-new one has
+        // every map too: without pins, "Pin to top" threw until the next unlock.
+        vault = migrateVault({ v: 2, token: $("token").value.trim(), savedAt: 0,
+          notes: {}, folders: {}, trash: {}, purged: {} });
         decrypted = true;   // a brand-new vault is not a failed guess
         // stamp=false (savedAt stays 0): if a same-password remote already
         // exists, the first Sync must pull it, not push this empty vault over

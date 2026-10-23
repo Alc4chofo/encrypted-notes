@@ -1,6 +1,6 @@
 # How encrypted-notes works
 
-This document describes exactly what the app does with your data: the threat model, the cryptographic construction, the storage and sync formats, and the limits. Every claim names the function in `index.html` that implements it, so you can check it against the code. The file is about 10,200 lines of unminified HTML, CSS and JavaScript with no dependencies, so what you read is what runs.
+This document describes exactly what the app does with your data: the threat model, the cryptographic construction, the storage and sync formats, and the limits. Every claim names the function in `index.html` that implements it, so you can check it against the code. The file is about 11,600 lines of unminified HTML, CSS and JavaScript with no dependencies, so what you read is what runs.
 
 ## Contents
 
@@ -39,7 +39,7 @@ A browser already ships everything a password manager-style vault needs:
 - **Local storage:** `localStorage` holds the sealed vault and some bookkeeping; IndexedDB holds the encrypted attachments (section 4).
 - **Remote storage:** GitHub's REST API answers cross-origin requests (CORS), so a page can read and write files in a repo with nothing but `fetch()` and a token in the `Authorization` header.
 
-There is no server, no build step, no package manager and no third-party script. The only host the code ever contacts is `https://api.github.com`, and only when you sync, back up, or open an attachment that is not cached yet.
+There is no server, no build step, no package manager and no third-party script. The only host the code ever contacts is `https://api.github.com`, and only when you sync, back up, check for an app update, or open an attachment that is not cached yet.
 
 **One wrinkle, and how it is solved.** A page opened from `file://` may not `fetch()` its sibling files, but it *may* load them with a `<script src>` tag. So every time the app pushes `vault.enc`, it also pushes `vault.enc.js`, which is the same ciphertext wrapped as a script:
 
@@ -141,8 +141,9 @@ Commit messages are fixed strings (`sync`, `media`, `purge`, `weekly backup`, `m
 | `localStorage` | `authGuard` | the failed-attempt counter (section 5) |
 | `localStorage` | `settings` | `{"autoLockMin", "weeklyDays", "monthlyDays"}`: the auto-lock delay (section 5) and how old each backup may get before unlock asks to update it. Per device, not synced |
 | `localStorage` | `backupMeta`, `pullBanner`, UI preferences | timestamps, counts, colours, which sections are collapsed |
+| `localStorage` | `appUpdate` | `{"commit", "build", "declined"}`: the last commit of `index.html` this device looked at, the build it holds, and a version you declined (section 6). Per device, not synced |
 | IndexedDB `notes-media` | `<uuid>` | encrypted attachment records `{id, bytes: iv \|\| ciphertext \|\| tag}` |
-| IndexedDB `notes-media` | `__authGuard__`, `__notesDir__` | the second copy of the attempt counter, and the folder handle backups are written to |
+| IndexedDB `notes-media` | `__authGuard__`, `__notesDir__` | the second copy of the attempt counter, and the folder handle backups (and app updates) are written to |
 
 Plaintext exists only in memory while the vault is unlocked: the JavaScript heap (including `searchTextCache`, the plain text of each note kept for search), the rendered page, and temporary `blob:` URLs for attachments you open.
 
@@ -181,6 +182,16 @@ Plaintext exists only in memory while the vault is unlocked: the JavaScript heap
 5. **Attachments:** upload local files the repo does not have, download referenced files this device lacks (authenticated before storing), and delete files whose tombstone says nothing references them any more.
 
 A sealed snapshot of the pre-merge vault is kept locally (`vault.prev`), and a merge that would replace local edits never synced before asks for confirmation first.
+
+**App updates** (`appUpdateStep`, `checkAppUpdate`, `offerAppUpdate`). After a successful full Sync, never during it, so the notes are synced whatever the answer:
+
+1. `GET /repos/{owner}/{repo}/commits?path=index.html&per_page=1` (`ghApi`, behind the same repo guard as every other request, and never answered from the browser cache) gives the latest commit that changed `index.html` in your repo.
+2. Only if this device has not seen that commit yet, the file is read *at that commit* (`contents/index.html?ref=<sha>`, `appFileAt`), so what the dialog describes is exactly what would be installed, and its `APP_BUILD` is recorded. A build that is not newer than the running one (`compareBuild`, `"YYYY-MM-DD.N"`) is never offered, so there are no downgrades.
+3. A file that is not a complete copy of the app (no `<!DOCTYPE html>` at the start, no `</html>` at the end, or a build number that does not match) is not offered.
+4. The dialog shows the new and current builds, the commit date, author and first line of the message, and warns when the new file would sync with a different `OWNER`/`REPO` or no longer contains `ensurePrivateRepo`. A copy with this repository's placeholder line gets the running copy's own `OWNER`/`REPO` written in, since that is the public mirror's normal shape. **Not now** is the default; it records the commit as declined, so that version is not offered again until the file changes (Settings > **Check now** asks again).
+5. **Update index.html** writes the file into the folder the page was opened from, through the File System Access API, after checking that the chosen folder really contains the running file (`appDirHandle`); without that API, or if the folder cannot be written, the browser downloads it instead. Nothing runs until you reload.
+
+A failed check (offline, rate limited) is silent and never fails the sync; the next one tries again.
 
 ## 7. How long would guessing your password take?
 
@@ -224,7 +235,7 @@ They can:
 
 - **deny service:** delete files, or corrupt them so they no longer open. This is unavoidable for any storage someone else controls, which is what backups are for;
 - **replay an older vault** they saw earlier. The merge treats it as an old remote state and keeps every local change, so it cannot erase newer data on a device that already has it;
-- **run code in your page.** This is the important one. The page executes `vault.enc.js` with a script tag (section 2), and a repo clone also contains `index.html` itself, so someone who can write to the repo can change the code you run and capture your password on the next unlock. Ciphertext integrity cannot protect against a modified program.
+- **run code in your page.** This is the important one. The page executes `vault.enc.js` with a script tag (section 2), and a repo clone also contains `index.html` itself, so someone who can write to the repo can change the code you run and capture your password on the next unlock. Ciphertext integrity cannot protect against a modified program. App updates (section 6) do not add a new path for this, since a pull or clone of the repo would bring the same file, but they do make it visible: a changed `index.html` only reaches a running copy through a dialog that names the commit, its date and its author, and only on your click. The dialog flags a file that points at another repo or lost the private-repo check; anything subtler only you can judge, so accept updates you made yourself.
 
 That last point is why the setup asks for a **private** repo and a token scoped to **that repo only**, and why the app refuses to sync with a public one. To check that your copy of the app is genuine, diff it against this repository: the only difference should be the `OWNER`/`REPO` line.
 
@@ -237,6 +248,7 @@ Every input path into the vault goes through AES-GCM authenticated decryption, s
 - **Attachments** render only where it is safe: images (except SVG) in `<img>`, video in `<video>`, PDF in the browser's own viewer via a `blob:` URL, plain text as text. SVG, HTML and everything else are download-only and never rendered, because active content running in the page's origin could read the decrypted vault.
 - **Imported designs** (`*.design.json`) are treated as untrusted files and go through the same sanitizer.
 - **PDF export** uses the app's own PDF writer (`buildNotePdf`). It writes no `/Info` dictionary, no document ID, no timestamps and no producer string. Censored text is replaced by a box whose width depends only on a coarse length bucket, so its glyph widths do not leak; censored images are never even decrypted for export.
+- **Censored text** is a mark (`<span data-censor="1">`) placed directly around the characters, inside any other formatting, so removing it brings the text back exactly as it was. In the app it is painted as a bar and stays editable. Everything that leaves the app destroys the characters and keeps only a bar sized by the same length bucket (`censorLenBucket`): the PDF writer, the print path, design files (`stripCensoredForExport`), and the clipboard and drag-and-drop, which carry plain text only, with each censored run as a row of `█` blocks (`censoredCopy`), because a rich copy would hold the hidden characters with nothing but a style over them.
 
 ## 10. Known limitations
 
@@ -253,7 +265,8 @@ Every input path into the vault goes through AES-GCM authenticated decryption, s
 The design deliberately makes auditing practical: one file, no dependencies, no build, no minification.
 
 ```bash
-# Every remote host the code can contact (expect https://api.github.com, plus example.com as a link placeholder):
+# Every remote host the code can contact (expect https://api.github.com, plus example.com as a link placeholder
+# and www.w3.org, the SVG namespace name inside the icons, which is never fetched):
 grep -oE "https?://[a-zA-Z0-9.-]+" index.html | sort -u
 
 # Every use of the Web Crypto API:
@@ -263,7 +276,7 @@ grep -n "crypto\.subtle\|getRandomValues" index.html
 grep -n "const ITER" index.html
 ```
 
-Then open the browser's developer tools on the Network tab: no request is made until you press Sync, make a backup or open an uncached attachment, and every request goes to `api.github.com` for the repo you configured.
+Then open the browser's developer tools on the Network tab: no request is made until you press Sync, make a backup, check for an update or open an uncached attachment, and every request goes to `api.github.com` for the repo you configured.
 
 ## 12. References
 
