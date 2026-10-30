@@ -1,6 +1,6 @@
 # How encrypted-notes works
 
-This document describes exactly what the app does with your data: the threat model, the cryptographic construction, the storage and sync formats, and the limits. Every claim names the function in `index.html` that implements it, so you can check it against the code. The file is about 11,600 lines of unminified HTML, CSS and JavaScript with no dependencies, so what you read is what runs.
+This document describes exactly what the app does with your data: the threat model, the cryptographic construction, the storage and sync formats, and the limits. Every claim names the function in `index.html` that implements it, so you can check it against the code. The file is about 12,100 lines of unminified HTML, CSS and JavaScript with no dependencies, so what you read is what runs.
 
 ## Contents
 
@@ -248,7 +248,7 @@ Every input path into the vault goes through AES-GCM authenticated decryption, s
 - **Attachments** render only where it is safe: images (except SVG) in `<img>`, video in `<video>`, PDF in the browser's own viewer via a `blob:` URL, plain text as text. SVG, HTML and everything else are download-only and never rendered, because active content running in the page's origin could read the decrypted vault.
 - **Imported designs** (`*.design.json`) are treated as untrusted files and go through the same sanitizer.
 - **PDF export** uses the app's own PDF writer (`buildNotePdf`). It writes no `/Info` dictionary, no document ID, no timestamps and no producer string. Censored text is replaced by a box whose width depends only on a coarse length bucket, so its glyph widths do not leak; censored images are never even decrypted for export.
-- **Censored text** is a mark (`<span data-censor="1">`) placed directly around the characters, inside any other formatting, so removing it brings the text back exactly as it was. In the app it is painted as a bar and stays editable. Everything that leaves the app destroys the characters and keeps only a bar sized by the same length bucket (`censorLenBucket`): the PDF writer, the print path, design files (`stripCensoredForExport`), and the clipboard and drag-and-drop, which carry plain text only, with each censored run as a row of `█` blocks (`censoredCopy`), because a rich copy would hold the hidden characters with nothing but a style over them.
+- **Censored text** is a mark (`<span data-censor="1">`) placed directly around the characters, inside any other formatting, so removing it brings the text back exactly as it was. In the app it is painted as a bar and stays editable. Everything that leaves the app destroys the characters and keeps only a bar sized by the same length bucket (`censorLenBucket`): the PDF writer, the print path, design files (`stripCensoredForExport`), and the clipboard and drag-and-drop, which carry plain text only, with each censored run as a row of `█` blocks (`censoredCopy`), because a rich copy would hold the hidden characters with nothing but a style over them. The right-click menu's Cut and Copy run through the same handler as the keyboard shortcuts (`clipboardCommand`).
 
 ## 10. Known limitations
 
