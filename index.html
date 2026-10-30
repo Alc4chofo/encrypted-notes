@@ -375,6 +375,13 @@
   /* A picture inside a censored run is covered by the bar as well. */
   [data-censor] .inline-media { background-color: #000 !important; border-color: #000; }
   [data-censor] .inline-media img, [data-censor] .inline-media video { filter: brightness(0); }
+  /* The spell checker underlines a misspelt word, and a word that runs into a
+     bar (nothing between them) was underlined across the bar too: a red
+     squiggle on text with no colour of its own, and a hint at where the hidden
+     word ends. Spelling and grammar marks are never drawn on censored text.
+     (One rule per pseudo-element: a browser that lacks one drops only its rule.) */
+  [data-censor]::spelling-error, [data-censor] *::spelling-error { text-decoration: none; }
+  [data-censor]::grammar-error, [data-censor] *::grammar-error { text-decoration: none; }
   /* Ctrl+P on the app itself: transparent text still becomes real, extractable
      glyphs in the browser's PDF, and print styles may drop the black background
      entirely. The characters must not be painted at all. (The proper export
@@ -956,7 +963,7 @@ const OWNER = "YOUR_GITHUB_USER", REPO = "YOUR_PRIVATE_REPO", FILE = "vault.enc"
 // Which build of the app this file is. Sync compares it with the index.html in
 // the repo and offers the newer one (see App updates). Bump it with every change
 // to the app: "YYYY-MM-DD.N", N counting that day's builds from 1.
-const APP_BUILD = "2026-10-30.1", APP_FILE = "index.html";
+const APP_BUILD = "2026-10-30.2", APP_FILE = "index.html";
 const REPO_API = sub => `https://api.github.com/repos/${OWNER}/${REPO}/${sub}`;
 const API = path => REPO_API(`contents/${path}`);
 // The ONLY defence that survives someone copying vault.enc to their own
@@ -5550,23 +5557,114 @@ function censoredCopy(r) {
   holder.appendChild(r.cloneContents());
   return holder.querySelector('[data-censor="1"]') ? plainLines(holder) : null;
 }
+// surf bounds the search for an enclosing mark; without one, the whole page.
 function rangeTouchesCensor(r, surf) {
   if (censorAncestor(r.startContainer, surf) || censorAncestor(r.endContainer, surf)) return true;
   return !!r.cloneContents().querySelector('[data-censor="1"]');
 }
-for (const type of ["copy", "cut"]) document.addEventListener(type, e => {
-  const r = currentEditorRange();
-  if (!r || r.collapsed) return;
-  const surf = surfaceOfNode(r.startContainer);
-  if (!surf || !rangeTouchesCensor(r, surf)) return;
-  // A selection that starts or ends inside a mark takes the mark with it.
+// The selection, widened so a mark it starts or ends inside goes whole, when it
+// touches censored text anywhere on the page (the note, or the reference pane
+// of the second screen, which shows the same marks); else null.
+function censoredSelection() {
+  const sel = window.getSelection();
+  const r = sel && sel.rangeCount ? sel.getRangeAt(0) : null;
+  if (!r || r.collapsed || !rangeTouchesCensor(r, null)) return null;
   const c = r.cloneRange();
-  const s = censorAncestor(c.startContainer, surf), en = censorAncestor(c.endContainer, surf);
+  const s = censorAncestor(c.startContainer, null), en = censorAncestor(c.endContainer, null);
   if (s) c.setStartBefore(s);
   if (en) c.setEndAfter(en);
+  return c;
+}
+// What a censored copy or drag was, in runs of { t: text, c: censored }, line
+// by line exactly as plainLines writes it. Kept in memory only (never on the
+// clipboard, which gets the blocks), so pasting or dropping it back into a note
+// brings the text back still censored instead of as a row of blocks. Dropped
+// at lock, with the rest of the decrypted vault.
+let appClip = null, appDrag = null;   // { plain, segs }
+function copySegments(r) {
+  const holder = document.createElement("div");
+  holder.appendChild(r.cloneContents());
+  const toks = [];
+  let line = false;   // the current line holds something
+  const add = (t, c) => { if (t) { toks.push({ t, c }); line = true; } };
+  const push = () => { toks.push({ t: "\n", c: false }); line = false; };
+  (function walk(n, c) {
+    for (const ch of n.childNodes) {
+      if (ch.nodeType === 3) add(ch.data, c);
+      else if (ch.nodeType !== 1 || isMediaEl(ch)) continue;
+      else if (isCensorEl(ch)) add(ch.textContent || "", true);
+      else if (ch.tagName === "BR") push();
+      else if (LINE_TAG(ch.tagName) || ch.tagName === "LI" || ch.tagName === "TR") {
+        if (line) push();
+        walk(ch, c);
+        if (line || !ch.textContent) push();
+      } else if (ch.tagName === "TD" || ch.tagName === "TH") { walk(ch, c); add("\t", false); }
+      else walk(ch, c);
+    }
+  })(holder, false);
+  // plainLines' last steps: no line break after the last line, no tab ending a row.
+  if (toks.length && toks[toks.length - 1].t === "\n" && !line) toks.pop();
+  const segs = [];
+  toks.forEach((tk, i) => {
+    if (tk.t === "\t" && (i === toks.length - 1 || toks[i + 1].t === "\n")) return;
+    const last = segs[segs.length - 1];
+    if (last && last.c === tk.c) last.t += tk.t; else segs.push({ ...tk });
+  });
+  return segs;
+}
+// Puts the runs in at the caret (over the selection), each censored or not as
+// it was. Line breaks go in on their own: a break typed inside a mark copies an
+// empty mark onto the new line, which would make the next run censored.
+function insertSegments(segs) {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) return;
+  const surf = surfaceOfNode(sel.getRangeAt(0).startContainer);
+  if (!surf) return;
+  const run = (t, c) => {
+    const r = sel.getRangeAt(0);
+    const root = lineOf(r.startContainer, surf) || surf;
+    const plan = { surf, want: c, root, start: textOffset(root, r.startContainer, r.startOffset) };
+    document.execCommand("insertText", false, t);
+    carryOutInsert(plan);
+  };
+  inPlainPaste = true;
+  try {
+    if (!sel.isCollapsed) document.execCommand("delete");
+    for (const sg of segs) {
+      sg.t.split("\n").forEach((t, i) => {
+        if (!sel.rangeCount) return;
+        if (i > 0) {
+          document.execCommand("insertParagraph");
+          const line = sel.rangeCount && lineOf(sel.getRangeAt(0).startContainer, surf);
+          if (line) dropEmptyMarks(line);
+        }
+        if (t) run(t, sg.c);
+      });
+    }
+  } finally { inPlainPaste = false; }
+  ensureLines(surf);
+  scrubCensorLook(surf);
+  syncFmtState();
+}
+// A censor mark around nothing (no text, no attachment) marks nothing: it only
+// makes whatever is typed there next censored.
+function dropEmptyMarks(root) {
+  for (const m of [...root.querySelectorAll('[data-censor="1"]')]) if (!atomsOf(m).length) unwrapEl(m);
+}
+// The clipboard may hand line breaks back as \r\n (Windows): compare without them.
+const sameClipText = (a, b) => String(a).replace(/\r\n?/g, "\n") === String(b).replace(/\r\n?/g, "\n");
+for (const type of ["copy", "cut"]) document.addEventListener(type, e => {
+  appClip = null;
+  const t = e.target;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;   // a field's own text
+  const c = censoredSelection();
+  if (!c) return;
   e.preventDefault();
-  e.clipboardData.setData("text/plain", censoredCopy(c) || "");
-  if (type === "cut" && !trashViewId && !backupView && !syncing) document.execCommand("delete");
+  const plain = censoredCopy(c) || "";
+  e.clipboardData.setData("text/plain", plain);
+  appClip = { plain, segs: copySegments(c) };
+  const surf = surfaceOfNode(c.startContainer);
+  if (type === "cut" && surf && surf.isContentEditable && !trashViewId && !backupView && !syncing) document.execCommand("delete");
 });
 
 // Every format the browser applies is written as a styled span, never as a
@@ -9397,7 +9495,9 @@ document.addEventListener("paste", e => {
   if (!trashViewId && editorHasFocus(e.target)) {
     e.preventDefault();
     const text = e.clipboardData ? e.clipboardData.getData("text/plain") : "";
-    if (text) insertPlainText(text);
+    // Censored text copied in this app comes back censored, not as blocks.
+    if (text && appClip && sameClipText(text, appClip.plain)) insertSegments(appClip.segs);
+    else if (text) insertPlainText(text);
   }
 });
 // Pasted or dropped text goes in as plain text, one line per line, and takes the
@@ -9473,14 +9573,15 @@ document.addEventListener("drop", e => {
 $("edit-wrap").addEventListener("dragstart", e => {
   const w = (e.target && e.target.nodeType === 1) ? e.target.closest("span.inline-media") : null;
   if (!wrapperOf(w)) {
-    // Dragging selected text: like a copy, it never carries censored characters.
-    const r = currentEditorRange(), surf = r && surfaceOfNode(r.startContainer);
-    if (r && surf && !r.collapsed && e.dataTransfer && rangeTouchesCensor(r, surf)) {
-      const c = r.cloneRange();
-      const s = censorAncestor(c.startContainer, surf), en = censorAncestor(c.endContainer, surf);
-      if (s) c.setStartBefore(s);
-      if (en) c.setEndAfter(en);
-      try { e.dataTransfer.clearData(); e.dataTransfer.setData("text/plain", censoredCopy(c) || ""); } catch {}
+    // Dragging selected text, from the note or the reference pane: like a copy,
+    // it never carries censored characters out (and comes back censored when
+    // dropped into a note).
+    appDrag = null;
+    const c = e.dataTransfer ? censoredSelection() : null;
+    if (c) {
+      const plain = censoredCopy(c) || "";
+      try { e.dataTransfer.clearData(); e.dataTransfer.setData("text/plain", plain); } catch {}
+      appDrag = { plain, segs: copySegments(c) };
     }
     return;
   }
@@ -9498,6 +9599,7 @@ $("edit-wrap").addEventListener("dragstart", e => {
   w.classList.add("dragging");
 });
 $("edit-wrap").addEventListener("dragend", () => {
+  appDrag = null;
   if (draggingInlineNode) draggingInlineNode.classList.remove("dragging");
   draggingInlineNode = null;
   hideDragGuide();
@@ -9555,7 +9657,8 @@ $("edit-wrap").addEventListener("drop", e => {
   target.focus();
   const sel = window.getSelection();
   if (sel) { sel.removeAllRanges(); sel.addRange(r); }
-  insertPlainText(text);
+  if (appDrag && sameClipText(text, appDrag.plain)) insertSegments(appDrag.segs);
+  else insertPlainText(text);
 });
 
 // ---------- Attachments: strip ----------
@@ -11598,6 +11701,7 @@ async function lockApp(force) {
   }).then(ok => { if (ok) flushSave(); return ok; })) return;
   closeMenu(); closePanel(); closeLightbox(); revokeAllMediaUrls();
   closePalette(true);     // a colour being edited is not worth a question at lock time
+  appClip = appDrag = null;   // censored text copied or dragged in the app, kept for pasting back
   closeSettings();        // a dialog must not stay up over the lock screen
   searchTextCache.clear();   // the body-search index is plaintext of every note
   exitSplit(true);        // the reference pane holds plaintext from the open note
