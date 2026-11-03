@@ -40,8 +40,6 @@
     --i-pin: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5.5 2.5h5M6.5 2.5v4L4.5 9h7l-2-2.5v-4M8 9v4.5'/%3E%3C/svg%3E");
     --i-sliders: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linecap='round'%3E%3Cpath d='M2.5 4.5h5.5M11.5 4.5h2M2.5 11.5h2M8 11.5h5.5'/%3E%3Ccircle cx='9.8' cy='4.5' r='1.7'/%3E%3Ccircle cx='6.2' cy='11.5' r='1.7'/%3E%3C/svg%3E");
     --i-split: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5'%3E%3Crect x='1.8' y='2.8' width='12.4' height='10.4' rx='1.4'/%3E%3Cpath d='M8 2.8v10.4'/%3E%3C/svg%3E");
-    --i-warn: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 2.2 14.4 13.4H1.6z'/%3E%3Cpath d='M8 6.6v3.2M8 11.7v.1'/%3E%3C/svg%3E");
-    --i-upload: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 10.4V2.8M4.9 5.8 8 2.7l3.1 3.1'/%3E%3Cpath d='M2.8 10.2v1.9c0 .8.6 1.4 1.4 1.4h7.6c.8 0 1.4-.6 1.4-1.4v-1.9'/%3E%3C/svg%3E");
   }
   * { box-sizing: border-box; }
   /* 14px base instead of the browser's 16px: the app is a dense tool, and every control below is sized from this. */
@@ -50,133 +48,55 @@
   ::selection { background: rgb(163 196 147 / .28); }
 
   /* ---------- Lock screen ----------
-     "A sealed notebook at night": faint ruled paper and a margin line that
-     fade out around the card, a sage glow behind the seal, a warm one low in
-     the corner, and a fine grain over it all. Everything is drawn here (CSS
-     gradients, inline SVG): the page still loads nothing from anywhere. */
-  #lock { flex: 1; display: flex; overflow-y: auto; position: relative; isolation: isolate; background: var(--s0); }
-  #lock::before, #lock::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: -1; }
-  #lock::before {
-    background:
-      linear-gradient(90deg, transparent calc(50% - 262px), rgb(228 115 95 / .13) calc(50% - 262px),
-        rgb(228 115 95 / .13) calc(50% - 261px), transparent calc(50% - 261px)),
-      repeating-linear-gradient(180deg, transparent 0 31px, rgb(236 231 222 / .04) 31px 32px);
-    -webkit-mask: radial-gradient(ellipse 62% 72% at 50% 46%, #000 18%, transparent 74%);
-    mask: radial-gradient(ellipse 62% 72% at 50% 46%, #000 18%, transparent 74%); }
-  #lock::after {
-    background:
-      radial-gradient(560px 420px at 50% 30%, rgb(163 196 147 / .11), transparent 70%),
-      radial-gradient(520px 380px at 88% 104%, rgb(227 169 92 / .07), transparent 70%),
-      radial-gradient(460px 340px at 6% -4%, rgb(134 175 217 / .05), transparent 70%),
-      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 .075 0 0 0 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E") 0 0 / 180px; }
-  /* margin:auto centres the group, and when the window is shorter than it the
+     Black, and nothing on it but the form: no card, no colour of its own.
+     The only tints are the meanings every screen shares (amber for a warning,
+     red for an error). */
+  #lock { flex: 1; display: flex; overflow-y: auto; background: #000; }
+  /* margin:auto centres the form, and when the window is shorter than it the
      page scrolls instead of cutting the top off (align-items:center would). */
-  .lock-stage { margin: auto; padding: 40px 16px 28px; width: 100%; display: flex; flex-direction: column; align-items: center;
-    animation: lock-in .6s cubic-bezier(.2, .7, .2, 1) both; }
-  @keyframes lock-in { from { opacity: 0; transform: translateY(10px); } }
-  /* The card: frosted glass with an edge that catches sage light at the top and amber at the bottom. */
-  #lock form { position: relative; display: flex; flex-direction: column; gap: 12px; width: min(384px, 100%);
-    padding: 34px 32px 24px; border: 1px solid transparent; border-radius: 20px;
-    background:
-      linear-gradient(180deg, rgb(35 33 30 / .84), rgb(21 20 18 / .9)) padding-box,
-      linear-gradient(155deg, rgb(163 196 147 / .5), rgb(255 255 255 / .08) 30%, rgb(255 255 255 / .04) 70%, rgb(227 169 92 / .3)) border-box;
-    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
-    box-shadow: 0 40px 90px -30px rgb(0 0 0 / .85), 0 18px 36px -18px rgb(0 0 0 / .6), inset 0 1px 0 rgb(255 255 255 / .05); }
-  /* Seal, eyebrow, wordmark, one line. */
-  .lock-head { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; margin-bottom: 12px; }
-  .lock-head::before { content: ""; position: absolute; top: -34px; left: 50%; width: 140px; height: 140px; margin-left: -70px;
-    border-radius: 50%; background: radial-gradient(circle, rgb(163 196 147 / .24), transparent 62%); pointer-events: none;
-    animation: seal-glow 5s ease-in-out infinite; }
-  @keyframes seal-glow { 0%, 100% { opacity: .55; transform: scale(.94); } 50% { opacity: 1; transform: scale(1.04); } }
-  .lock-seal { position: relative; display: grid; place-items: center; width: 68px; height: 68px; margin-bottom: 18px; border-radius: 50%;
-    color: var(--acc); background: radial-gradient(circle at 50% 30%, #2d3b28, #161b14 72%);
-    box-shadow: 0 0 0 1px rgb(163 196 147 / .38), 0 0 0 7px rgb(163 196 147 / .05), 0 14px 30px -10px rgb(0 0 0 / .9),
-      inset 0 1px 0 rgb(255 255 255 / .1); transition: color .3s, box-shadow .3s; }
-  .lock-seal svg { width: 35px; height: 35px; filter: drop-shadow(0 0 9px rgb(163 196 147 / .5)); }
-  .lock-eyebrow { margin-bottom: 8px; font-size: 10.5px; font-weight: 600; letter-spacing: .26em; text-transform: uppercase;
-    color: rgb(163 196 147 / .82); }
-  .lock-head h1 { margin: 0; font: 600 46px/1 var(--serif); letter-spacing: -.03em; color: #f3eee6;
-    background: linear-gradient(180deg, #f8f3ea 20%, #b9b0a2); -webkit-background-clip: text; background-clip: text;
-    -webkit-text-fill-color: transparent; }
-  .lock-head h1::after { content: "."; -webkit-text-fill-color: var(--acc); }
-  .lock-sub { max-width: 290px; margin: 12px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--t3); }
+  .lock-stage { margin: auto; padding: 40px 20px; width: 100%; display: flex; justify-content: center;
+    animation: lock-in .5s ease-out both; }
+  @keyframes lock-in { from { opacity: 0; } }
+  #lock form { display: flex; flex-direction: column; gap: 12px; width: min(320px, 100%); }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  #lock ::selection { background: rgb(255 255 255 / .22); }
+  .lock-sub { margin: 0 0 4px; font: italic 14px/1.5 var(--serif); color: #8d877e; text-align: center; }
   .lock-sub span { display: none; }
-  #unlock-form[data-mode="unlock"] .for-unlock, #unlock-form[data-mode="new"] .for-new,
-  #unlock-form[data-mode="found"] .for-found { display: inline; }
-  /* Inputs: recessed, with an icon that turns sage while the field has focus. */
-  #lock input[type="password"] { height: 46px; padding: 0 14px 0 42px; border: 1px solid rgb(255 255 255 / .08); border-radius: 11px;
-    background: rgb(9 9 8 / .55) var(--ic) no-repeat 14px 50% / 16px; font-size: 14px;
-    box-shadow: inset 0 1px 2px rgb(0 0 0 / .45); transition: border-color .15s, box-shadow .15s, background-color .15s; }
-  #lock input[type="password"]:hover { border-color: rgb(255 255 255 / .14); }
-  #lock input[type="password"]:focus { border-color: var(--acc-line); background-color: rgb(12 13 11 / .7); background-image: var(--ic-on);
-    box-shadow: inset 0 1px 2px rgb(0 0 0 / .45), 0 0 0 4px rgb(163 196 147 / .12); }
-  #lock input[type="password"]::placeholder { color: var(--t4); }
-  #password { --ic: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%238a8378' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='5.2' cy='10.8' r='2.9'/%3E%3Cpath d='m7.3 8.7 6-6M11.3 4.7l1.7 1.7M9.6 6.4l1.3 1.3'/%3E%3C/svg%3E"); --ic-on: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23a3c493' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='5.2' cy='10.8' r='2.9'/%3E%3Cpath d='m7.3 8.7 6-6M11.3 4.7l1.7 1.7M9.6 6.4l1.3 1.3'/%3E%3C/svg%3E"); }
-  #password2 { --ic: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%238a8378' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 1.8 13 3.6v4c0 3.1-2.1 5.6-5 6.6-2.9-1-5-3.5-5-6.6v-4z'/%3E%3Cpath d='m5.7 8 1.7 1.7 3-3.1'/%3E%3C/svg%3E"); --ic-on: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23a3c493' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 1.8 13 3.6v4c0 3.1-2.1 5.6-5 6.6-2.9-1-5-3.5-5-6.6v-4z'/%3E%3Cpath d='m5.7 8 1.7 1.7 3-3.1'/%3E%3C/svg%3E"); }
-  #token { --ic: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%238a8378' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='4.5' cy='3.5' r='1.6'/%3E%3Ccircle cx='4.5' cy='12.5' r='1.6'/%3E%3Ccircle cx='11.5' cy='5.5' r='1.6'/%3E%3Cpath d='M4.5 5.1v5.8M11.5 7.1c0 2.6-2.9 2.6-5.6 4.4'/%3E%3C/svg%3E"); --ic-on: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23a3c493' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='4.5' cy='3.5' r='1.6'/%3E%3Ccircle cx='4.5' cy='12.5' r='1.6'/%3E%3Ccircle cx='11.5' cy='5.5' r='1.6'/%3E%3Cpath d='M4.5 5.1v5.8M11.5 7.1c0 2.6-2.9 2.6-5.6 4.4'/%3E%3C/svg%3E"); }
-  .lock-caps:not([hidden]) { display: flex; align-items: center; gap: 6px; margin: -4px 0 0 2px; font-size: 12px; color: var(--warn); }
-  .lock-caps::before { content: "\21EA"; font-size: 13px; }
-  /* Unlock: the one bright thing on the page. While an attempt runs it shimmers instead of going grey. */
-  #unlock-btn { position: relative; display: flex; align-items: center; justify-content: center; gap: 8px; height: 46px; margin-top: 4px;
-    overflow: hidden; border: 0; border-radius: 11px; font-size: 14.5px; font-weight: 650; letter-spacing: .01em; color: var(--acc-ink);
-    background: linear-gradient(180deg, #bbd9ab, #97ba85);
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / .4), inset 0 -1px 0 rgb(0 0 0 / .16), 0 12px 28px -12px rgb(163 196 147 / .7);
-    transition: background .15s, box-shadow .15s, transform .1s; }
-  #unlock-btn:hover { background: linear-gradient(180deg, #c6e3b7, #a3c493);
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / .45), inset 0 -1px 0 rgb(0 0 0 / .16), 0 14px 32px -12px rgb(163 196 147 / .85); }
-  #unlock-btn:active { transform: translateY(1px); }
-  #unlock-btn:focus-visible { box-shadow: 0 0 0 3px var(--s0), 0 0 0 5px var(--acc-line); }
-  #unlock-btn svg { width: 16px; height: 16px; flex: none; transition: transform .2s; }
-  #unlock-btn:hover svg { transform: translateX(3px); }
-  #unlock-form.busy #unlock-btn:disabled { opacity: 1; cursor: progress; }
-  #unlock-form.busy #unlock-btn svg { display: none; }
-  #unlock-form.busy #unlock-btn::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%);
-    background: linear-gradient(100deg, transparent 25%, rgb(255 255 255 / .5) 50%, transparent 75%); animation: unlock-sheen 1.1s ease-in-out infinite; }
-  @keyframes unlock-sheen { to { transform: translateX(100%); } }
-  #lock-msg { min-height: 0; font-size: 13px; line-height: 1.45; text-align: center; color: var(--bad); }
+  #unlock-form[data-mode="new"] .for-new, #unlock-form[data-mode="found"] .for-found { display: inline; }
+  #unlock-form[data-mode="unlock"] .lock-sub { display: none; }
+  #lock input[type="password"] { height: 44px; padding: 0 14px; border: 1px solid #262626; border-radius: 8px;
+    background: #0b0b0b; color: #e9e5de; font-size: 14px; transition: border-color .15s; }
+  #lock input[type="password"]:hover { border-color: #333; }
+  #lock input[type="password"]:focus { border-color: #5a5a5a; box-shadow: none; }
+  #lock input[type="password"]::placeholder { color: #5f5f5f; }
+  /* A browser that fills a saved password paints the field pale: keep it black. */
+  #lock input:-webkit-autofill { -webkit-box-shadow: 0 0 0 40px #0b0b0b inset; -webkit-text-fill-color: #e9e5de; caret-color: #e9e5de; }
+  .lock-caps:not([hidden]) { display: block; margin-top: -4px; font-size: 12px; color: #c9a36a; }
+  #unlock-btn { height: 44px; margin-top: 2px; border: 1px solid #333; border-radius: 8px; background: transparent;
+    color: #e9e5de; font-size: 14px; font-weight: 500; letter-spacing: .02em; transition: background .15s, border-color .15s; }
+  #unlock-btn:hover { background: #141414; border-color: #4a4a4a; }
+  #unlock-btn:focus-visible { border-color: #8a8a8a; box-shadow: none; }
+  #unlock-btn:active { background: #1b1b1b; }
+  /* While an attempt runs the button says so ("Unlocking...") and breathes, instead of going grey. */
+  #unlock-form.busy #unlock-btn:disabled { opacity: 1; cursor: progress; animation: lock-busy 1.4s ease-in-out infinite; }
+  @keyframes lock-busy { 50% { color: #8d877e; } }
+  #lock-msg { font-size: 13px; line-height: 1.45; text-align: center; color: #c96b5c; }
   #lock-msg:empty { display: none; }
-  /* A wrong password: the card shakes once. */
+  /* A wrong password: the form shakes once. */
   #unlock-form.shake { animation: lock-shake .42s cubic-bezier(.36, .07, .19, .97); }
   @keyframes lock-shake { 15% { transform: translateX(-7px); } 35% { transform: translateX(6px); } 55% { transform: translateX(-4px); }
     75% { transform: translateX(2px); } }
-  /* The quiet explanatory text. */
-  #lock small { display: block; font-size: 12px; line-height: 1.55; color: var(--t3); }
-  #lock small b { font-weight: 600; color: var(--t2); }
-  #lock code { font: 11.5px var(--mono); color: var(--t2); }
-  /* Attempt counter / lockout notice. Amber while attempts remain, red once the
-     vault is locked; the whole form is visibly dead in that state. */
-  #guard-msg { position: relative; padding: 11px 14px 11px 40px; border-radius: 11px; font-size: 13px; line-height: 1.45;
-    border: 1px solid var(--warn-line); background: var(--warn-dim); color: var(--warn); }
-  #guard-msg::before { content: ""; position: absolute; left: 14px; top: 13px; width: 16px; height: 16px; background: currentColor;
-    -webkit-mask: var(--i-warn) center / contain no-repeat; mask: var(--i-warn) center / contain no-repeat; }
-  #guard-msg.locked { border-color: var(--bad-line); background: var(--bad-dim); color: var(--bad); }
-  #guard-msg.locked::before { -webkit-mask-image: var(--i-lock); mask-image: var(--i-lock); }
-  #guard-msg .guard-title { font-weight: 600; letter-spacing: .01em; margin-bottom: 2px;
-    font-variant-numeric: tabular-nums; }
-  #guard-msg .guard-sub { margin-top: 4px; color: color-mix(in srgb, var(--warn) 70%, var(--t3)); font-size: 12px; }
-  #guard-msg.locked .guard-sub { color: color-mix(in srgb, var(--bad) 70%, var(--t3)); }
-  #unlock-form.locked-out input, #unlock-form.locked-out button { opacity: .4; }
-  #unlock-form.locked-out .lock-seal { color: var(--bad); background: radial-gradient(circle at 50% 30%, #3d2723, #1a1312 72%);
-    box-shadow: 0 0 0 1px rgb(228 115 95 / .45), 0 0 0 7px rgb(228 115 95 / .06),
-    0 14px 30px -10px rgb(0 0 0 / .9), inset 0 1px 0 rgb(255 255 255 / .08); }
-  #unlock-form.locked-out .lock-seal svg { filter: drop-shadow(0 0 9px rgb(228 115 95 / .5)); }
-  #unlock-form.locked-out .lock-head::before { background: radial-gradient(circle, rgb(228 115 95 / .2), transparent 62%); }
-  /* Under the card: how the vault is protected (three pills, which wrap cleanly on a phone), and which build this is. */
-  .lock-foot { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 22px; }
-  .lock-foot span { padding: 4px 10px; border: 1px solid rgb(255 255 255 / .06); border-radius: 999px; background: rgb(255 255 255 / .02);
-    font-size: 10px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--t4); }
-  .lock-build { margin-top: 8px; font: 10.5px var(--mono); color: var(--t4); opacity: .75; }
-  .lock-build:empty { display: none; }
-  @media (max-width: 480px) {
-    #lock form { padding: 28px 22px 20px; border-radius: 18px; }
-    .lock-head h1 { font-size: 40px; }
-    .lock-stage { padding-top: 24px; }
-  }
-  /* High-contrast mode drops backgrounds: the wordmark must not be left as transparent text. */
-  @media (forced-colors: active) { .lock-head h1 { background: none; -webkit-text-fill-color: currentColor; } }
+  #lock small { display: block; font-size: 12px; line-height: 1.55; color: #6f6a63; }
+  #lock code { font: 11.5px var(--mono); color: #9a948a; }
+  /* Attempt counter / lockout notice: plain words, amber while attempts remain,
+     red once the vault is locked; the whole form is visibly dead in that state. */
+  #guard-msg { font-size: 13px; line-height: 1.45; text-align: center; color: #c9a36a; }
+  #guard-msg.locked { color: #c96b5c; }
+  #guard-msg .guard-title { font-weight: 600; margin-bottom: 2px; font-variant-numeric: tabular-nums; }
+  #guard-msg .guard-sub { margin-top: 4px; font-size: 12px; opacity: .75; }
+  #unlock-form.locked-out input, #unlock-form.locked-out button { opacity: .35; }
   @media (prefers-reduced-motion: reduce) {
-    .lock-stage, .lock-head::before, #unlock-form.shake { animation: none; }
-    #unlock-form.busy #unlock-btn::after { animation: none; transform: none; background: rgb(255 255 255 / .18); }
+    .lock-stage, #unlock-form.shake, #unlock-form.busy #unlock-btn:disabled { animation: none; }
   }
 
   /* ---------- Controls ----------
@@ -823,34 +743,22 @@
 
   /* ---------- Lock screen extras ---------- */
   #token-row { display: none; flex-direction: column; gap: 12px; }
-  #token-row small { padding: 10px 12px; border: 1px solid rgb(255 255 255 / .06); border-radius: 10px; background: rgb(255 255 255 / .025); }
-  /* "or", then the way in from a file. */
-  #restore-row { display: flex; flex-direction: column; gap: 10px; margin-top: 2px; }
-  .lock-or { display: flex; align-items: center; gap: 12px; font-size: 10.5px; letter-spacing: .18em; text-transform: uppercase; color: var(--t4); }
-  .lock-or::before, .lock-or::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, transparent, var(--line-2)); }
-  .lock-or::after { background: linear-gradient(90deg, var(--line-2), transparent); }
-  #restore-toggle { align-self: center; display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px; border: 0; border-radius: 8px;
-    background: none; color: var(--t2); font-size: 12.5px; }
-  #restore-toggle::before { content: ""; width: 14px; height: 14px; background: currentColor;
-    -webkit-mask: var(--i-upload) center / contain no-repeat; mask: var(--i-upload) center / contain no-repeat; }
-  #restore-toggle:hover { background: rgb(255 255 255 / .05); color: var(--t1); }
-  #restore-toggle.open::before { -webkit-mask-image: var(--i-chev); mask-image: var(--i-chev); transform: rotate(180deg); }
+  #restore-row { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+  #restore-toggle { align-self: center; padding: 4px 8px; border: 0; background: none; color: #6f6a63; font-size: 12.5px; }
+  #restore-toggle:hover { background: none; color: #bdb7ad; }
   #restore-box { display: flex; flex-direction: column; gap: 8px; }
-  #vault-file { padding: 8px; border: 1px dashed var(--line-3); border-radius: 10px; background: rgb(0 0 0 / .2); font-size: 12px; color: var(--t3); }
-  #vault-file::file-selector-button { margin-right: 10px; padding: 6px 12px; border: 1px solid var(--line-3); border-radius: 8px;
-    background: var(--s3); color: var(--t1); font: inherit; cursor: pointer; }
-  /* Backups found beside the file: one tile each, with the same age pill as the sidebar. */
-  #backup-row { flex-direction: column; gap: 8px; margin-top: 4px; padding-top: 16px; border-top: 1px solid rgb(255 255 255 / .06); }
-  .lock-label { font-size: 10.5px; font-weight: 600; letter-spacing: .18em; text-transform: uppercase; color: var(--t4); }
-  #view-weekly, #view-monthly { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px; border-radius: 11px;
-    background: rgb(255 255 255 / .03); border: 1px solid rgb(255 255 255 / .07); color: var(--t1); text-align: left; }
-  #view-weekly:hover, #view-monthly:hover { background: rgb(255 255 255 / .06); border-color: rgb(255 255 255 / .13); }
-  #backup-row button::before { content: ""; flex: none; width: 16px; height: 16px; background: var(--t3);
-    -webkit-mask: var(--i-archive) center / contain no-repeat; mask: var(--i-archive) center / contain no-repeat; }
-  #backup-row .bk-name { flex: 1; font-size: 13px; }
-  #backup-row button.sel { border-color: var(--warn-line); background: var(--warn-dim); color: var(--warn); }
-  #backup-row button.sel::before { background: var(--warn); }
-  #backup-sel { color: var(--warn); font-size: 12.5px; line-height: 1.45; }
+  #vault-file { padding: 8px; border: 1px dashed #2e2e2e; border-radius: 8px; background: #0b0b0b; font-size: 12px; color: #6f6a63; }
+  #vault-file::file-selector-button { margin-right: 10px; padding: 5px 11px; border: 1px solid #333; border-radius: 6px;
+    background: #141414; color: #e9e5de; font: inherit; cursor: pointer; }
+  /* Backups found beside the file: one quiet row each, its age in the sidebar's colour for it. */
+  #backup-row { flex-direction: column; gap: 6px; margin-top: 10px; padding-top: 14px; border-top: 1px solid #1c1c1c; }
+  .lock-label { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #5f5f5f; }
+  #view-weekly, #view-monthly { display: flex; align-items: center; justify-content: space-between; height: 38px; padding: 0 12px;
+    border: 1px solid #222; border-radius: 8px; background: transparent; color: #cfc9c0; font-size: 13px; text-align: left; }
+  #view-weekly:hover, #view-monthly:hover { background: #111; border-color: #333; }
+  #backup-row .bk-age { padding: 0; border: 0; background: none; color: var(--bk, #8d877e); font-size: 12px; }
+  #backup-row button.sel { border-color: #c9a36a; color: #e9e5de; }
+  #backup-sel { color: #c9a36a; font-size: 12.5px; line-height: 1.45; }
 
   /* ---------- Dropdown lists ----------
      A native <select> list takes its colours from the options, not the select:
@@ -892,12 +800,12 @@
   .pw-fill { display: block; height: 100%; width: 0; border-radius: 3px; background: var(--pw, var(--t4)); transition: width .2s, background-color .2s; }
   .pw-line { display: flex; flex-wrap: wrap; gap: 0 6px; margin-top: 6px; font-size: 12px; line-height: 1.45; color: var(--t3); }
   .pw-label { font-weight: 600; color: var(--pw, var(--t3)); }
-  /* Red, orange, amber, light sage, sage: from very weak to very strong. */
-  #pw-meter.vweak { --pw: var(--bad); }
-  #pw-meter.weak { --pw: #e3895a; }
-  #pw-meter.fair { --pw: var(--warn); }
-  #pw-meter.strong { --pw: #8fbf7e; }
-  #pw-meter.vstrong { --pw: var(--acc); }
+  /* Red, orange, amber, pale, white: from very weak to very strong. */
+  #pw-meter.vweak { --pw: #c96b5c; }
+  #pw-meter.weak { --pw: #c98a5c; }
+  #pw-meter.fair { --pw: #c9a36a; }
+  #pw-meter.strong { --pw: #d6d0c5; }
+  #pw-meter.vstrong { --pw: #f2eee7; }
 
   /* ---------- Scrollbars ---------- */
   ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -910,24 +818,17 @@
 <body>
 
 <div id="lock">
-  <!-- One centred group: the card, then a line on how the vault is protected.
-       margin:auto centres it and still lets a short window scroll to every part. -->
+  <!-- Just the form, centred on black. margin:auto centres it and still lets a
+       short window scroll to every part of it. -->
   <div class="lock-stage">
   <form id="unlock-form" data-mode="unlock">
-    <!-- Seal, name and one line that fits the situation (data-mode: unlock, new or found). -->
-    <div class="lock-head">
-      <div class="lock-seal" aria-hidden="true">
-        <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 5h9.5L25 10.5V25a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/><path d="M19.5 5v4.5a1 1 0 0 0 1 1H25"/><circle cx="16.5" cy="16" r="2.3"/><path d="M16.5 18.3v3.7"/></svg>
-      </div>
-      <div class="lock-eyebrow">Encrypted notebook</div>
-      <h1>notes</h1>
-      <p class="lock-sub">
-        <span class="for-unlock">Welcome back. Your notes stay sealed until you unlock them.</span>
-        <span class="for-new">Create your vault. Everything is encrypted before it leaves this page.</span>
-        <span class="for-found">Found a synced vault next to this file. Enter its master password to unlock it.</span>
-      </p>
-    </div>
-    <input id="password" type="password" placeholder="Master password" aria-label="Master password" autocomplete="current-password" autofocus>
+    <h1 class="sr-only">notes</h1>
+    <!-- One quiet line, only when there is something to say (data-mode: unlock, new or found). -->
+    <p class="lock-sub">
+      <span class="for-new">New vault: choose a master password.</span>
+      <span class="for-found">A synced vault was found next to this file.</span>
+    </p>
+    <input id="password" type="password" placeholder="Master password" aria-label="Master password" autofocus>
     <!-- A wrong password costs one of the ten attempts, so say when Caps Lock is on. -->
     <div id="caps-msg" class="lock-caps" hidden>Caps Lock is on</div>
     <div id="token-row">
@@ -937,19 +838,18 @@
         <div class="pw-line"><span class="pw-label"></span><span class="pw-time"></span></div>
       </div>
       <!-- There is no password recovery, so a typo here would be unrecoverable. -->
-      <input id="password2" type="password" placeholder="Confirm master password" aria-label="Confirm master password" autocomplete="new-password">
-      <input id="token" type="password" placeholder="GitHub fine-grained token" aria-label="GitHub fine-grained token" autocomplete="off">
+      <input id="password2" type="password" placeholder="Confirm master password" aria-label="Confirm master password">
+      <input id="token" type="password" placeholder="GitHub fine-grained token" aria-label="GitHub fine-grained token">
       <small>Paste a fine-grained GitHub token (Settings &rsaquo; Developer settings &rsaquo; Fine-grained
-      tokens) with access to your notes repo only and <b>Contents</b> set to read and write. The password
+      tokens) with access to your notes repo only and Contents set to read and write. The password
       and the token are kept only inside the encrypted vault.</small>
     </div>
-    <button id="unlock-btn" class="primary"><span id="unlock-label">Unlock</span><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h9.5M8.5 4l4 4-4 4"/></svg></button>
+    <button id="unlock-btn" class="primary"><span id="unlock-label">Unlock</span></button>
     <div id="lock-msg" role="status"></div>
     <div id="guard-msg" style="display:none"></div>
     <!-- Outside #token-row on purpose: in a clone the auto-detected vault hides
          that row, and a backup file would have had nowhere to be selected. -->
     <div id="restore-row">
-      <div class="lock-or" aria-hidden="true">or</div>
       <button id="restore-toggle" type="button">Restore from a file instead</button>
       <div id="restore-box" style="display:none">
         <small>Pick a <code>vault.enc</code>, <code>vault.enc.js</code> or a
@@ -965,8 +865,6 @@
       <div id="backup-sel" style="display:none"></div>
     </div>
   </form>
-  <div class="lock-foot"><span>AES-256-GCM</span><span id="lock-kdf">PBKDF2-SHA256</span><span>Ciphertext-only sync</span></div>
-  <div class="lock-build" id="lock-build"></div>
   </div>
 </div>
 
@@ -1106,7 +1004,7 @@ const OWNER = "YOUR_GITHUB_USER", REPO = "YOUR_PRIVATE_REPO", FILE = "vault.enc"
 // Which build of the app this file is. Sync compares it with the index.html in
 // the repo and offers the newer one (see App updates). Bump it with every change
 // to the app: "YYYY-MM-DD.N", N counting that day's builds from 1.
-const APP_BUILD = "2026-11-03.1", APP_FILE = "index.html";
+const APP_BUILD = "2026-11-03.2", APP_FILE = "index.html";
 const REPO_API = sub => `https://api.github.com/repos/${OWNER}/${REPO}/${sub}`;
 const API = path => REPO_API(`contents/${path}`);
 // The ONLY defence that survives someone copying vault.enc to their own
@@ -11689,6 +11587,7 @@ $("backup-convert").onclick = async () => {
 };
 
 // Lock-screen detection row.
+const LOCK_AGE_COLORS = ["#a9a39a", "#c9a36a", "#c98a5c", "#c96b5c"];   // safe / normal / danger / unsafe
 function refreshLockBackupRow() {
   const any = backupWrapper("weekly") || backupWrapper("monthly");
   $("backup-row").style.display = any ? "flex" : "none";
@@ -11696,11 +11595,11 @@ function refreshLockBackupRow() {
     const b = $("view-" + kind), w = backupWrapper(kind);
     b.style.display = w ? "" : "none";
     if (w) {
-      // A tile: the name, then the age in the same coloured pill as the sidebar's backup bar.
+      // A row: the name, then the age, tinted by how overdue it is (muted: the lock screen has no colour of its own).
       b.textContent = "";
       b.appendChild(mk("span", "bk-name", kind === "weekly" ? "Weekly backup" : "Monthly backup"));
       const age = mk("span", "bk-age", fmtAge(w.at));
-      age.style.setProperty("--bk", BK_COLORS[backupZone(kind)]);
+      age.style.setProperty("--bk", LOCK_AGE_COLORS[backupZone(kind)]);
       b.appendChild(age);
       b.title = `View the ${kind} backup read-only (taken ${new Date(w.at).toLocaleString()})`;
       b.setAttribute("aria-pressed", pendingBackupKind === kind ? "true" : "false");
@@ -12193,9 +12092,6 @@ for (const id of ["password", "password2"]) {
   $(id).addEventListener("keyup", caps);
   $(id).addEventListener("blur", () => { $("caps-msg").hidden = true; });
 }
-// Under the card: the key-derivation cost and this file's build, from the code itself.
-$("lock-kdf").textContent = `PBKDF2 \u00D7 ${(ITER / 1e6).toLocaleString("en-US")}M`;
-$("lock-build").textContent = "build " + APP_BUILD;
 // One shake of the card for a wrong password.
 function shakeLock() {
   const f = $("unlock-form");
