@@ -1,6 +1,6 @@
 # encrypted-notes
 
-Encrypted notes in a single HTML file. No dependencies, no build step, no server: open `index.html` in a browser and everything is encrypted and decrypted right there, with a master password that never leaves your machine. Your notes sync to a **private GitHub repo of your own**, which only ever stores ciphertext.
+Encrypted notes in a plain web page: `index.html`, its stylesheets and its scripts. No dependencies, no build step, no server: open `index.html` in a browser and everything is encrypted and decrypted right there, with a master password that never leaves your machine. Your notes sync to a **private GitHub repo of your own**, which only ever stores ciphertext.
 
 This repo holds the app only. It never contains anyone's notes, and nobody can sync into it: each person creates their own private repo and points their copy of the app there.
 
@@ -9,11 +9,13 @@ This repo holds the app only. It never contains anyone's notes, and nobody can s
 ## Setting it up
 
 1. Create a new **private** GitHub repo for your vault, for example `notes`. Do not fork this one: GitHub makes forks of public repos public, and the app refuses to sync to a public repo.
-2. Copy `index.html` into it and set your repo near the top of the script:
+2. Copy the app into it: `index.html`, `config.js` and the `css` and `js` folders. Then set your repo in `config.js`, the one file you edit:
 
    ```js
-   const OWNER = "YOUR_GITHUB_USER", REPO = "YOUR_PRIVATE_REPO", ...
+   window.NOTES_CONFIG = { owner: "YOUR_GITHUB_USER", repo: "YOUR_PRIVATE_REPO" };
    ```
+
+   Just the names, not a link: `owner` is your GitHub user name and `repo` the private repo's name.
 
 3. Create a fine-grained token (GitHub Settings > Developer settings > Fine-grained tokens) with access to **that repo only** and the permission **Contents: read and write**.
 4. Open `index.html` (a double click is enough). On first run, choose a master password (a strength meter shows a rough cracking time as you type), confirm it, and paste the token. The token is stored inside the encrypted vault, never in plain text.
@@ -23,9 +25,21 @@ On another computer, clone your private repo and open `index.html`: the synced v
 
 ## Updating the app
 
-Each copy of the app carries a build number (`APP_BUILD`, shown in **Settings**). When you press **Sync**, the app also looks at the `index.html` in your private repo, and if that one is a newer build it asks before touching anything: the dialog shows the new build, the date it was committed, who committed it and the commit message. **Update index.html** writes the new file over the one you opened (Chrome and Edge ask once for access to its folder; other browsers download it for you to put in place), and it takes effect when you reload. **Not now** keeps your current version and does not ask again until the file changes; **Settings > Check now** offers it again. Your notes sync either way.
+Each copy of the app carries a build number (`APP_BUILD` in `js/version.js`, shown in **Settings**). When you press **Sync**, the app also looks at `js/version.js` in your private repo, and if that is a newer build it asks before touching anything: the dialog shows the new build, the date it was committed, who committed it and the commit message. **Update the app** replaces `index.html` and the `css` and `js` folders with the new build, every file taken from that one commit and checked before it is offered (Chrome and Edge ask once for access to the app's folder; other browsers download the build as one ZIP for you to unpack over it), and it takes effect when you reload. `config.js` is never replaced, so your repo setting stays. **Not now** keeps your current version and does not ask again until the app changes; **Settings > Check now** offers it again. Your notes sync either way.
 
-To move your copy to a newer version of this app, put the new `index.html` in your private repo with your own `OWNER`/`REPO` line and push it; every device then gets the question on its next Sync. (A copy with the placeholder line also works: the app keeps its own repo setting when it installs it.) Copies older than the first build with updates need this one update by hand.
+To move your copy to a newer version of this app, put its files (everything but `config.js`) in your private repo and push them; every device then gets the question on its next Sync.
+
+Copies from before the app was split into files (build 2026-11-03.4 and older) cannot install the new layout themselves, and never offer it. Update each of them by hand once: put the new files in the app's folder, replacing `index.html`, and set your repo in `config.js`. From then on, updates arrive through Sync again.
+
+## How the code is laid out
+
+- `index.html`: the page, and the list of files it loads, in order.
+- `config.js`: your repo. The only file you edit, and the only one an update leaves alone.
+- `css/`: the look, by area (`base`, `lock`, `sidebar`, `editor`, `dialogs`).
+- `js/`: the code, one file per part of the app: `core.js` holds the vault key and shared state, `sync.js` talks to GitHub behind the private-repo check, `merge.js` merges two vaults, `updates.js` offers app updates, `lock.js` runs the lock screen, and so on. Each file starts with a line saying what it does.
+- `js/version.js`: the build number, and the list of every app file, which is what an update installs.
+
+The scripts are plain scripts loaded in order, not JavaScript modules, because browsers refuse modules in a page opened from a file and the app has to run from a double click. Each one may use what the files before it define.
 
 ## Features
 
@@ -49,9 +63,9 @@ To move your copy to a newer version of this app, put the new `index.html` in yo
 - Attachments are encrypted with a separate random 256-bit key that lives inside the vault, and each file is bound to its own id, so files cannot be swapped by someone with write access to the repo.
 - Browser storage only ever holds ciphertext. Titles, bodies, folder names, attachments and the token exist in the clear only in memory while unlocked.
 - Brute-force guard: each password attempt costs 3 seconds, and after 10 failures the vault locks for 30 days.
-- Private repos only: until `OWNER` and `REPO` are set the app sends nothing, and before its first request after the page opens it asks GitHub whether the repo is private. A public repo is refused before a single byte is uploaded, because anyone could download the encrypted vault from it and try passwords offline.
-- Trade-off worth knowing: `index.html` loads `vault.enc.js` from its own folder with a script tag, which is what makes password-only unlock work on a fresh clone. Anyone who can write to your vault repo could therefore run code in the page, the same trust you already place in that repo for `index.html` itself. Keep it private and the token scoped to it.
-- App updates come only from your own private repo, through the same private-repo check as everything else, and never install without your click. The dialog warns when the new file would sync with a different repo or no longer has the private-repo check, but it cannot tell good code from bad: accept an update only when you made that change yourself.
+- Private repos only: until `config.js` names your repo the app sends nothing (a missing `config.js`, or a value that cannot be a GitHub name, such as a pasted link, counts as not set), and before its first request after the page opens it asks GitHub whether the repo is private. A public repo is refused before a single byte is uploaded, because anyone could download the encrypted vault from it and try passwords offline.
+- Trade-off worth knowing: `index.html` loads `vault.enc.js` from its own folder with a script tag, which is what makes password-only unlock work on a fresh clone. Anyone who can write to your vault repo could therefore run code in the page, the same trust you already place in that repo for the app's own files. Keep it private and the token scoped to it.
+- App updates come only from your own private repo, through the same private-repo check as everything else, and never install without your click. Every file must match the id git gave it in that commit, so a damaged download is never installed, and an update can only write `index.html` and files in `css/` and `js/`. The dialog warns when the new files would no longer take the repo from `config.js` or no longer have the private-repo check, but it cannot tell good code from bad: accept an update only when you made that change yourself.
 - Auto-lock: after 10 minutes without input the app saves and locks itself. **Settings** (bottom left) changes the delay or turns it off; the choice is kept per device.
 - Forget the master password and nobody can decrypt the vault, you included.
 

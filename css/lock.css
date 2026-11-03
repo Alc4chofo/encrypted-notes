@@ -1,0 +1,100 @@
+/* notes: The lock screen: the form, its optional background video, setup fields and strength meter. */
+/* ---------- Lock screen ----------
+   Black, and nothing on it but the form: no card, no colour of its own.
+   The only tints are the meanings every screen shares (amber for a warning,
+   red for an error). */
+#lock { flex: 1; display: flex; overflow-y: auto; position: relative; background: #000; }
+/* Your own background video, when there is one: full screen and fading in, the
+   form moved low so the middle of the picture stays clear, over a fade to black
+   that keeps it readable. */
+#lock-bg { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; pointer-events: none;
+  transition: opacity 1.2s ease; }
+/* Slightly enlarged, so leaning toward the pointer never shows an edge. */
+#lock.has-bg #lock-bg { opacity: 1; transform: scale(1.04); }
+#lock.has-bg::after { content: ""; position: fixed; inset: auto 0 0; height: 42vh; pointer-events: none;
+  background: linear-gradient(to top, rgb(0 0 0 / .9) 30%, transparent); }
+.lock-stage { position: relative; z-index: 1; }
+#lock.has-bg .lock-stage { margin: auto auto 0; padding-bottom: 5vh; }
+#lock.has-bg input[type="password"] { background: rgb(8 8 8 / .78); }
+/* margin:auto centres the form, and when the window is shorter than it the
+   page scrolls instead of cutting the top off (align-items:center would). */
+.lock-stage { margin: auto; padding: 40px 20px; width: 100%; display: flex; justify-content: center;
+  animation: lock-in .5s ease-out both; }
+@keyframes lock-in { from { opacity: 0; } }
+#lock form { display: flex; flex-direction: column; gap: 12px; width: min(320px, 100%); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+#lock ::selection { background: rgb(255 255 255 / .22); }
+.lock-sub { margin: 0 0 4px; font: italic 14px/1.5 var(--serif); color: #8d877e; text-align: center; }
+.lock-sub span { display: none; }
+#unlock-form[data-mode="new"] .for-new, #unlock-form[data-mode="found"] .for-found { display: inline; }
+#unlock-form[data-mode="unlock"] .lock-sub { display: none; }
+#lock input[type="password"] { height: 44px; padding: 0 14px; border: 1px solid #262626; border-radius: 8px;
+  background: #0b0b0b; color: #e9e5de; font-size: 14px; transition: border-color .15s; }
+#lock input[type="password"]:hover { border-color: #333; }
+#lock input[type="password"]:focus { border-color: #5a5a5a; box-shadow: none; }
+#lock input[type="password"]::placeholder { color: #5f5f5f; }
+/* A browser that fills a saved password paints the field pale: keep it black. */
+#lock input:-webkit-autofill { -webkit-box-shadow: 0 0 0 40px #0b0b0b inset; -webkit-text-fill-color: #e9e5de; caret-color: #e9e5de; }
+.lock-caps:not([hidden]) { display: block; margin-top: -4px; font-size: 12px; color: #c9a36a; }
+#unlock-btn { height: 44px; margin-top: 2px; border: 1px solid #333; border-radius: 8px; background: transparent;
+  color: #e9e5de; font-size: 14px; font-weight: 500; letter-spacing: .02em; transition: background .15s, border-color .15s; }
+#unlock-btn:hover { background: #141414; border-color: #4a4a4a; }
+#unlock-btn:focus-visible { border-color: #8a8a8a; box-shadow: none; }
+#unlock-btn:active { background: #1b1b1b; }
+/* While an attempt runs the button says so ("Unlocking...") and breathes, instead of going grey. */
+#unlock-form.busy #unlock-btn:disabled { opacity: 1; cursor: progress; animation: lock-busy 1.4s ease-in-out infinite; }
+@keyframes lock-busy { 50% { color: #8d877e; } }
+#lock-msg { font-size: 13px; line-height: 1.45; text-align: center; color: #c96b5c; }
+#lock-msg:empty { display: none; }
+/* A wrong password: the form shakes once. */
+#unlock-form.shake { animation: lock-shake .42s cubic-bezier(.36, .07, .19, .97); }
+@keyframes lock-shake { 15% { transform: translateX(-7px); } 35% { transform: translateX(6px); } 55% { transform: translateX(-4px); }
+  75% { transform: translateX(2px); } }
+#lock small { display: block; font-size: 12px; line-height: 1.55; color: #6f6a63; }
+#lock code { font: 11.5px var(--mono); color: #9a948a; }
+/* Attempt counter / lockout notice: plain words, amber while attempts remain,
+   red once the vault is locked; the whole form is visibly dead in that state. */
+#guard-msg { font-size: 13px; line-height: 1.45; text-align: center; color: #c9a36a; }
+#guard-msg.locked { color: #c96b5c; }
+#guard-msg .guard-title { font-weight: 600; margin-bottom: 2px; font-variant-numeric: tabular-nums; }
+#guard-msg .guard-sub { margin-top: 4px; font-size: 12px; opacity: .75; }
+#unlock-form.locked-out input, #unlock-form.locked-out button { opacity: .35; }
+@media (prefers-reduced-motion: reduce) {
+  .lock-stage, #unlock-form.shake, #unlock-form.busy #unlock-btn:disabled { animation: none; }
+}
+
+/* ---------- Lock screen extras ---------- */
+#token-row { display: none; flex-direction: column; gap: 12px; }
+#restore-row { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+#restore-toggle { align-self: center; padding: 4px 8px; border: 0; background: none; color: #6f6a63; font-size: 12.5px; }
+#restore-toggle:hover { background: none; color: #bdb7ad; }
+#restore-box { display: flex; flex-direction: column; gap: 8px; }
+#vault-file { padding: 8px; border: 1px dashed #2e2e2e; border-radius: 8px; background: #0b0b0b; font-size: 12px; color: #6f6a63; }
+#vault-file::file-selector-button { margin-right: 10px; padding: 5px 11px; border: 1px solid #333; border-radius: 6px;
+  background: #141414; color: #e9e5de; font: inherit; cursor: pointer; }
+/* Backups found beside the file: one quiet row each, its age in the sidebar's colour for it. */
+#backup-row { flex-direction: column; gap: 6px; margin-top: 10px; padding-top: 14px; border-top: 1px solid #1c1c1c; }
+.lock-label { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #5f5f5f; }
+#view-weekly, #view-monthly { display: flex; align-items: center; justify-content: space-between; height: 38px; padding: 0 12px;
+  border: 1px solid #222; border-radius: 8px; background: transparent; color: #cfc9c0; font-size: 13px; text-align: left; }
+#view-weekly:hover, #view-monthly:hover { background: #111; border-color: #333; }
+#backup-row .bk-age { padding: 0; border: 0; background: none; color: var(--bk, #8d877e); font-size: 12px; }
+#backup-row button.sel { border-color: #c9a36a; color: #e9e5de; }
+#backup-sel { color: #c9a36a; font-size: 12.5px; line-height: 1.45; }
+
+/* ---------- Password strength meter (first run) ---------- */
+/* A thin bar, then the verdict and the rough crack time; --pw is the band colour set by the class. */
+#pw-meter { margin: -2px 0 2px; }
+/* Five segments: the fill runs under a mask that cuts the track into equal steps. */
+.pw-bar { height: 5px; border-radius: 3px; background: rgb(255 255 255 / .07); overflow: hidden;
+  -webkit-mask: repeating-linear-gradient(90deg, #000 0 calc(20% - 3px), transparent calc(20% - 3px) 20%);
+  mask: repeating-linear-gradient(90deg, #000 0 calc(20% - 3px), transparent calc(20% - 3px) 20%); }
+.pw-fill { display: block; height: 100%; width: 0; border-radius: 3px; background: var(--pw, var(--t4)); transition: width .2s, background-color .2s; }
+.pw-line { display: flex; flex-wrap: wrap; gap: 0 6px; margin-top: 6px; font-size: 12px; line-height: 1.45; color: var(--t3); }
+.pw-label { font-weight: 600; color: var(--pw, var(--t3)); }
+/* Red, orange, amber, pale, white: from very weak to very strong. */
+#pw-meter.vweak { --pw: #c96b5c; }
+#pw-meter.weak { --pw: #c98a5c; }
+#pw-meter.fair { --pw: #c9a36a; }
+#pw-meter.strong { --pw: #d6d0c5; }
+#pw-meter.vstrong { --pw: #f2eee7; }

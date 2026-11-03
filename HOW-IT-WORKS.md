@@ -1,11 +1,11 @@
 # How encrypted-notes works
 
-This document describes exactly what the app does with your data: the threat model, the cryptographic construction, the storage and sync formats, and the limits. Every claim names the function in `index.html` that implements it, so you can check it against the code. The file is about 12,300 lines of unminified HTML, CSS and JavaScript with no dependencies, so what you read is what runs.
+This document describes exactly what the app does with your data: the threat model, the cryptographic construction, the storage and sync formats, and the limits. Every claim names the function that implements it, so you can check it against the code: the code is in `js/`, one file per part of the app, and `grep -rn "function deriveKey" js` (say) finds any of them. The app is about 12,700 lines of unminified HTML, CSS and JavaScript in 41 files, with no dependencies, so what you read is what runs.
 
 ## Contents
 
 1. [Threat model](#1-threat-model)
-2. [Why a single HTML file is enough](#2-why-a-single-html-file-is-enough)
+2. [Why a web page is enough](#2-why-a-web-page-is-enough)
 3. [Cryptography](#3-cryptography)
 4. [What is stored where](#4-what-is-stored-where)
 5. [Unlocking, locking and the attempt limit](#5-unlocking-locking-and-the-attempt-limit)
@@ -31,7 +31,7 @@ This document describes exactly what the app does with your data: the threat mod
 
 **Not a goal:** hiding *that* you use the app, how big the vault is, or when you sync. Those are visible to anyone who can see the repo (section 8).
 
-## 2. Why a single HTML file is enough
+## 2. Why a web page is enough
 
 A browser already ships everything a password manager-style vault needs:
 
@@ -41,13 +41,15 @@ A browser already ships everything a password manager-style vault needs:
 
 There is no server, no build step, no package manager and no third-party script. The only host the code ever contacts is `https://api.github.com`, and only when you sync, back up, check for an app update, or open an attachment that is not cached yet.
 
+**How the page is put together.** `index.html` holds the markup and loads, in order, `config.js` (your repo, the one file you edit), the stylesheets in `css/` and the scripts in `js/`. They are classic scripts, not JavaScript modules: a browser refuses to load modules into a page opened from a file, and this one has to work from a double click. Classic scripts share one set of top-level names, so each file can use what the files before it define. The order matters only for code that runs while the page loads; everything else runs later, when every file is in. `js/version.js` lists the same files (`APP_FILES`) for app updates (section 6).
+
 **One wrinkle, and how it is solved.** A page opened from `file://` may not `fetch()` its sibling files, but it *may* load them with a `<script src>` tag. So every time the app pushes `vault.enc`, it also pushes `vault.enc.js`, which is the same ciphertext wrapped as a script:
 
 ```js
 window.__VAULT__ = {"v":1,"iter":1200000,"salt":"...","iv":"...","data":"..."};
 ```
 
-A fresh clone opened by double click therefore finds its vault before you type anything, and you only need the password. The backups use the same trick. The one other file the page may load from its folder is an optional lock-screen video (`lock-background.mp4` or `lock-background.webm`), as a muted `<video>`: a video cannot run code, it is never synced, and without one the screen simply stays black. The cost of this convenience is a trust boundary, explained in section 8.
+A fresh clone opened by double click therefore finds its vault before you type anything, and you only need the password. The backups use the same trick. The one other file the page may load from its folder, apart from its own `config.js`, `css/` and `js/`, is an optional lock-screen video (`lock-background.mp4` or `lock-background.webm`), as a muted `<video>`: a video cannot run code, it is never synced, and without one the screen simply stays black. The cost of this convenience is a trust boundary, explained in section 8.
 
 ## 3. Cryptography
 
@@ -60,6 +62,7 @@ A fresh clone opened by double click therefore finds its vault before you type a
 | Attachment encryption | AES-256-GCM | separate random 256-bit key, 96-bit random IV per file, AAD = `"media:" + id` | `encryptMedia`, `decryptMedia` |
 | Conflict tie-break | SHA-256 | over a canonical serialization of the note | `sha256Hex`, `resolveConflict` |
 | All randomness | `crypto.getRandomValues` | browser CSPRNG | everywhere |
+| App update download check | SHA-1, the way git names file contents | over `"blob <size>\0"` and the file's bytes, compared with the commit's tree; catches a damaged download, not tampering (section 8) | `gitBlobId`, `fetchBuild` |
 
 All keys are created as non-extractable `CryptoKey` objects: page code can use them but cannot read their bytes. The one exception is the attachment key, which has to travel between devices (section 3.4).
 
@@ -128,6 +131,7 @@ Attachments are not sealed under the password key, because that key depends on a
 | `media/<uuid>` | one encrypted attachment, `iv \|\| ciphertext \|\| tag`, or a chunk manifest |
 | `media/<uuid>.p<n>` | chunk parts of a large attachment |
 | `backup-weekly.enc.js`, `backup-monthly.enc.js` | `window.__BACKUP_WEEKLY__ = {"at": <ms>, "data": "<sealed vault>"};` (and the monthly equivalent) |
+| `index.html`, `config.js`, `css/`, `js/` | the app itself, with your repo in `config.js`; app updates come from here (section 6) |
 
 Commit messages are fixed strings (`sync`, `media`, `purge`, `weekly backup`, `monthly backup`). They say nothing about content.
 
@@ -141,7 +145,7 @@ Commit messages are fixed strings (`sync`, `media`, `purge`, `weekly backup`, `m
 | `localStorage` | `authGuard` | the failed-attempt counter (section 5) |
 | `localStorage` | `settings` | `{"autoLockMin", "weeklyDays", "monthlyDays"}`: the auto-lock delay (section 5) and how old each backup may get before unlock asks to update it. Per device, not synced |
 | `localStorage` | `backupMeta`, `pullBanner`, UI preferences | timestamps, counts, colours, which sections are collapsed |
-| `localStorage` | `appUpdate` | `{"commit", "build", "declined"}`: the last commit of `index.html` this device looked at, the build it holds, and a version you declined (section 6). Per device, not synced |
+| `localStorage` | `appUpdate` | `{"commit", "build", "declined"}`: the last commit of `js/version.js` this device looked at, the build it names, and a version you declined (section 6). Per device, not synced |
 | IndexedDB `notes-media` | `<uuid>` | encrypted attachment records `{id, bytes: iv \|\| ciphertext \|\| tag}` |
 | IndexedDB `notes-media` | `__authGuard__`, `__notesDir__` | the second copy of the attempt counter, and the folder handle backups (and app updates) are written to |
 
@@ -165,7 +169,7 @@ Plaintext exists only in memory while the vault is unlocked: the JavaScript heap
 
 **Repo guard** (`ensurePrivateRepo`), checked before *any* request leaves the page:
 
-1. `OWNER` and `REPO` must have been changed from the placeholders this repo ships with. Otherwise sync is off and nothing is sent.
+1. `config.js` must name your repo (`OWNER`, `REPO`). The placeholders this repository ships with, a missing `config.js`, or a value that cannot be a GitHub user or repo name, such as a pasted link (`REPO_UNSET`), all mean sync is off and nothing is sent.
 2. `GET /repos/{owner}/{repo}` must answer `"private": true`. A public repo is refused before anything is uploaded or downloaded, because anyone could then copy the vault and start guessing offline. This also covers forks of this repository, which GitHub always makes public.
 
 **One sync pass** (`syncOnce`):
@@ -185,11 +189,13 @@ A sealed snapshot of the pre-merge vault is kept locally (`vault.prev`), and a m
 
 **App updates** (`appUpdateStep`, `checkAppUpdate`, `offerAppUpdate`). After a successful full Sync, never during it, so the notes are synced whatever the answer:
 
-1. `GET /repos/{owner}/{repo}/commits?path=index.html&per_page=1` (`ghApi`, behind the same repo guard as every other request, and never answered from the browser cache) gives the latest commit that changed `index.html` in your repo.
-2. Only if this device has not seen that commit yet, the file is read *at that commit* (`contents/index.html?ref=<sha>`, `appFileAt`), so what the dialog describes is exactly what would be installed, and its `APP_BUILD` is recorded. A build that is not newer than the running one (`compareBuild`, `"YYYY-MM-DD.N"`) is never offered, so there are no downgrades.
-3. A file that is not a complete copy of the app (no `<!DOCTYPE html>` at the start, no `</html>` at the end, or a build number that does not match) is not offered.
-4. The dialog shows the new and current builds, the commit date, author and first line of the message, and warns when the new file would sync with a different `OWNER`/`REPO` or no longer contains `ensurePrivateRepo`. A copy with this repository's placeholder line gets the running copy's own `OWNER`/`REPO` written in, since that is the public mirror's normal shape. **Not now** is the default; it records the commit as declined, so that version is not offered again until the file changes (Settings > **Check now** asks again).
-5. **Update index.html** writes the file into the folder the page was opened from, through the File System Access API, after checking that the chosen folder really contains the running file (`appDirHandle`); without that API, or if the folder cannot be written, the browser downloads it instead. Nothing runs until you reload.
+1. `GET /repos/{owner}/{repo}/commits?path=js/version.js&per_page=1` (`ghApi`, behind the same repo guard as every other request, and never answered from the browser cache) gives the latest commit that changed `js/version.js` in your repo. Every app change touches that file, since it holds `APP_BUILD`.
+2. Only if this device has not seen that commit yet, `js/version.js` is read *at that commit* (`contents/js/version.js?ref=<sha>`, `appFileAt`) and its `APP_BUILD` is recorded. A build that is not newer than the running one (`compareBuild`, `"YYYY-MM-DD.N"`) is never offered, so there are no downgrades.
+3. Before anything is asked, the whole build is fetched at that same commit (`fetchBuild`), so what the dialog describes is exactly what would be installed. The build is the list in that commit's `APP_FILES`, read as text and never run (`filesOf`), and it may only name `index.html` and plain file names in `css/` and `js/` (`APP_PATH`), so no update can ever write `config.js`, the vault or backup files, or anything outside the app's folder. Every file must match the blob id git gave it in that commit's tree (`treeIds`, `gitBlobId`), so a cut-off or damaged download is caught; every script must compile (with `new Function`, never called); `index.html` must be a whole page; and everything `index.html` loads must be part of the build, apart from `config.js` and the vault and backup wrappers. A build that fails any of this is not offered, and the status line says why.
+4. The dialog shows the new and current builds, the commit date, author and first line of the message and how many files it replaces, and warns when the new files no longer take the repo from `config.js` (`window.NOTES_CONFIG`) or no longer contain `ensurePrivateRepo` (`buildWarnings`). **Not now** is the default; it records the commit as declined, so that version is not offered again until the app changes (Settings > **Check now** asks again).
+5. **Update the app** writes the build into the folder the page was opened from, through the File System Access API, after checking that the chosen folder really holds the running page and its `js/version.js` (`appDirHandle`). Every file is written to the side first, and only once all of them are written are they put in place, `index.html` last (`writeBuild`), so a failure while writing leaves the old app exactly as it was. Without that API, or if the folder cannot be written, the browser downloads the build as one ZIP (`downloadBuild`, `zipBlob`) to unpack over the app's folder. `config.js` is never written and never in the ZIP. Files an older build had and a newer one no longer lists are left in place, unused. Nothing runs until you reload.
+
+Copies from before the app was split into files (build 2026-11-03.4 and older) look for `APP_BUILD` in `index.html`, find none in the new one, and so never offer it: they need one update by hand.
 
 A failed check (offline, rate limited) is silent and never fails the sync; the next one tries again.
 
@@ -235,9 +241,9 @@ They can:
 
 - **deny service:** delete files, or corrupt them so they no longer open. This is unavoidable for any storage someone else controls, which is what backups are for;
 - **replay an older vault** they saw earlier. The merge treats it as an old remote state and keeps every local change, so it cannot erase newer data on a device that already has it;
-- **run code in your page.** This is the important one. The page executes `vault.enc.js` with a script tag (section 2), and a repo clone also contains `index.html` itself, so someone who can write to the repo can change the code you run and capture your password on the next unlock. Ciphertext integrity cannot protect against a modified program. App updates (section 6) do not add a new path for this, since a pull or clone of the repo would bring the same file, but they do make it visible: a changed `index.html` only reaches a running copy through a dialog that names the commit, its date and its author, and only on your click. The dialog flags a file that points at another repo or lost the private-repo check; anything subtler only you can judge, so accept updates you made yourself.
+- **run code in your page.** This is the important one. The page executes `vault.enc.js` with a script tag (section 2), and a repo clone also contains the app's own files, so someone who can write to the repo can change the code you run and capture your password on the next unlock. Ciphertext integrity cannot protect against a modified program. App updates (section 6) do not add a new path for this, since a pull or clone of the repo would bring the same files, but they do make it visible: a changed app only reaches a running copy through a dialog that names the commit, its date and its author, and only on your click. The dialog flags a build that stops taking the repo from `config.js` or lost the private-repo check; anything subtler only you can judge, so accept updates you made yourself.
 
-That last point is why the setup asks for a **private** repo and a token scoped to **that repo only**, and why the app refuses to sync with a public one. To check that your copy of the app is genuine, diff it against this repository: the only difference should be the `OWNER`/`REPO` line.
+That last point is why the setup asks for a **private** repo and a token scoped to **that repo only**, and why the app refuses to sync with a public one. To check that your copy of the app is genuine, diff it against this repository (`diff -r`): the only difference should be `config.js`.
 
 ## 9. Displaying untrusted content safely
 
@@ -262,18 +268,21 @@ Every input path into the vault goes through AES-GCM authenticated decryption, s
 
 ## 11. Checking it yourself
 
-The design deliberately makes auditing practical: one file, no dependencies, no build, no minification.
+The design deliberately makes auditing practical: plain files, no dependencies, no build, no minification. Run these in the app's folder:
 
 ```bash
 # Every remote host the code can contact (expect https://api.github.com, plus example.com as a link placeholder
 # and www.w3.org, the SVG namespace name inside the icons, which is never fetched):
-grep -oE "https?://[a-zA-Z0-9.-]+" index.html | sort -u
+grep -rhoE "https?://[a-zA-Z0-9.-]+" index.html config.js css js | sort -u
 
 # Every use of the Web Crypto API:
-grep -n "crypto\.subtle\|getRandomValues" index.html
+grep -rn "crypto\.subtle\|getRandomValues" js
 
 # The key-derivation cost:
-grep -n "const ITER" index.html
+grep -rn "const ITER" js
+
+# Every file the page loads, in order:
+grep -o '<script src="[^"]*"\|<link rel="stylesheet" href="[^"]*"' index.html
 ```
 
 Then open the browser's developer tools on the Network tab: no request is made until you press Sync, make a backup, check for an update or open an uncached attachment, and every request goes to `api.github.com` for the repo you configured.
