@@ -57,11 +57,12 @@
      that keeps it readable. */
   #lock-bg { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; pointer-events: none;
     transition: opacity 1.2s ease; }
-  #lock.has-bg #lock-bg { opacity: 1; }
-  #lock.has-bg::after { content: ""; position: fixed; inset: auto 0 0; height: 60vh; pointer-events: none;
-    background: linear-gradient(to top, rgb(0 0 0 / .94) 25%, transparent); }
+  /* Slightly enlarged, so leaning toward the pointer never shows an edge. */
+  #lock.has-bg #lock-bg { opacity: 1; transform: scale(1.04); }
+  #lock.has-bg::after { content: ""; position: fixed; inset: auto 0 0; height: 42vh; pointer-events: none;
+    background: linear-gradient(to top, rgb(0 0 0 / .9) 30%, transparent); }
   .lock-stage { position: relative; z-index: 1; }
-  #lock.has-bg .lock-stage { margin: auto auto 0; padding-bottom: 9vh; }
+  #lock.has-bg .lock-stage { margin: auto auto 0; padding-bottom: 5vh; }
   #lock.has-bg input[type="password"] { background: rgb(8 8 8 / .78); }
   /* margin:auto centres the form, and when the window is shorter than it the
      page scrolls instead of cutting the top off (align-items:center would). */
@@ -1022,7 +1023,7 @@ const OWNER = "YOUR_GITHUB_USER", REPO = "YOUR_PRIVATE_REPO", FILE = "vault.enc"
 // Which build of the app this file is. Sync compares it with the index.html in
 // the repo and offers the newer one (see App updates). Bump it with every change
 // to the app: "YYYY-MM-DD.N", N counting that day's builds from 1.
-const APP_BUILD = "2026-11-03.3", APP_FILE = "index.html";
+const APP_BUILD = "2026-11-03.4", APP_FILE = "index.html";
 const REPO_API = sub => `https://api.github.com/repos/${OWNER}/${REPO}/${sub}`;
 const API = path => REPO_API(`contents/${path}`);
 // The ONLY defence that survives someone copying vault.enc to their own
@@ -12125,6 +12126,22 @@ function syncLockBg() {
   else v.pause();
 }
 function showLockBg() { $("lock").classList.add("has-bg"); syncLockBg(); }
+// The picture leans a little toward the pointer, eased, as a Wallpaper Engine
+// scene does with its camera parallax. Not with reduced motion.
+const bgLean = { x: 0, y: 0, tx: 0, ty: 0, raf: 0 };
+$("lock").addEventListener("pointermove", e => {
+  if (!$("lock").classList.contains("has-bg") || stillMotion.matches) return;
+  bgLean.tx = e.clientX / innerWidth - .5;
+  bgLean.ty = e.clientY / innerHeight - .5;
+  if (!bgLean.raf) bgLean.raf = requestAnimationFrame(leanLockBg);
+});
+function leanLockBg() {
+  bgLean.x += (bgLean.tx - bgLean.x) * .06;
+  bgLean.y += (bgLean.ty - bgLean.y) * .06;
+  $("lock-bg").style.transform = `translate(${(-bgLean.x * 2.4).toFixed(3)}%, ${(-bgLean.y * 2.4).toFixed(3)}%) scale(1.04)`;
+  const moving = Math.abs(bgLean.tx - bgLean.x) + Math.abs(bgLean.ty - bgLean.y) > .0005;
+  bgLean.raf = moving && $("lock").style.display !== "none" ? requestAnimationFrame(leanLockBg) : 0;
+}
 $("lock-bg").addEventListener("loadeddata", showLockBg);
 // A local file can finish loading before this script runs, and then the event is already gone.
 if ($("lock-bg").readyState >= 2) showLockBg();
