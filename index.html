@@ -51,7 +51,18 @@
      Black, and nothing on it but the form: no card, no colour of its own.
      The only tints are the meanings every screen shares (amber for a warning,
      red for an error). */
-  #lock { flex: 1; display: flex; overflow-y: auto; background: #000; }
+  #lock { flex: 1; display: flex; overflow-y: auto; position: relative; background: #000; }
+  /* Your own background video, when there is one: full screen and fading in, the
+     form moved low so the middle of the picture stays clear, over a fade to black
+     that keeps it readable. */
+  #lock-bg { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; pointer-events: none;
+    transition: opacity 1.2s ease; }
+  #lock.has-bg #lock-bg { opacity: 1; }
+  #lock.has-bg::after { content: ""; position: fixed; inset: auto 0 0; height: 60vh; pointer-events: none;
+    background: linear-gradient(to top, rgb(0 0 0 / .94) 25%, transparent); }
+  .lock-stage { position: relative; z-index: 1; }
+  #lock.has-bg .lock-stage { margin: auto auto 0; padding-bottom: 9vh; }
+  #lock.has-bg input[type="password"] { background: rgb(8 8 8 / .78); }
   /* margin:auto centres the form, and when the window is shorter than it the
      page scrolls instead of cutting the top off (align-items:center would). */
   .lock-stage { margin: auto; padding: 40px 20px; width: 100%; display: flex; justify-content: center;
@@ -818,6 +829,13 @@
 <body>
 
 <div id="lock">
+  <!-- An optional background of your own: a video named lock-background.mp4 or
+       lock-background.webm next to this file. Nothing in the repo, nothing fetched;
+       without one the screen stays black. -->
+  <video id="lock-bg" muted loop playsinline preload="auto" aria-hidden="true" tabindex="-1">
+    <source src="lock-background.mp4" type="video/mp4">
+    <source src="lock-background.webm" type="video/webm">
+  </video>
   <!-- Just the form, centred on black. margin:auto centres it and still lets a
        short window scroll to every part of it. -->
   <div class="lock-stage">
@@ -1004,7 +1022,7 @@ const OWNER = "YOUR_GITHUB_USER", REPO = "YOUR_PRIVATE_REPO", FILE = "vault.enc"
 // Which build of the app this file is. Sync compares it with the index.html in
 // the repo and offers the newer one (see App updates). Bump it with every change
 // to the app: "YYYY-MM-DD.N", N counting that day's builds from 1.
-const APP_BUILD = "2026-11-03.2", APP_FILE = "index.html";
+const APP_BUILD = "2026-11-03.3", APP_FILE = "index.html";
 const REPO_API = sub => `https://api.github.com/repos/${OWNER}/${REPO}/${sub}`;
 const API = path => REPO_API(`contents/${path}`);
 // The ONLY defence that survives someone copying vault.enc to their own
@@ -11597,7 +11615,7 @@ function refreshLockBackupRow() {
     if (w) {
       // A row: the name, then the age, tinted by how overdue it is (muted: the lock screen has no colour of its own).
       b.textContent = "";
-      b.appendChild(mk("span", "bk-name", kind === "weekly" ? "Weekly backup" : "Monthly backup"));
+      b.appendChild(mk("span", "bk-name", kind === "weekly" ? "View weekly backup" : "View monthly backup"));
       const age = mk("span", "bk-age", fmtAge(w.at));
       age.style.setProperty("--bk", LOCK_AGE_COLORS[backupZone(kind)]);
       b.appendChild(age);
@@ -11800,6 +11818,7 @@ async function lockApp(force) {
   lastSyncError = null;
   $("app").style.display = "none";
   $("lock").style.display = "flex";
+  syncLockBg();
   setLockMode();          // a vault exists now: never the first-run form again
   $("lock-msg").textContent = "";
   $("password").value = "";
@@ -12092,6 +12111,23 @@ for (const id of ["password", "password2"]) {
   $(id).addEventListener("keyup", caps);
   $(id).addEventListener("blur", () => { $("caps-msg").hidden = true; });
 }
+// ---------- Lock screen background ----------
+// A video of your own behind the lock screen, when lock-background.mp4 or
+// lock-background.webm sits next to this file: it stays on that device (never
+// synced, never in the repo) and is only a picture, so it can run no code. It
+// plays only while the lock screen shows, muted, and stays on its first frame
+// if the system asks for reduced motion.
+const stillMotion = matchMedia("(prefers-reduced-motion: reduce)");
+function syncLockBg() {
+  const v = $("lock-bg");
+  if (!v || !$("lock").classList.contains("has-bg")) return;
+  if ($("lock").style.display !== "none" && !stillMotion.matches) v.play().catch(() => {});
+  else v.pause();
+}
+function showLockBg() { $("lock").classList.add("has-bg"); syncLockBg(); }
+$("lock-bg").addEventListener("loadeddata", showLockBg);
+// A local file can finish loading before this script runs, and then the event is already gone.
+if ($("lock-bg").readyState >= 2) showLockBg();
 // One shake of the card for a wrong password.
 function shakeLock() {
   const f = $("unlock-form");
@@ -12139,6 +12175,7 @@ $("unlock-form").onsubmit = async e => {
       $("password").value = ""; $("password2").value = ""; $("token").value = "";
       lockMsg("", true);
       $("lock").style.display = "none";
+      syncLockBg();
       $("app").style.display = "flex";
       dirty = false;
       enterBackupView(pendingBackupKind, w.at);
@@ -12238,6 +12275,7 @@ $("unlock-form").onsubmit = async e => {
     $("token").value = "";
     lockMsg("", true);
     $("lock").style.display = "none";
+    syncLockBg();
     $("app").style.display = "flex";
     dirty = false;
     // Fresh open = everything folded: seed the collapse set with every folder id

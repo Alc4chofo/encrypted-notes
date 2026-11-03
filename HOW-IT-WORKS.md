@@ -47,7 +47,7 @@ There is no server, no build step, no package manager and no third-party script.
 window.__VAULT__ = {"v":1,"iter":1200000,"salt":"...","iv":"...","data":"..."};
 ```
 
-A fresh clone opened by double click therefore finds its vault before you type anything, and you only need the password. The backups use the same trick. The cost of this convenience is a trust boundary, explained in section 8.
+A fresh clone opened by double click therefore finds its vault before you type anything, and you only need the password. The backups use the same trick. The one other file the page may load from its folder is an optional lock-screen video (`lock-background.mp4` or `lock-background.webm`), as a muted `<video>`: a video cannot run code, it is never synced, and without one the screen simply stays black. The cost of this convenience is a trust boundary, explained in section 8.
 
 ## 3. Cryptography
 

@@ -40,6 +40,7 @@ To move your copy to a newer version of this app, put the new `index.html` in yo
 - **Attachments**: any file type up to 200 MB, inline or attached. Images are re-encoded on import to strip EXIF and GPS data; SVG and HTML are download-only and never rendered.
 - **Sync**: a real merge, not last-write-wins. A genuine conflict keeps both versions as a "(conflict ...)" copy. Sync also offers newer versions of the app itself from your repo (see [Updating the app](#updating-the-app)).
 - **Trash**: deleted notes stay for 30 days, read-only, and can be restored or purged.
+- **Lock screen background**: put a video named `lock-background.mp4` or `lock-background.webm` next to `index.html` and it plays, muted, behind the lock screen (still, if your system asks for reduced motion). It stays on that device: it is not synced, and `.gitignore` keeps it out of the repo.
 - **Backups**: weekly and monthly encrypted backups, with a reminder at unlock when one is overdue (after 7 and 30 days by default, adjustable in **Settings**), plus a manual backup file you can keep anywhere.
 
 ## Security
