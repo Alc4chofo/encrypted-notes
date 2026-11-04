@@ -8,7 +8,7 @@
 // them. The updater reads this list as text, so keep its shape: one quoted name
 // per line, and only index.html and files in css/ and js/. Never config.js: that
 // one holds your own repo and stays as you set it.
-const APP_BUILD = "2026-11-04.1";
+const APP_BUILD = "2026-11-04.2";
 const APP_FILES = [
   "index.html",
   "css/base.css",

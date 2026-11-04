@@ -182,22 +182,6 @@ function lockBgFile() {
   if (!$("lock").classList.contains("has-bg")) return null;
   return decodeURIComponent(($("lock-bg").currentSrc || "").split("/").pop()) || null;
 }
-// The picture leans a little toward the pointer, eased, as a Wallpaper Engine
-// scene does with its camera parallax. Not with reduced motion.
-const bgLean = { x: 0, y: 0, tx: 0, ty: 0, raf: 0 };
-$("lock").addEventListener("pointermove", e => {
-  if (!$("lock").classList.contains("has-bg") || stillMotion.matches) return;
-  bgLean.tx = e.clientX / innerWidth - .5;
-  bgLean.ty = e.clientY / innerHeight - .5;
-  if (!bgLean.raf) bgLean.raf = requestAnimationFrame(leanLockBg);
-});
-function leanLockBg() {
-  bgLean.x += (bgLean.tx - bgLean.x) * .06;
-  bgLean.y += (bgLean.ty - bgLean.y) * .06;
-  $("lock-bg").style.transform = `translate(${(-bgLean.x * 2.4).toFixed(3)}%, ${(-bgLean.y * 2.4).toFixed(3)}%) scale(1.04)`;
-  const moving = Math.abs(bgLean.tx - bgLean.x) + Math.abs(bgLean.ty - bgLean.y) > .0005;
-  bgLean.raf = moving && $("lock").style.display !== "none" ? requestAnimationFrame(leanLockBg) : 0;
-}
 $("lock-bg").addEventListener("loadeddata", showLockBg);
 // A local file can finish loading before this script runs, and then the event is already gone.
 if ($("lock-bg").readyState >= 2) showLockBg();
