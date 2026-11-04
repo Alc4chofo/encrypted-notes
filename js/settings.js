@@ -45,6 +45,20 @@ function openSettings() {
     BACKUP_DAY_CHOICES.weekly, fmtDays, renderBackupBar);
   addRow("monthlyDays", "Monthly backup reminder", "When you unlock, ask to update the monthly backup once it is this old.",
     BACKUP_DAY_CHOICES.monthly, fmtDays, renderBackupBar);
+  // Not a setting: what the lock screen found to show behind it (lock.js), so a
+  // video with the wrong name or in the wrong folder says so instead of failing silently.
+  const bg = mk("div", "set-row");
+  const bgWords = mk("div", "set-words");
+  bgWords.appendChild(mk("div", "set-name", "Lock screen background"));
+  const bgFile = lockBgFile(), app = appFolderInfo();
+  bgWords.appendChild(mk("div", "set-help", !bgFile
+    ? `None found. Put a video named lock-background.webm or lock-background.mp4 next to ${app ? app.file : "index.html"}` +
+      (app ? `, in ${app.display}` : "") + ", then reload."
+    : stillMotion.matches
+      ? `${bgFile}, shown still: your system asks for less motion (on Windows: Settings > Accessibility > Visual effects > Animation effects).`
+      : `${bgFile}, from the app's folder. It plays, muted, while the lock screen shows.`));
+  bg.appendChild(bgWords);
+  card.appendChild(bg);
   // Not a setting: which build these files are, and the update check Sync runs (updates.js).
   const ver = mk("div", "set-row");
   const verWords = mk("div", "set-words");
@@ -105,9 +119,12 @@ function checkIdle() {
   if (Date.now() - lastActivity < settings.autoLockMin * 60000) return;
   autoLock();
 }
-setInterval(checkIdle, 15000);
-// Coming back to the tab runs the check straight away instead of up to 15s later.
-document.addEventListener("visibilitychange", checkIdle);
+// Started once every script has loaded, since locking uses the lock screen's code
+// (lock.js). Coming back to the tab runs the check straight away instead of up to 15s later.
+document.addEventListener("DOMContentLoaded", () => {
+  setInterval(checkIdle, 15000);
+  document.addEventListener("visibilitychange", checkIdle);
+});
 async function autoLock() {
   // A running sync is never interrupted; the next check, 15s later, tries again.
   if (syncing) return;

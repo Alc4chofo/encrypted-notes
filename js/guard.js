@@ -119,4 +119,6 @@ async function registerSuccess() {
   await saveGuard();
   renderGuard();
 }
-loadGuard().then(renderGuard);
+// Read once every script has loaded: the read is asynchronous and can finish
+// between two scripts, and renderGuard uses the lock screen's code (lock.js).
+document.addEventListener("DOMContentLoaded", () => loadGuard().then(renderGuard));

@@ -164,10 +164,11 @@ for (const id of ["password", "password2"]) {
 }
 // ---------- Lock screen background ----------
 // A video of your own behind the lock screen, when lock-background.mp4 or
-// lock-background.webm sits next to index.html: it stays on that device (never
-// synced, never in the repo) and is only a picture, so it can run no code. It
-// plays only while the lock screen shows, muted, and stays on its first frame
-// if the system asks for reduced motion.
+// lock-background.webm sits next to index.html: the app never syncs it (git can
+// carry it in your own private repo; the public mirror's .gitignore refuses it)
+// and it is only a picture, so it can run no code. It plays only while the lock
+// screen shows, muted, and stays on its first frame if the system asks for
+// reduced motion.
 const stillMotion = matchMedia("(prefers-reduced-motion: reduce)");
 function syncLockBg() {
   const v = $("lock-bg");
@@ -176,6 +177,11 @@ function syncLockBg() {
   else v.pause();
 }
 function showLockBg() { $("lock").classList.add("has-bg"); syncLockBg(); }
+// The file the lock screen found and shows, or null: for its line in Settings.
+function lockBgFile() {
+  if (!$("lock").classList.contains("has-bg")) return null;
+  return decodeURIComponent(($("lock-bg").currentSrc || "").split("/").pop()) || null;
+}
 // The picture leans a little toward the pointer, eased, as a Wallpaper Engine
 // scene does with its camera parallax. Not with reduced motion.
 const bgLean = { x: 0, y: 0, tx: 0, ty: 0, raf: 0 };
