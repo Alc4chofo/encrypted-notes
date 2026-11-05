@@ -184,19 +184,27 @@ function renderVaultList() {
   };
   box.appendChild(f);
 }
+// Closing the list closes "From a file..." with it and forgets the file picked
+// there: a hidden file would still be what Unlock opens.
+function closeVaultList() {
+  $("vault-list").style.display = "none";
+  $("other-vault").setAttribute("aria-expanded", "false");
+  $("restore-box").style.display = "none";
+  $("vault-file").value = "";
+  showFileName();
+  syncUnlockLabel();
+}
 $("other-vault").onclick = async () => {
-  const box = $("vault-list"), open = box.style.display !== "none";
-  box.style.display = open ? "none" : "flex";
-  $("other-vault").setAttribute("aria-expanded", open ? "false" : "true");
-  if (open) return;
+  if ($("vault-list").style.display !== "none") { closeVaultList(); return; }
+  $("vault-list").style.display = "flex";
+  $("other-vault").setAttribute("aria-expanded", "true");
   if (creatingVault) { creatingVault = false; setLockMode(); }
   renderVaultList();                            // what this device knows, at once
   if (await scanVaults()) renderVaultList();    // and what the app folder holds
 };
 $("new-vault").onclick = () => {
   creatingVault = !creatingVault;
-  $("vault-list").style.display = "none";
-  $("other-vault").setAttribute("aria-expanded", "false");
+  closeVaultList();
   setLockMode();
   if (creatingVault) $("vault-name").focus();
 };
