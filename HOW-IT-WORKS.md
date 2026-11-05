@@ -1,6 +1,6 @@
 # How encrypted-notes works
 
-This document describes exactly what the app does with your data: the threat model, the cryptographic construction, the storage and sync formats, and the limits. Every claim names the function that implements it, so you can check it against the code: the code is in `js/`, one file per part of the app, and `grep -rn "function deriveKey" js` (say) finds any of them. The app is about 13,900 lines of unminified HTML, CSS and JavaScript in 42 files, with no dependencies, so what you read is what runs.
+This document describes exactly what the app does with your data: the threat model, the cryptographic construction, the storage and sync formats, and the limits. Every claim names the function that implements it, so you can check it against the code: the code is in `js/`, one file per part of the app, and `grep -rn "function deriveKey" js` (say) finds any of them. The app is about 14,000 lines of unminified HTML, CSS and JavaScript in 43 files, with no dependencies, so what you read is what runs.
 
 ## Contents
 
@@ -288,8 +288,9 @@ Every input path into the vault goes through AES-GCM authenticated decryption, s
 The design deliberately makes auditing practical: plain files, no dependencies, no build, no minification. Run these in the app's folder:
 
 ```bash
-# Every remote host the code can contact (expect https://api.github.com, plus example.com as a link placeholder
-# and www.w3.org, the SVG namespace name inside the icons, which is never fetched):
+# Every remote host the code can contact (expect https://api.github.com, plus github.com for the two links in the
+# token help, which open only when you click them, example.com as a link placeholder and www.w3.org, the SVG
+# namespace name inside the icons, which is never fetched; the help's screenshots are data: URIs in js/help.js):
 grep -rhoE "https?://[a-zA-Z0-9.-]+" index.html config.js css js | sort -u
 
 # Every use of the Web Crypto API:

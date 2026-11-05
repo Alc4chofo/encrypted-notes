@@ -17,7 +17,7 @@ This repo holds the app only. It never contains anyone's notes, and nobody can s
 
    Just the names, not a link: `owner` is your GitHub user name and `repo` the private repo's name.
 
-3. Create a fine-grained token (GitHub Settings > Developer settings > Fine-grained tokens) with access to **that repo only** and the permission **Contents: read and write**.
+3. Create a fine-grained token (GitHub Settings > Developer settings > Fine-grained tokens) with access to **that repo only** and the permission **Contents: read and write**. The **?** in the lock screen's token field shows these steps with screenshots of GitHub's pages.
 4. Open `index.html` (a double click is enough). On first run, name your vault, choose a master password (a strength meter shows a rough cracking time as you type), confirm it, and paste the token. The token is stored inside the encrypted vault, never in plain text. The vault gets a folder of its own next to `index.html`, named after it (Chrome and Edge ask once for access to the app's folder), and syncs to the same folder in your repo.
 5. Write notes. They autosave; **Save** or Ctrl+S forces a save. **Sync** (bottom left) merges with the repo, and **Lock** (Ctrl+L) forgets the decrypted vault until you type the password again.
 

@@ -50,7 +50,11 @@
       </div>
       <!-- There is no password recovery, so a typo here would be unrecoverable. -->
       <input id="password2" type="password" placeholder="Confirm master password" aria-label="Confirm master password">
-      <input id="token" type="password" placeholder="GitHub fine-grained token" aria-label="GitHub fine-grained token">
+      <!-- The ? opens the steps for getting a token (#token-help, below). -->
+      <div class="field-help">
+        <input id="token" type="password" placeholder="GitHub fine-grained token" aria-label="GitHub fine-grained token">
+        <button id="token-help-btn" type="button" popovertarget="token-help" aria-label="How to get a token" title="How to get a token">?</button>
+      </div>
       <small>Paste a fine-grained GitHub token (Settings &rsaquo; Developer settings &rsaquo; Fine-grained
       tokens) with access to your notes repo only and Contents set to read and write. The password
       and the token are kept only inside the encrypted vault.</small>
@@ -82,6 +86,43 @@
       <div id="backup-sel" style="display:none"></div>
     </div>
   </form>
+  </div>
+  <!-- How to get a token, opened by the ? in the token field. A native popover, so
+       Escape or a click outside closes it. The screenshots come from js/help.js. -->
+  <div id="token-help" popover>
+    <div class="th-head">
+      <h2>Getting a GitHub token</h2>
+      <button class="th-close" type="button" popovertarget="token-help" popovertargetaction="hide" aria-label="Close" title="Close">&times;</button>
+    </div>
+    <ol class="th-steps">
+      <li>
+        <h3>Create a private repository for your notes</h3>
+        <p>Open the new repository page on GitHub. Give it a name, choose "Private" and press "Create repository". Do not fork this app's public repository: a fork of a public repository is public, and the app refuses to sync to a public repository.</p>
+        <a href="https://github.com/new" target="_blank" rel="noopener noreferrer" translate="no">github.com/new</a>
+        <img data-shot="repo" alt="" loading="lazy">
+      </li>
+      <li>
+        <h3>Name it in config.js</h3>
+        <p>Open config.js, next to index.html, write your GitHub user name and the repository's name in it, and reload this page.</p>
+        <pre translate="no">window.NOTES_CONFIG = { owner: "your-name", repo: "my-notes" };</pre>
+        <p>Put the app's files (index.html, config.js and the css and js folders) in that repository too: other devices clone it from there, and app updates come from it.</p>
+      </li>
+      <li>
+        <h3>Create a fine-grained token</h3>
+        <p>Open the new token page (Settings › Developer settings › Personal access tokens › Fine-grained tokens › Generate new token). GitHub may ask you to confirm it is you first. Give the token a name and an expiration date.</p>
+        <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer" translate="no">github.com/settings/personal-access-tokens/new</a>
+        <img data-shot="token-name" alt="" loading="lazy">
+        <p>Under "Repository access", choose "Only select repositories" and pick your notes repository.</p>
+        <img data-shot="token-repo" alt="" loading="lazy">
+        <p>Under "Permissions", add "Contents" and set it to "Read and write". GitHub adds "Metadata" (read-only) by itself.</p>
+        <img data-shot="token-perm" alt="" loading="lazy">
+        <p>Press "Generate token" and copy the token: GitHub shows it only once.</p>
+      </li>
+      <li>
+        <h3>Paste it here</h3>
+        <p>Paste the token into the "GitHub fine-grained token" field. It is kept only inside the encrypted vault. When it expires, Sync says so and lets you paste a new one.</p>
+      </li>
+    </ol>
   </div>
   <div id="lock-version" translate="no"></div>
 </div>
@@ -255,6 +296,7 @@
 <script src="js/settings.js"></script>
 <script src="js/guard.js"></script>
 <script src="js/lock.js"></script>
+<script src="js/help.js"></script>
 <script>
 // Opened without the files beside it (only index.html copied somewhere): say so
 // instead of showing a page that does nothing.
