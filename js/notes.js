@@ -112,6 +112,7 @@ function purgeTrashCore(id) {
     vault.purged[mid] = Date.now();
     revokeMediaUrl(mid);
     idbDelete(mid).catch(() => {});
+    removeMediaFile(mid);
   }
   if (id in syncMeta.trashSeen) { delete syncMeta.trashSeen[id]; saveSyncMeta(); }
   if (trashViewId === id) {

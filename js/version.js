@@ -8,7 +8,9 @@
 // them. The updater reads this list as text, so keep its shape: one quoted name
 // per line, and only index.html and files in css/ and js/. Never config.js: that
 // one holds your own repo and stays as you set it.
-const APP_BUILD = "2026-11-04.2";
+const APP_BUILD = "2026-11-05.2";
+// The version people see, at the bottom left of the lock screen.
+const APP_VERSION = "1.02.1";
 const APP_FILES = [
   "index.html",
   "css/base.css",
@@ -17,6 +19,7 @@ const APP_FILES = [
   "css/editor.css",
   "css/dialogs.css",
   "js/version.js",
+  "js/i18n.js",
   "js/core.js",
   "js/vault.js",
   "js/sidebar.js",
@@ -44,6 +47,7 @@ const APP_FILES = [
   "js/merge.js",
   "js/media-sync.js",
   "js/backups.js",
+  "js/vaults.js",
   "js/zip.js",
   "js/updates.js",
   "js/settings.js",

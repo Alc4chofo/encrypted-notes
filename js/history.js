@@ -185,6 +185,8 @@ $("split-format").onclick = async () => {
 // Strip whatever a previous design added: its title/final pages, and the frame
 // it wrapped around each body page. What is left is purely what you wrote.
 const CONTENT_MARK = "{{content}}";
+// The mark as people type it: {content} or {{content}}, any case, spaces inside allowed.
+const CONTENT_RE = /\{\{?\s*content\s*\}\}?/i;
 function undesignPages(n) {
   const ps = notePages(n);
   if (!ps) return [{ name: "Page 1", body: n.body || "", bodyV: n.bodyV }];
@@ -200,16 +202,56 @@ function undesignPages(n) {
   });
 }
 // Wrap one page of content in the design's body frame. The frame may mark where
-// the text goes with {{content}}; otherwise the frame sits above it.
+// the text goes with {content}: the lines above the mark become the top frame,
+// the lines below it the bottom frame, and the mark's own line is where the
+// content goes. Without a mark the whole frame sits above the content.
+// Split by LINES, not by cutting the stored text at the mark: a cut there left
+// the mark's own <div> open in one half and closed in the other, which pushed
+// the bottom frame out of its frame.
 function frameBody(tplBody, content) {
   if (!tplBody) return content;
-  const wrap = (s, pos) => s ? `<div data-frame="${pos}">${s}</div>` : "";
-  const at = tplBody.indexOf(CONTENT_MARK);
-  if (at >= 0) {
-    return wrap(tplBody.slice(0, at).replace(/\n+$/, ""), "top") + "\n" + (content || "") + "\n" +
-      wrap(tplBody.slice(at + CONTENT_MARK.length).replace(/^\n+/, ""), "bottom");
-  }
-  return wrap(tplBody, "top") + "\n" + (content || "");
+  const holder = document.createElement("div");
+  holder.appendChild(sanitizeBodyFragment(tplBody));
+  normalizeLines(holder);
+  const kids = [...holder.childNodes];
+  const at = kids.findIndex(k => CONTENT_RE.test(k.textContent || ""));
+  const html = nodes => { const d = document.createElement("div"); for (const k of nodes) d.appendChild(k.cloneNode(true)); return canonicalBody(d); };
+  const wrap = (nodes, pos) => { const s = html(nodes).replace(/^\n+|\n+$/g, ""); return s.trim() ? `<div data-frame="${pos}">${s}</div>` : ""; };
+  if (at < 0) return wrap(kids, "top") + "\n" + (content || "");
+  return [wrap(kids.slice(0, at), "top"), content || "", wrap(kids.slice(at + 1), "bottom")].filter(Boolean).join("\n");
+}
+// A note wrapped in a design: the design's title pages in front, its closing
+// pages at the end, and the note's own writing (with any earlier design taken
+// off first) in the body, inside the frame of the design's page that holds the
+// {content} mark. Body pages before or after that page come along too, so a
+// design laid out as cover / content / back cover works without marking parts.
+function designedPages(n, src) {
+  const dp = notePages(src) || [];
+  const page = (p, i, sec) => { const q = newPageFrom(p, i); if (sec !== "body") q.section = sec; else delete q.section; return q; };
+  const front = dp.filter(p => pageSection(p) === "title").map((p, i) => page(p, i, "title"));
+  const back = dp.filter(p => pageSection(p) === "final").map((p, i) => page(p, i, "final"));
+  const bodies = dp.filter(p => pageSection(p) === "body");
+  const ti = bodies.findIndex(p => CONTENT_RE.test(p.body || ""));
+  const tpl = ti >= 0 ? bodies[ti] : bodies[0];
+  // Unmarked pages around the {content} page are front and back matter: they
+  // become title and closing pages, so the reflow never pours the note's text
+  // into a cover, and a later design takes them off again like any other.
+  const before = ti > 0 ? bodies.slice(0, ti).map((p, i) => page(p, i, "title")) : [];
+  const after = ti >= 0 ? bodies.slice(ti + 1).map((p, i) => page(p, i, "final")) : [];
+  // The body is re-flowed as ONE stream rather than framing each old page where
+  // it stood. Those page breaks were made for a page with no header or footer;
+  // keeping them meant every page was suddenly too full, spilled, and left
+  // half-empty pages. One page in, and the pagination lays it out for the frame.
+  const kept = undesignPages(n).map(p => (p.body || "").trim()).filter(Boolean);
+  const mine = { id: crypto.randomUUID(), name: "Body",
+    body: frameBody(tpl ? tpl.body : "", kept.join("\n")), bodyV: 2, cont: true };
+  return { pages: [...front, ...before, mine, ...after, ...back], front: front.length + before.length, back: back.length + after.length };
+}
+// The design's pictures come along, so its pages are not full of placeholders.
+function adoptDesignMedia(n, src) {
+  if (!Array.isArray(n.media)) n.media = [];
+  const have = new Set(n.media.map(m => m.id));
+  for (const m of (src.media || [])) if (!have.has(m.id)) { n.media.push({ ...m }); have.add(m.id); }
 }
 // Strip EVERY piece of stored layout state from a note and leave one plain page
 // holding all of its content. A note that has been designed, re-designed and
@@ -273,29 +315,12 @@ async function applyDesignToNote(designId) {
   src = vault.notes[designId]; n = currentId && vault.notes[currentId];
   if (!src || !n || src === n || syncing || backupView || !splitMode) return;
   historyMark(currentId);      // one undo step puts the whole design back
-  const dp = notePages(src) || [];
-  const front = dp.filter(p => pageSection(p) === "title").map((p, i) => newPageFrom(p, i));
-  const back = dp.filter(p => pageSection(p) === "final").map((p, i) => newPageFrom(p, i));
-  const tpl = dp.find(p => pageSection(p) === "body");
   // Swap, never stack: the previous design's pages and frames come off first.
-  // The body is then re-flowed as ONE stream rather than framing each old page
-  // where it stood. Those page breaks were made for a page with no header or
-  // footer; keeping them meant every page was suddenly too full, spilled, and
-  // left half-empty pages and content in places it did not belong. One page in,
-  // and the pagination lays the document out for the frame it now has.
-  const kept = undesignPages(n).map(p => (p.body || "").trim()).filter(Boolean);
-  const mine = [{ id: crypto.randomUUID(), name: "Body",
-    body: frameBody(tpl ? tpl.body : "", kept.join("\n")), bodyV: 2, cont: true }];
-  for (const p of front) p.section = "title";
-  for (const p of back) p.section = "final";
+  const d = designedPages(n, src);
   n.designId = designId;      // remembered, so we know what to strip next time
-  n.pages = [...front, ...mine, ...back];
-  sortPagesBySection(n.pages);
+  n.pages = d.pages;
   delete n.bodyV;
-  // Bring the design's images along so its pages are not full of placeholders.
-  if (!Array.isArray(n.media)) n.media = [];
-  const have = new Set(n.media.map(m => m.id));
-  for (const m of (src.media || [])) if (!have.has(m.id)) { n.media.push({ ...m }); have.add(m.id); }
+  adoptDesignMedia(n, src);
   n.mtime = Date.now();
   currentPage = 0;
   reloadNoteInPlace();
@@ -306,7 +331,7 @@ async function applyDesignToNote(designId) {
   renderStatus();
   renderAttachments();
   updateSplitButtons();
-  status(`"${src.title}" applied - ${front.length} front, ${mine.length} body, ${back.length} closing`);
+  status(`"${src.title}" applied - ${d.front} front, 1 body, ${d.back} closing`);
 }
 $("split-design").onclick = () => {
   if (!splitMode || syncing || backupView || !currentId) return;

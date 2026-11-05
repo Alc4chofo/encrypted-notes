@@ -100,6 +100,7 @@ function autoPurgeTrash() {
       vault.purged[mid] = Date.now();
       revokeMediaUrl(mid);
       idbDelete(mid).catch(() => {});
+      removeMediaFile(mid);
     }
     // Same cleanup the manual purge does, or a stale entry keeps counting as a
     // pending trash deletion forever.
@@ -259,14 +260,19 @@ function persistSafe(stamp = true) {
     renderStatus();
   });
 }
-let persistChain = Promise.resolve();
+let persistChain = Promise.resolve(), vaultFileChain = Promise.resolve();
 function persistLocal(stamp = true) {
   // Backup view is strictly read-only: no code path may overwrite the REAL
   // vault in localStorage with the backup being inspected.
   if (backupView) return Promise.resolve();
   const p = persistChain.then(async () => {
     if (stamp) vault.savedAt = Date.now();
-    localStorage.setItem("vault", await sealVault());
+    const sealed = await sealVault();
+    localStorage.setItem(vkey("vault"), sealed);
+    if (vaultSel) rememberVault(vaultSel.name, vaultSel.dir, vault.savedAt);
+    // The vault's folder gets the same ciphertext, in order, and never holds up the save.
+    const at = vault.savedAt;
+    vaultFileChain = vaultFileChain.then(() => saveVaultFiles(sealed, at)).catch(() => {});
   });
   persistChain = p.catch(() => {});
   return p;

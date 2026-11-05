@@ -20,16 +20,25 @@
     <source src="lock-background.mp4" type="video/mp4">
     <source src="lock-background.webm" type="video/webm">
   </video>
+  <!-- The language, at the very top centre: a plain list, one choice. The names
+       stay in their own language whatever is picked. -->
+  <select id="lang" aria-label="Language" translate="no"></select>
   <!-- Just the form, centred on black. margin:auto centres it and still lets a
        short window scroll to every part of it. -->
   <div class="lock-stage">
   <form id="unlock-form" data-mode="unlock">
     <h1 class="sr-only">notes</h1>
-    <!-- One quiet line, only when there is something to say (data-mode: unlock, new or found). -->
+    <!-- Which vault the form opens, and when it last changed. -->
+    <p class="lock-line"><span id="vault-line"></span></p>
+    <!-- One quiet line, only when there is something to say (data-mode: unlock, found, new, missing or none). -->
     <p class="lock-sub">
-      <span class="for-new">New vault: choose a master password.</span>
-      <span class="for-found">A synced vault was found next to this file.</span>
+      <span class="for-new">Name the vault and choose its master password.</span>
+      <span class="for-found">A synced vault was found in its folder.</span>
+      <span class="for-missing">This vault's files were not found next to index.html.</span>
+      <span class="for-none">Pick a vault, or make a new one.</span>
     </p>
+    <!-- Also the name of its folder, next to index.html and in the repo. -->
+    <input id="vault-name" type="text" placeholder="Vault name" aria-label="Vault name" maxlength="40" autocomplete="off" spellcheck="false">
     <input id="password" type="password" placeholder="Master password" aria-label="Master password" autofocus>
     <!-- A wrong password costs one of the ten attempts, so say when Caps Lock is on. -->
     <div id="caps-msg" class="lock-caps" hidden>Caps Lock is on</div>
@@ -47,17 +56,23 @@
       and the token are kept only inside the encrypted vault.</small>
     </div>
     <button id="unlock-btn" class="primary"><span id="unlock-label">Unlock</span></button>
-    <div id="lock-msg" role="status"></div>
+    <div class="lock-line"><span id="lock-msg" role="status"></span></div>
     <div id="guard-msg" style="display:none"></div>
-    <!-- Outside #token-row on purpose: in a clone the auto-detected vault hides
-         that row, and a backup file would have had nowhere to be selected. -->
-    <div id="restore-row">
-      <button id="restore-toggle" type="button">Restore from a file instead</button>
-      <div id="restore-box" style="display:none">
-        <small>Pick a <code>vault.enc</code>, <code>vault.enc.js</code> or a
-        <code>notes-backup-*.enc</code> file, then unlock with its master password.</small>
-        <input id="vault-file" type="file" accept=".enc,.json,.js">
+    <!-- Another vault from the app folder (or from a file), or a new one. -->
+    <div id="vault-row">
+      <button id="other-vault" type="button" aria-expanded="false">Other vault</button>
+      <button id="new-vault" type="button" aria-pressed="false">New vault</button>
+    </div>
+    <div id="vault-list" style="display:none"></div>
+    <div id="restore-box" style="display:none">
+      <small>Pick a vault.enc, vault.enc.js or notes-backup-*.enc file, then enter its master password.</small>
+      <!-- The browser's own file button speaks the browser's language, so it stays
+           hidden and these two, in the app's language, stand in for it. -->
+      <div id="file-row">
+        <button id="file-pick" type="button">Choose file</button>
+        <span id="file-name">No file chosen</span>
       </div>
+      <input id="vault-file" type="file" accept=".enc,.json,.js" hidden>
     </div>
     <div id="backup-row" style="display:none">
       <div class="lock-label">Backups next to this file</div>
@@ -68,6 +83,7 @@
     </div>
   </form>
   </div>
+  <div id="lock-version" translate="no"></div>
 </div>
 
 <div id="app">
@@ -81,6 +97,11 @@
         </div>
       </div>
       <div id="notelist"></div>
+      <!-- Everything not yet in the repo, above the trash (hidden while there is nothing). -->
+      <div id="unsynced-section" style="display:none">
+        <div id="unsynced-head"></div>
+        <div id="unsynced-list"></div>
+      </div>
       <div id="trash-section">
         <div id="trash-head"></div>
         <div id="trash-list"></div>
@@ -172,14 +193,13 @@
     <span id="status"></span>
     <div id="chips">
       <button id="chip-unsaved" class="chip" type="button">Unsaved content</button>
-      <button id="chip-unsynced" class="chip" type="button">Unsynced content</button>
       <button id="chip-syncerr" class="chip err" type="button">Sync failed</button>
     </div>
     <div id="split-controls">
       <button id="split-cancel" type="button" title="Throw away everything from this second-screen session and put the note back exactly as it was when it opened">Return to previous</button>
       <button id="split-save" type="button" title="Save the edit on the right (the left pane keeps showing the previous version until you leave and come back)">Save edit</button>
       <button id="split-format" type="button" title="Switch this note between a single page and the paged layout">Turn into pages</button>
-      <button id="split-design" type="button" title="Put a design's title pages in front and its closing pages at the end, keeping everything you have written">Apply design</button>
+      <button id="split-design" type="button" title="Put a design's title pages in front and its closing pages at the end, keeping everything you have written">Designs</button>
       <button id="split-btn" type="button" title="Edit with the previous version side by side">Second screen</button>
     </div>
   </div>
@@ -187,7 +207,9 @@
 
 <!-- Synced alongside vault.enc: same ciphertext wrapped as JS, because a plain
      script tag may load from the folder next to a double-clicked index.html
-     where fetch() is blocked. Missing file (first run) just 404s silently. -->
+     where fetch() is blocked. Missing file just 404s silently. These three are
+     the vault from before vaults had folders, at the top level; a vault in a
+     folder has the same files there, loaded by lock.js once it is selected. -->
 <script src="vault.enc.js"></script>
 <!-- Same wrapper trick for the weekly/monthly backups: present = detectable at
      the lock screen, missing = silent 404. Their `at` field is plaintext by
@@ -199,6 +221,7 @@
      JavaScript modules). js/version.js lists the same files for app updates. -->
 <script src="config.js"></script>
 <script src="js/version.js"></script>
+<script src="js/i18n.js"></script>
 <script src="js/core.js"></script>
 <script src="js/vault.js"></script>
 <script src="js/sidebar.js"></script>
@@ -226,6 +249,7 @@
 <script src="js/merge.js"></script>
 <script src="js/media-sync.js"></script>
 <script src="js/backups.js"></script>
+<script src="js/vaults.js"></script>
 <script src="js/zip.js"></script>
 <script src="js/updates.js"></script>
 <script src="js/settings.js"></script>

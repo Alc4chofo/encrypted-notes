@@ -24,6 +24,31 @@ const API = path => REPO_API(`contents/${path}`);
 const ITER = 1200000;
 const $ = id => document.getElementById(id);
 
+// ---------- Vaults ----------
+// Several vaults can live side by side. Each has a folder of its own next to
+// index.html (vault.enc, vault.enc.js, media/ and its backups) and the same
+// folder in the repo. One is selected per device ("vaultSel"), and everything
+// that belongs to a vault - its copy in this browser, its sync bookkeeping, its
+// repo and folder paths - goes through vkey()/vpath(), so it lands in that
+// vault's place. dir "" is the layout from before folders: one vault at the top
+// level, which keeps working there as "Main" until it is moved into its folder
+// (see vaults.js).
+const LEGACY_VAULT = "Main";
+// The old top-level vault.enc.js, if index.html found one (its <script> runs before this).
+const legacyBlob = window.__VAULT__ && typeof window.__VAULT__ === "object" ? JSON.stringify(window.__VAULT__) : null;
+function readVaultSel() {
+  try {
+    const s = JSON.parse(localStorage.getItem("vaultSel"));
+    if (s && typeof s.name === "string" && typeof s.dir === "string") return s;
+  } catch {}
+  // The first run of this version on a device that already has a vault: the old top-level one.
+  if (localStorage.getItem("vault") || legacyBlob) return { name: LEGACY_VAULT, dir: "" };
+  return null;
+}
+let vaultSel = readVaultSel();
+const vpath = p => vaultSel && vaultSel.dir ? vaultSel.dir + "/" + p : p;
+const vkey = k => vaultSel && vaultSel.dir ? k + "@" + vaultSel.dir : k;
+
 // vault (v2, always migrated in memory on open):
 // { v:2, token, savedAt,
 //   notes:   { id: { title, body, color, folderId, mtime, media:[{id,mime,name,size}] } },
@@ -58,7 +83,7 @@ let collapsed = new Set();
 let trashCollapsed = localStorage.getItem("trashCollapsed") === "1";
 function saveCollapsed() { localStorage.setItem("collapsedFolders", JSON.stringify([...collapsed])); }
 // syncMeta is ids/timestamps only, so writing it outside markSynced is safe.
-function saveSyncMeta() { if (backupView) return; localStorage.setItem("syncMeta", JSON.stringify(syncMeta)); }
+function saveSyncMeta() { if (backupView) return; localStorage.setItem(vkey("syncMeta"), JSON.stringify(syncMeta)); }
 
 // Per-device sync snapshot: only UUIDs and timestamps, never titles or bodies,
 // so plaintext localStorage leaks nothing. Written ONLY on sync success.
@@ -67,13 +92,13 @@ let syncMeta = { lastSyncedAt: null, syncedSavedAt: 0, remoteSha: null,
 try {
   // v2 shape migration: spread the stored (possibly v1) shape over the v2
   // defaults so remoteSha/noteMtimes/lastSyncedAt survive the upgrade.
-  const m = JSON.parse(localStorage.getItem("syncMeta"));
+  const m = JSON.parse(localStorage.getItem(vkey("syncMeta")));
   if (m && m.noteMtimes) syncMeta = { ...syncMeta, ...m };
 } catch {}
 
 // Last pull banner: counts only in localStorage (no plaintext titles).
 let pullBanner = null;
-try { pullBanner = JSON.parse(localStorage.getItem("pullBanner")); } catch {}
+try { pullBanner = JSON.parse(localStorage.getItem(vkey("pullBanner"))); } catch {}
 
 const enc = s => new TextEncoder().encode(s);
 // Chunked: spreading a large ciphertext as call arguments overflows the call

@@ -82,7 +82,7 @@ $("trash-purge").onclick = () => { if (trashViewId) purgeFromTrash(trashViewId);
 $("save").onclick = manualSave;
 $("pull-details").onclick = () => { panelOpen ? renderDetail() : openPanel(); };
 $("pull-dismiss").onclick = dismissBanner;
-for (const cid of ["chip-unsaved", "chip-unsynced", "chip-syncerr"]) $(cid).onclick = togglePanel;
+for (const cid of ["chip-unsaved", "chip-syncerr"]) $(cid).onclick = togglePanel;
 
 let saveTimer;
 for (const el of [$("title"), $("editor")])

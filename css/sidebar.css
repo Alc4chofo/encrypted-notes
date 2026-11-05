@@ -80,6 +80,18 @@
   border: 1px solid var(--bad-line); border-radius: 6px; }
 .trash-clear:hover { background: var(--bad-dim); color: #f08b78; border-color: var(--bad-line); }
 #trash-list { overflow-y: auto; }
+/* Unsynced content: the trash's look, one section higher, with the path above each title. */
+#unsynced-section { flex: none; border-top: 1px solid var(--line); display: flex; flex-direction: column; max-height: 35%; padding: 4px 0; }
+#unsynced-head { display: flex; align-items: center; gap: 7px; margin: 1px 6px; padding: 6px 12px 6px 9px; border-left: 3px solid transparent;
+  border-radius: 7px; cursor: pointer; font-size: 13px; color: var(--t3); user-select: none; flex: none; }
+#unsynced-head:hover { background: var(--s2); color: var(--t2); }
+#unsynced-list { overflow-y: auto; }
+.unsynced-item { margin: 1px 6px; padding: 5px 12px 6px 21px; cursor: pointer; border-radius: 7px; user-select: none; }
+.unsynced-item:hover { background: var(--s2); }
+.unsynced-item.inert { cursor: default; }
+.unsynced-item.inert:hover { background: none; }
+.unsynced-item .note-path { font-size: 10.5px; line-height: 1.4; color: var(--t4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.unsynced-item .note-title .t { color: var(--t2); }
 .trash-item { margin: 1px 6px; padding: 6px 12px 6px 21px; cursor: pointer; border-radius: 7px; border-left: 3px solid transparent; user-select: none; }
 .trash-item:hover { background: var(--s2); }
 .trash-item.active { background: var(--s3); }

@@ -147,7 +147,9 @@ async function addMedia(file, opts) {
   let stored = file;
   try { stored = await stripImageMetadata(file); } catch {}
   try {
-    await idbPut(mid, await encryptMedia(mid, await stored.arrayBuffer()));
+    const sealed = await encryptMedia(mid, await stored.arrayBuffer());
+    await idbPut(mid, sealed);
+    saveMediaFile(mid, sealed);   // the vault's own media folder, when access is granted
   } catch (e) {
     status("Could not attach " + name + ": " + e.message, true);
     // Roll the placeholder back out so the body never references bytes that failed

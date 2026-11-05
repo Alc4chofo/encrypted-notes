@@ -36,7 +36,7 @@ const BACKUP_KINDS = {
 };
 let pendingBackupKind = null;   // chosen on the lock screen, consumed by unlock
 let backupMeta = { weeklyAt: 0, monthlyAt: 0 };
-try { const m = JSON.parse(localStorage.getItem("backupMeta")); if (m) backupMeta = { ...backupMeta, ...m }; } catch {}
+try { const m = JSON.parse(localStorage.getItem(vkey("backupMeta"))); if (m) backupMeta = { ...backupMeta, ...m }; } catch {}
 
 function backupWrapper(kind) {
   const w = window[BACKUP_KINDS[kind].varName];
@@ -166,21 +166,22 @@ async function updateBackup(kind) {
     // Resolve the folder FIRST, while the click's user activation is still
     // fresh: showDirectoryPicker refuses once that expires, and sealing the
     // vault in between is exactly the kind of delay that spends it.
-    const dir = await notesDirHandle();
+    // The backups of a vault live in its own folder, next to its vault.enc.
+    const dir = await inVaultFolder(await notesDirHandle());
     const at = Date.now();
     status(`Sealing ${kind} backup...`, false, true);
     const text = `window.${k.varName} = ${JSON.stringify({ at, data: await sealVault() })};`;
     const how = await writeFolderFile(k.file, text, dir);
     backupMeta[kind + "At"] = at;
-    localStorage.setItem("backupMeta", JSON.stringify(backupMeta));
+    localStorage.setItem(vkey("backupMeta"), JSON.stringify(backupMeta));
     // Cloud copy: failure is a warning, never a rollback - the local file exists.
     let cloud = "";
     if (vault && vault.token) {
       status(`Pushing ${kind} backup to the repo...`, false, true);
       try {
-        const r = await gh("GET", null, k.file);
+        const r = await gh("GET", null, vpath(k.file));
         const sha = r.status === 200 ? (await r.json()).sha : undefined;
-        await gh("PUT", { message: kind + " backup", content: btoa(text), sha }, k.file);
+        await gh("PUT", { message: kind + " backup", content: btoa(text), sha }, vpath(k.file));
         cloud = ", pushed to the repo";
       } catch (e) { cloud = `, repo push failed (${e.message})`; }
     }
@@ -242,18 +243,13 @@ $("backup-convert").onclick = async () => {
   // is left as the backup recorded it (restore convention): if the repo is
   // newer, the next Sync pulls rather than clobbers.
   const sealed = await sealVault();
-  localStorage.setItem("vault", sealed);
-  // Refresh the folder copies too when we have folder access, so vault.enc(.js)
-  // next to index.html match what this browser now opens.
-  const dir = await notesDirHandle();
+  localStorage.setItem(vkey("vault"), sealed);
+  // Refresh the folder copies too when we have folder access, so the vault's
+  // vault.enc(.js) match what this browser now opens.
+  const dir = await inVaultFolder(await notesDirHandle());
   if (dir) {
     try {
-      for (const [name, text] of [["vault.enc", sealed], ["vault.enc.js", "window.__VAULT__ = " + sealed + ";"]]) {
-        const fh = await dir.getFileHandle(name, { create: true });
-        const w = await fh.createWritable();
-        await w.write(text);
-        await w.close();
-      }
+      for (const [name, text] of [[FILE, sealed], [WRAPPER, vaultWrapper(sealed, vault.savedAt)]]) await writeDirFile(dir, name, text);
     } catch {}
   }
   location.reload();   // clean re-entry: unlock the converted vault normally

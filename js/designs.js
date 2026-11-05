@@ -79,7 +79,8 @@ const newPageFrom = (pg, i) => ({ id: crypto.randomUUID(),
 // A design IS a note that lives in the "Designs" folder, so it is edited exactly
 // like any other paged note - in the sheet view, which renders the real A4 page
 // with the print stylesheet. What you lay out is literally what the PDF shows.
-// Applying one copies its pages (and their images) onto the target note.
+// Applying one wraps the target note in it (designedPages): the note's own
+// writing goes where the design says {content}, never thrown away.
 const designFolderId = () => Object.keys(vault.folders)
   .find(fid => (vault.folders[fid].name || "").trim().toLowerCase() === "designs") || null;
 const designNoteIds = () => {
@@ -189,19 +190,18 @@ async function applyDesign(designId) {
   const src = vault.notes[designId];
   if (!src || syncing || backupView || !currentId || !vault.notes[currentId] || currentId === designId) return;
   flushSave();
-  const n = vault.notes[currentId];
   if (!await confirmModal({
     title: `Apply design "${src.title || "(untitled)"}"?`,
-    body: "The design's pages replace this note's content. Its images come with it, and this note's own attachments are kept. This cannot be undone.",
-    confirmLabel: "Apply design", destructive: true,
+    body: "What this note says goes where the design has {content}, between its title and closing pages. Its images come with it, and this note's own attachments are kept. Ctrl+Z undoes it.",
+    confirmLabel: "Apply design",
   })) return;
-  if (syncing || !vault.notes[currentId]) return;
-  const ps = notePages(src) || [{ name: "Page 1", body: src.body || "", bodyV: src.bodyV }];
-  n.pages = ps.map((p, i) => newPageFrom(p, i));
+  const n = vault.notes[currentId];
+  if (syncing || !n || !vault.notes[designId]) return;
+  historyMark(currentId);
+  n.pages = designedPages(n, src).pages;
+  n.designId = designId;
   delete n.bodyV;
-  if (!Array.isArray(n.media)) n.media = [];
-  const have = new Set(n.media.map(m => m.id));
-  for (const m of (src.media || [])) if (!have.has(m.id)) { n.media.push({ ...m }); have.add(m.id); }
+  adoptDesignMedia(n, src);
   n.mtime = Date.now();
   currentPage = 0;
   persistSafe();

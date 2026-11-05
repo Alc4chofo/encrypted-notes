@@ -417,6 +417,7 @@ function renderList() {
   if (renderingList) return;
   renderingList = true;
   try { renderListInner(); } finally { renderingList = false; }
+  renderUnsynced();
   renderTrash();
 }
 
@@ -759,13 +760,67 @@ async function purgeAllTrash() {
   status("Trash emptied");
 }
 
+// ---------- Unsynced content ----------
+// A section of its own above the trash: everything the repo does not have yet,
+// folded like the trash. Each entry shows where it lives ("Design/Title") above
+// its title; notes and trashed notes open on click. Hidden while nothing is unsynced.
+let unsyncedCollapsed = localStorage.getItem("unsyncedCollapsed") !== "0";
+const folderTrail = fid => fid ? [...folderChain(fid)].reverse().concat(fid).map(folderName).join("/") : "";
+function renderUnsynced() {
+  const sec = $("unsynced-section"), head = $("unsynced-head"), list = $("unsynced-list");
+  if (!sec || !vault) return;
+  const uids = unsyncedIds().sort((a, b) => vault.notes[b].mtime - vault.notes[a].mtime);
+  const ufids = unsyncedFolderIds().sort((a, b) => byName(folderName(a), folderName(b)));
+  const utids = unsyncedTrashIds();
+  const delIds = pendingNoteDeletions(), delFids = pendingFolderDeletions();
+  const total = uids.length + ufids.length + utids.length + delIds.length + delFids.length;
+  sec.style.display = total ? "" : "none";
+  if (!total) return;
+  head.innerHTML = "";
+  head.appendChild(mk("span", "folder-arrow" + (unsyncedCollapsed ? "" : " open"), "▶"));
+  head.appendChild(mk("span", "folder-name ui-label", `Unsynced content (${total})`));
+  head.onclick = () => {
+    unsyncedCollapsed = !unsyncedCollapsed;
+    localStorage.setItem("unsyncedCollapsed", unsyncedCollapsed ? "1" : "0");
+    renderUnsynced();
+  };
+  list.innerHTML = "";
+  list.style.display = unsyncedCollapsed ? "none" : "";
+  if (unsyncedCollapsed) return;
+  // One entry: the path line (a location the user named: never translated), then the title.
+  const entry = (path, title, open) => {
+    const div = mk("div", "unsynced-item" + (open ? "" : " inert"));
+    const p = mk("div", "note-path", path);
+    p.setAttribute("translate", "no");
+    div.appendChild(p);
+    const row = mk("div", "note-title");
+    row.appendChild(mk("span", "t" + (title ? "" : " untitled"), title || "(untitled)"));
+    div.appendChild(row);
+    if (open) { div.onclick = open; makeRowKeyboardAccessible(div, open, () => []); }
+    list.appendChild(div);
+  };
+  const untitled = () => t("(untitled)");
+  for (const id of uids) {
+    const n = vault.notes[id];
+    entry((n.folderId ? folderTrail(n.folderId) : "") + "/" + (n.title || untitled()), n.title,
+      () => { flushSave(); openNote(id); });
+  }
+  for (const fid of ufids) entry(folderTrail(fid) + "/", folderName(fid), null);
+  for (const id of utids) {
+    const d = vault.trash[id].data || {};
+    entry(t("Trash") + "/" + (d.title || untitled()), d.title, () => openTrash(id));
+  }
+  for (const id of delIds) entry(t("deleted"), deletedTitles[id] || "", null);
+  for (const fid of delFids) entry(t("deleted"), t("folder"), null);
+}
+
 // Pinned at the bottom, never filtered by the search box.
 function renderTrash() {
   const head = $("trash-head"), list = $("trash-list");
   const ids = Object.keys(vault.trash).sort((a, b) => (vault.trash[b].deletedAt || 0) - (vault.trash[a].deletedAt || 0));
   head.innerHTML = "";
   head.appendChild(mk("span", "folder-arrow" + (trashCollapsed ? "" : " open"), "▶"));
-  head.appendChild(mk("span", "folder-name", `Trash (${ids.length})`));
+  head.appendChild(mk("span", "folder-name ui-label", `Trash (${ids.length})`));
   if (!trashCollapsed && ids.length && !backupView) {
     const clear = mk("button", "trash-clear", "Delete all");
     clear.type = "button";

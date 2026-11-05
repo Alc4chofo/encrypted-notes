@@ -49,8 +49,10 @@ function ensurePrivateRepo() {
     // A 401/404 means this token cannot see the repo; ghError keeps the status, so the usual "token rejected" help shows.
     if (!res.ok) throw await ghError(res);
     // Only an explicit private:true passes; public, or a missing field, is refused with kind "public".
-    if ((await res.json()).private !== true)
+    const info = await res.json();
+    if (info.private !== true)
       throw Object.assign(new Error(`${OWNER}/${REPO} is public, refusing to upload`), { guard: "public" });
+    return info;   // the repo's metadata (its default branch, for moving a vault into a folder)
   });
   // The answer is remembered against the token it was made with, so a new token gets a fresh check.
   repoCheck = { token: vault.token, promise };
@@ -60,7 +62,7 @@ function ensurePrivateRepo() {
   return promise;
 }
 
-async function gh(method, body, path = FILE) {
+async function gh(method, body, path = vpath(FILE)) {
   // Nothing reaches the repo until the guard has confirmed it is set and private.
   await ensurePrivateRepo();
   const res = await fetch(API(path), {
@@ -99,13 +101,27 @@ async function ghApi(sub) {
   return res.json();
 }
 
+// The git database (trees, commits, refs), behind the same guard: moving a
+// vault's files into its folder is one commit that reuses every file as it is.
+async function ghGit(method, sub, body) {
+  await ensurePrivateRepo();
+  const res = await fetch(REPO_API(sub), {
+    method,
+    headers: { Authorization: `Bearer ${vault.token}`, Accept: "application/vnd.github+json" },
+    body: body ? JSON.stringify(body) : undefined,
+    cache: "no-store",
+  });
+  if (!res.ok) throw await ghError(res);
+  return res.json();
+}
+
 // Mirror the exact same ciphertext as vault.enc.js so a cloned repo can load
 // it via script tag on the lock screen. Best-effort: a failure here only makes
 // auto-detect stale on other machines, and their first Sync pulls the truth.
 async function pushWrapper(sealed) {
   try {
-    const r = await gh("GET", null, WRAPPER);
+    const r = await gh("GET", null, vpath(WRAPPER));
     const sha = r.status === 200 ? (await r.json()).sha : undefined;
-    await gh("PUT", { message: "sync", content: btoa("window.__VAULT__ = " + sealed + ";"), sha }, WRAPPER);
+    await gh("PUT", { message: "sync", content: btoa(vaultWrapper(sealed, vault.savedAt)), sha }, vpath(WRAPPER));
   } catch {}
 }

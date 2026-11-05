@@ -137,9 +137,9 @@ function renderDetail() {
         `${pullBanner.lost} removed, ${pullBanner.replaced} replaced, ` +
         `${pullBanner.added} new from remote (titles unavailable after reload)`));
     }
-    if (localStorage.getItem("vault.prev")) {
+    if (localStorage.getItem(vkey("vault.prev"))) {
       const row = mk("div", "detail-row");
-      const at = new Date(+localStorage.getItem("vault.prevAt") || 0);
+      const at = new Date(+localStorage.getItem(vkey("vault.prevAt")) || 0);
       const b = mk("button", null, `Restore pre-merge vault (${at.toLocaleString()})`);
       b.onclick = restorePrev;
       row.appendChild(b);
@@ -160,15 +160,15 @@ async function restorePrev() {
   // behind an unchanged "read-only" banner, so a later Convert would seal the
   // wrong vault over localStorage.
   if (syncing || backupView) return;
-  const prev = localStorage.getItem("vault.prev");
+  const prev = localStorage.getItem(vkey("vault.prev"));
   if (!prev) return;
-  const at = new Date(+localStorage.getItem("vault.prevAt") || 0).toLocaleString();
+  const at = new Date(+localStorage.getItem(vkey("vault.prevAt")) || 0).toLocaleString();
   const ok = await confirmModal({
     title: "Restore pre-merge vault?",
     body: `Replace the current vault with the pre-merge snapshot from ${at}? Everything the merge brought in from the repo will be removed locally until the next sync.`,
     confirmLabel: "Restore", destructive: true,
   });
-  if (!ok || !localStorage.getItem("vault.prev")) return;
+  if (!ok || !localStorage.getItem(vkey("vault.prev"))) return;
   try {
     const opened = await openVault(prev, masterPw);
     const tok = vault.token;

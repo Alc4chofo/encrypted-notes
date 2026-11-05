@@ -34,23 +34,23 @@ async function putMedia(id) {
   if (!rec || !rec.bytes) return false;
   const total = rec.bytes.byteLength;
   if (total <= MEDIA_CHUNK) {
-    await putMediaFile("media/" + id, rec.bytes);
+    await putMediaFile(vpath("media/" + id), rec.bytes);
   } else {
     // GitHub's workaround: parts first, manifest LAST - a torn upload leaves no
     // manifest, so mediaSynced stays unset and the next sync retries the whole set.
     const parts = Math.ceil(total / MEDIA_CHUNK);
     for (let i = 0; i < parts; i++) {
       status(`Uploading attachment (${i + 1}/${parts})...`, false, true);
-      await putMediaFile(`media/${id}.p${i}`, rec.bytes.slice(i * MEDIA_CHUNK, Math.min(total, (i + 1) * MEDIA_CHUNK)));
+      await putMediaFile(vpath(`media/${id}.p${i}`), rec.bytes.slice(i * MEDIA_CHUNK, Math.min(total, (i + 1) * MEDIA_CHUNK)));
     }
-    await putMediaFile("media/" + id, enc(CHUNK_MAGIC + JSON.stringify({ parts, total })).buffer);
+    await putMediaFile(vpath("media/" + id), enc(CHUNK_MAGIC + JSON.stringify({ parts, total })).buffer);
   }
   syncMeta.mediaSynced[id] = 1;
   return true;
 }
 
 async function getMedia(id) {
-  const res = await ghRaw("media/" + id);
+  const res = await ghRaw(vpath("media/" + id));
   if (res.status === 404) return false;   // keeps the placeholder tile, marks nothing
   let buf = await res.arrayBuffer();
   // A chunk manifest instead of ciphertext? Reassemble; any missing/short part
@@ -67,7 +67,7 @@ async function getMedia(id) {
     const bufs = [];
     for (let i = 0; i < parts; i++) {
       status(`Downloading attachment (${i + 1}/${parts})...`, false, true);
-      const r = await ghRaw(`media/${id}.p${i}`);
+      const r = await ghRaw(vpath(`media/${id}.p${i}`));
       if (r.status === 404) return false;
       bufs.push(new Uint8Array(await r.arrayBuffer()));
     }
@@ -85,6 +85,7 @@ async function getMedia(id) {
   try { await decryptMedia(id, buf); }
   catch { return false; }
   await idbPut(id, buf);
+  saveMediaFile(id, buf);                 // and into the vault's own media folder
   syncMeta.mediaSynced[id] = 1;           // pulled media must never be re-pushed
   return true;
 }
@@ -97,9 +98,9 @@ async function deleteRemoteMedia(id) {
     await gh("DELETE", { message: "purge", sha }, path);
     return true;
   };
-  await del("media/" + id);
+  await del(vpath("media/" + id));
   // Chunked parts: delete until the first gap (parts are always contiguous).
-  for (let i = 0; i < 1024; i++) if (!await del(`media/${id}.p${i}`)) break;
+  for (let i = 0; i < 1024; i++) if (!await del(vpath(`media/${id}.p${i}`))) break;
   return true;
 }
 
@@ -128,6 +129,12 @@ async function syncMediaPhase(scope) {
   }
   for (const id of wanted) {
     if (have.has(id)) continue;
+    // The vault's own media folder first: no download when the bytes are already
+    // beside index.html. Authenticated before they are kept, like a download.
+    const local = await loadMediaFile(id);
+    if (local) {
+      try { await decryptMedia(id, local); await idbPut(id, local); have.add(id); pulled++; continue; } catch {}
+    }
     status("Downloading attachment...", false, true);
     try { if (await getMedia(id)) { have.add(id); pulled++; } }
     catch (e) { warn.push("download " + id.slice(0, 8) + ": " + e.message); }
@@ -145,6 +152,7 @@ async function syncMediaPhase(scope) {
     if (have.has(id)) {
       revokeMediaUrl(id);
       try { await idbDelete(id); } catch {}
+      removeMediaFile(id);
       have.delete(id);
       dropped++;
     }
@@ -216,7 +224,7 @@ async function syncOnce(scope) {
     if (!fast) {
       // content is "" for any file over 1MB: fall back to the raw media type.
       const text = meta.content ? atob(meta.content.replace(/\n/g, ""))
-        : await (await ghRaw(FILE)).text();
+        : await (await ghRaw(vpath(FILE))).text();
       let opened;
       try {
         // masterPw, not the DOM input: the remote blob may use a different
@@ -342,6 +350,13 @@ async function runSync(scope) {
   status(scope ? `Syncing this ${scope.label}...` : "Syncing...", false, true);
   let result = null;
   try {
+    // Another device already moved this vault into its folder: follow it there
+    // before syncing, or this one would put a fresh vault.enc back at the top level.
+    if (vaultSel && !vaultSel.dir && vault.token &&
+        (await gh("GET", null, LEGACY_VAULT + "/" + FILE)).status === 200) {
+      status("This vault moved into its folder on another device: following it...", false, true);
+      await moveVaultToFolder(LEGACY_VAULT);
+    }
     for (let attempt = 1; ; attempt++) {
       try { result = await syncOnce(scope); break; }
       catch (e) {

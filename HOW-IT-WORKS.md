@@ -1,6 +1,6 @@
 # How encrypted-notes works
 
-This document describes exactly what the app does with your data: the threat model, the cryptographic construction, the storage and sync formats, and the limits. Every claim names the function that implements it, so you can check it against the code: the code is in `js/`, one file per part of the app, and `grep -rn "function deriveKey" js` (say) finds any of them. The app is about 12,700 lines of unminified HTML, CSS and JavaScript in 41 files, with no dependencies, so what you read is what runs.
+This document describes exactly what the app does with your data: the threat model, the cryptographic construction, the storage and sync formats, and the limits. Every claim names the function that implements it, so you can check it against the code: the code is in `js/`, one file per part of the app, and `grep -rn "function deriveKey" js` (say) finds any of them. The app is about 13,900 lines of unminified HTML, CSS and JavaScript in 42 files, with no dependencies, so what you read is what runs.
 
 ## Contents
 
@@ -39,17 +39,18 @@ A browser already ships everything a password manager-style vault needs:
 - **Local storage:** `localStorage` holds the sealed vault and some bookkeeping; IndexedDB holds the encrypted attachments (section 4).
 - **Remote storage:** GitHub's REST API answers cross-origin requests (CORS), so a page can read and write files in a repo with nothing but `fetch()` and a token in the `Authorization` header.
 
-There is no server, no build step, no package manager and no third-party script. The only host the code ever contacts is `https://api.github.com`, and only when you sync, back up, check for an app update, or open an attachment that is not cached yet.
+There is no server, no build step, no package manager and no third-party script. The only host the code ever contacts is `https://api.github.com`, and only when you sync, back up, check for an app update, move a vault into its folder, or open an attachment that is not cached yet.
 
 **How the page is put together.** `index.html` holds the markup and loads, in order, `config.js` (your repo, the one file you edit), the stylesheets in `css/` and the scripts in `js/`. They are classic scripts, not JavaScript modules: a browser refuses to load modules into a page opened from a file, and this one has to work from a double click. Classic scripts share one set of top-level names, so each file can use what the files before it define. The order matters only for code that runs while the page loads. Work that finishes later, such as reading the attempt counter from IndexedDB (section 5), is started on `DOMContentLoaded`, once every file is in, because otherwise it could finish between two scripts. `js/version.js` lists the same files (`APP_FILES`) for app updates (section 6).
 
-**One wrinkle, and how it is solved.** A page opened from `file://` may not `fetch()` its sibling files, but it *may* load them with a `<script src>` tag. So every time the app pushes `vault.enc`, it also pushes `vault.enc.js`, which is the same ciphertext wrapped as a script:
+**One wrinkle, and how it is solved.** A page opened from `file://` may not `fetch()` its sibling files, but it *may* load them with a `<script src>` tag. So every time the app pushes `vault.enc`, it also pushes `vault.enc.js`, which is the same ciphertext wrapped as a script, plus the time of the last save (`vaultWrapper`):
 
 ```js
 window.__VAULT__ = {"v":1,"iter":1200000,"salt":"...","iv":"...","data":"..."};
+window.__VAULT_AT__ = 1793884295663;
 ```
 
-A fresh clone opened by double click therefore finds its vault before you type anything, and you only need the password. The backups use the same trick. The one other file the page may load from its folder, apart from its own `config.js`, `css/` and `js/`, is an optional lock-screen video (`lock-background.mp4` or `lock-background.webm`), as a muted `<video>`: a video cannot run code, it is never synced, and without one the screen simply stays black. The cost of this convenience is a trust boundary, explained in section 8.
+Each vault keeps these files in a folder of its own, named after it (section 4), and the lock screen adds the `<script>` tags for the selected vault's `vault.enc.js` and backups itself (`loadScript`). On a fresh clone you pick the vault once (**Other vault**), and from then on the page finds it before you type anything: you only need the password. The backups use the same trick. Apart from its own `config.js`, `css/` and `js/` and these wrappers, the one other file the page may load from its folder is an optional lock-screen video (`lock-background.mp4` or `lock-background.webm`), as a muted `<video>`: a video cannot run code, it is never synced, and without one the screen simply stays black. The cost of this convenience is a trust boundary, explained in section 8.
 
 ## 3. Cryptography
 
@@ -124,16 +125,22 @@ Attachments are not sealed under the password key, because that key depends on a
 
 ### In your private repo
 
+Every vault has a folder named after it (`<vault>/`, the paths built by `vpath`). A vault from before folders keeps the same files at the top level instead, until it is moved into `Main/` (section 6).
+
 | Path | Content |
 | --- | --- |
-| `vault.enc` | the sealed vault blob (section 3.3) |
-| `vault.enc.js` | the same blob as `window.__VAULT__ = ...;` (section 2) |
-| `media/<uuid>` | one encrypted attachment, `iv \|\| ciphertext \|\| tag`, or a chunk manifest |
-| `media/<uuid>.p<n>` | chunk parts of a large attachment |
-| `backup-weekly.enc.js`, `backup-monthly.enc.js` | `window.__BACKUP_WEEKLY__ = {"at": <ms>, "data": "<sealed vault>"};` (and the monthly equivalent) |
+| `<vault>/vault.enc` | the sealed vault blob (section 3.3) |
+| `<vault>/vault.enc.js` | the same blob as `window.__VAULT__ = ...;`, and the time of the last save as `window.__VAULT_AT__` (section 2) |
+| `<vault>/media/<uuid>` | one encrypted attachment, `iv \|\| ciphertext \|\| tag`, or a chunk manifest |
+| `<vault>/media/<uuid>.p<n>` | chunk parts of a large attachment |
+| `<vault>/backup-weekly.enc.js`, `<vault>/backup-monthly.enc.js` | `window.__BACKUP_WEEKLY__ = {"at": <ms>, "data": "<sealed vault>"};` (and the monthly equivalent) |
 | `index.html`, `config.js`, `css/`, `js/` | the app itself, with your repo in `config.js`; app updates come from here (section 6) |
 
-Commit messages are fixed strings (`sync`, `media`, `purge`, `weekly backup`, `monthly backup`). They say nothing about content.
+Commit messages are fixed strings (`sync`, `media`, `purge`, `weekly backup`, `monthly backup`, and `Move the vault into Main/` for the one-time move). They say nothing about content.
+
+### In the app's folder
+
+Where the browser can write to the app's folder (Chrome and Edge, once you have given it the folder, the same access backups and app updates use; a save never asks for it, `grantedAppDir`), each vault's folder there mirrors its folder in the repo. `vault.enc` and `vault.enc.js` are rewritten after every save (`saveVaultFiles`), and each attachment is written to `media/<uuid>` as soon as this device has it, as the same ciphertext IndexedDB holds (`saveMediaFile`). Sync reads an attachment from there before downloading it, and authenticates it first exactly like a download (`loadMediaFile`). Nothing is written there in plaintext.
 
 ### In the browser
 
@@ -146,8 +153,12 @@ Commit messages are fixed strings (`sync`, `media`, `purge`, `weekly backup`, `m
 | `localStorage` | `settings` | `{"autoLockMin", "weeklyDays", "monthlyDays"}`: the auto-lock delay (section 5) and how old each backup may get before unlock asks to update it. Per device, not synced |
 | `localStorage` | `backupMeta`, `pullBanner`, UI preferences | timestamps, counts, colours, which sections are collapsed |
 | `localStorage` | `appUpdate` | `{"commit", "build", "declined"}`: the last commit of `js/version.js` this device looked at, the build it names, and a version you declined (section 6). Per device, not synced |
+| `localStorage` | `vaults`, `vaultSel` | the vaults this device knows, `{name: {dir, at}}`, and the one it opens: names and times in plaintext, nothing from inside a vault |
+| `localStorage` | `lang` | the interface language (`en`, `de` or `es`). Per device, not synced |
 | IndexedDB `notes-media` | `<uuid>` | encrypted attachment records `{id, bytes: iv \|\| ciphertext \|\| tag}` |
 | IndexedDB `notes-media` | `__authGuard__`, `__notesDir__` | the second copy of the attempt counter, and the folder handle backups (and app updates) are written to |
+
+The keys that belong to one vault (`vault`, `vault.prev`, `vault.prevAt`, `syncMeta`, `pullBanner`, `backupMeta`) carry its folder's name for a vault in a folder (`vault@Work`, `syncMeta@Work` and so on, `vkey`), so two vaults on one device never share a copy or any bookkeeping.
 
 Plaintext exists only in memory while the vault is unlocked: the JavaScript heap (including `searchTextCache`, the plain text of each note kept for search, and `appClip`/`appDrag`, the censored text of the last copy or drag made in the app, kept so it can be pasted back censored), the rendered page, and temporary `blob:` URLs for attachments you open.
 
@@ -186,6 +197,10 @@ Plaintext exists only in memory while the vault is unlocked: the JavaScript heap
 5. **Attachments:** upload local files the repo does not have, download referenced files this device lacks (authenticated before storing), and delete files whose tombstone says nothing references them any more.
 
 A sealed snapshot of the pre-merge vault is kept locally (`vault.prev`), and a merge that would replace local edits never synced before asks for confirmation first.
+
+Every path a sync reads or writes is inside the selected vault's folder (`vpath`), so vaults that share a repo never touch each other's files.
+
+**Moving a vault into its folder** (`offerVaultMove`, `moveVaultToFolder`, `moveRepoVault`). A vault from before folders sits at the top level of the repo. After it is unlocked, the app offers to move it into `Main/`, and does so only if you confirm. In the repo this is one commit made through the Git Data API (`ghGit`, behind the same repo guard and the same Contents permission): it reads the branch head and its whole tree, builds a tree in which every file of the vault (`vault.enc`, `vault.enc.js`, the backups and all of `media/`) points at the same blob under `Main/` and the old paths are gone, and moves the branch to that commit as a fast-forward only. If something was pushed in between, it starts again from the new head, at most twice more. Nothing is uploaded again and no ciphertext changes. Only then are this browser's keys renamed and the files in the app's folder moved. Another device still opening the top-level vault follows on its next Sync, as soon as it finds `Main/vault.enc` in the repo; a copy of the app from before folders would write the top-level files again, so update the app on every device before moving.
 
 **App updates** (`appUpdateStep`, `checkAppUpdate`, `offerAppUpdate`). After a successful full Sync, never during it, so the notes are synced whatever the answer:
 
@@ -227,7 +242,8 @@ These figures hold only for passwords chosen at random. A human-chosen password 
 
 - that the repo exists, and the approximate size of the vault and of each attachment;
 - how many attachments there are, and when you synced or backed up (commit history and timestamps);
-- the `at` field of each backup, deliberately left in plaintext so the lock screen can show a backup's age before unlocking.
+- the names of your vaults, which are their folders' names;
+- the `at` field of each backup and `window.__VAULT_AT__` in each `vault.enc.js` (the time of the last save), deliberately left in plaintext so the lock screen can show a backup's age, and when a vault last changed, before unlocking.
 
 They cannot see any title, body, folder name, file name, or the token. Every one of those exists in the repo only as AES-256-GCM ciphertext.
 
@@ -253,6 +269,7 @@ Every input path into the vault goes through AES-GCM authenticated decryption, s
 - **Links** must start with `http://`, `https://`, `mailto:` or `tel:` (`safeHref`), so `javascript:`, `data:` and `blob:` links are impossible, and every link opens with `rel="noopener noreferrer"`.
 - **Attachments** render only where it is safe: images (except SVG) in `<img>`, video in `<video>`, PDF in the browser's own viewer via a `blob:` URL, plain text as text. SVG, HTML and everything else are download-only and never rendered, because active content running in the page's origin could read the decrypted vault.
 - **Imported designs** (`*.design.json`) are treated as untrusted files and go through the same sanitizer.
+- **Translation** (`js/i18n.js`) only ever rewrites the app's own words, once they are on the screen. Everything you wrote and every name you gave is left out (`I18N_SKIP`, `translate="no"`), and the PDF writer and the print path work on content outside the page, so translation can never change your notes or what you export.
 - **PDF export** uses the app's own PDF writer (`buildNotePdf`). It writes no `/Info` dictionary, no document ID, no timestamps and no producer string. Censored text is replaced by a box whose width depends only on a coarse length bucket, so its glyph widths do not leak; censored images are never even decrypted for export.
 - **Censored text** is a mark (`<span data-censor="1">`) placed directly around the characters, inside any other formatting, so removing it brings the text back exactly as it was. In the app it is painted as a bar and stays editable; spell checking is off inside it and spelling or grammar marks are never drawn on it (`::spelling-error`, `::grammar-error`), so no squiggle shows where a hidden word ends or that it is misspelt. Everything that leaves the app destroys the characters and keeps only a bar sized by the same length bucket (`censorLenBucket`): the PDF writer, the print path, design files (`stripCensoredForExport`), and the clipboard and drag-and-drop, which carry plain text only, with each censored run as a row of `█` blocks (`censoredCopy`), because a rich copy would hold the hidden characters with nothing but a style over them. The right-click menu's Cut and Copy run through the same handler as the keyboard shortcuts (`clipboardCommand`), and a selection in the second screen's reference pane is covered like one in the note (`censoredSelection`). Pasting or dropping such a copy back into a note restores it from memory, still censored (`copySegments`, `insertSegments`), only when the clipboard holds exactly the blocks this app put there; the in-memory copy is dropped at lock.
 
@@ -260,7 +277,7 @@ Every input path into the vault goes through AES-GCM authenticated decryption, s
 
 - **Auto-lock is a timer.** It locks after the idle time you choose, not the moment you walk away, and it can be turned off. Use Ctrl+L when you leave the device.
 - **No protection on a compromised device** (adversary A3): malware or a browser extension with access to the page can read anything you can see.
-- **Metadata is visible** to anyone who can read the repo: sizes, counts and timing (section 8).
+- **Metadata is visible** to anyone who can read the repo: sizes, counts, timing and the names of your vaults (section 8).
 - **Code integrity depends on the repo** (section 8). Keep it private and keep the token scoped.
 - **PBKDF2 is not memory-hard.** It is the strongest function the Web Crypto API offers natively, and the iteration count is set high to compensate, but a long random password is still essential (section 7).
 - **The attempt limit is client-side** and does nothing against an offline copy (section 5).
@@ -285,7 +302,7 @@ grep -rn "const ITER" js
 grep -o '<script src="[^"]*"\|<link rel="stylesheet" href="[^"]*"' index.html
 ```
 
-Then open the browser's developer tools on the Network tab: no request is made until you press Sync, make a backup, check for an update or open an uncached attachment, and every request goes to `api.github.com` for the repo you configured.
+Then open the browser's developer tools on the Network tab: no request is made until you press Sync, make a backup, check for an update, move a vault into its folder or open an uncached attachment, and every request goes to `api.github.com` for the repo you configured.
 
 ## 12. References
 

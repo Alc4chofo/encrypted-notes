@@ -680,7 +680,7 @@ function renderStatus() {
 
   const unsyncedN = unsyncedCount();   // notes + folders + trash + both deletion kinds
   toggleChip("chip-unsaved", dirty, "Unsaved content");
-  toggleChip("chip-unsynced", unsyncedN > 0, "Unsynced content", unsyncedN);
+  renderUnsynced();   // its own section in the sidebar, above the trash
   toggleChip("chip-syncerr", !!lastSyncError, lastSyncError ? ERR_LABEL[lastSyncError.kind] : null);
 
   renderBanner();
@@ -724,6 +724,6 @@ function dismissBanner() {
   if (backupView) return;   // read-only: not even this localStorage write
   pullBanner = null;
   pullDiff = null;
-  localStorage.removeItem("pullBanner");
+  localStorage.removeItem(vkey("pullBanner"));
   renderStatus();
 }

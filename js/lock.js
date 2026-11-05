@@ -110,22 +110,39 @@ function renderPwMeter() {
 $("password").addEventListener("input", renderPwMeter);
 
 // ---------- Unlock ----------
-const autoVault = typeof window.__VAULT__ === "object" && window.__VAULT__ !== null
-  ? JSON.stringify(window.__VAULT__) : null;
+// The vault the form opens: the old top-level one comes in through index.html's
+// own <script>; a vault in a folder is loaded from its folder below.
+let autoVault = vaultSel && !vaultSel.dir ? legacyBlob : null;
+// No vault on this device at all yet: the form starts by making one.
+let creatingVault = !vaultSel && !Object.keys(knownVaults()).length;
 // The restore picker stays available even when a local vault exists: hiding it
 // made a corrupted localStorage vault unrecoverable (correct password, no way
 // in) and left the Backup button's own output unrestorable on the machine most
-// likely to need it.
-// What the lock screen is for: unlocking this device's vault, unlocking a synced
-// vault found beside the file (a fresh clone), or creating a new one. The
-// greeting, the first-run fields and the button follow it.
+// likely to need it. It lives under "Other vault" now, as "From a file...".
+// What the lock screen is for: unlocking this device's copy of the selected
+// vault, unlocking a synced one found in its folder (a fresh clone), making a
+// new one, or - with nothing to open - picking one.
 function setLockMode() {
-  const mode = localStorage.getItem("vault") ? "unlock" : autoVault ? "found" : "new";
+  const mode = creatingVault ? "new" : !vaultSel ? "none"
+    : localStorage.getItem(vkey("vault")) ? "unlock" : autoVault ? "found" : "missing";
   $("unlock-form").dataset.mode = mode;
   $("token-row").style.display = mode === "new" ? "flex" : "none";
+  $("new-vault").setAttribute("aria-pressed", creatingVault ? "true" : "false");
+  renderVaultLine();
   renderPwMeter();
-  syncRestoreToggle();
   syncUnlockLabel();
+}
+// "Vault selected: Main - 4 Nov 2026, 19:14". The name is the user's own: never translated.
+function renderVaultLine() {
+  const el = $("vault-line");
+  el.textContent = "";
+  if (creatingVault) { el.textContent = "New vault"; return; }
+  if (!vaultSel) { el.textContent = "No vault selected"; return; }
+  const at = Math.max((knownVaults()[vaultSel.name] || {}).at || 0, +window.__VAULT_AT__ || 0);
+  const nm = mk("span", "vn", vaultSel.name);
+  nm.setAttribute("translate", "no");
+  el.append("Vault selected:", " ", nm);
+  if (at) el.append(" - " + fmtWhen(at));
 }
 // The button says what pressing it will do.
 function syncUnlockLabel() {
@@ -133,28 +150,94 @@ function syncUnlockLabel() {
   if (!label) return;
   const mode = $("unlock-form").dataset.mode;
   const fromFile = $("restore-box").style.display !== "none" && $("vault-file").files.length > 0;
-  const creating = mode === "new" && !fromFile && !pendingBackupKind;
+  const creating = mode === "new" && !pendingBackupKind;
   if (attemptBusy) label.textContent = pendingBackupKind ? "Opening backup..." : creating ? "Creating vault..." : "Unlocking...";
   else label.textContent = pendingBackupKind ? `Open ${pendingBackupKind} backup` : creating ? "Create vault" :
     fromFile ? "Restore and unlock" : "Unlock";
 }
-function syncRestoreToggle() {
-  const open = $("restore-box").style.display !== "none";
-  const mode = $("unlock-form").dataset.mode;
-  $("restore-toggle").classList.toggle("open", open);
-  $("restore-toggle").textContent = !open ? "Restore from a file instead"
-    : mode === "new" ? "Create a new vault instead" : mode === "found" ? "Use the vault found here instead" : "Use this device's vault instead";
+// "Other vault": the vaults next to index.html (looked up in the app folder,
+// which asks for access the first time) and the ones this device knows, each
+// with when it last changed, plus restoring one from a file. Picking a vault
+// reloads the page with it selected.
+function renderVaultList() {
+  const box = $("vault-list"), vs = knownVaults();
+  box.textContent = "";
+  const names = Object.keys(vs).filter(n => !(vaultSel && n === vaultSel.name))
+    .sort((a, b) => (vs[b].at || 0) - (vs[a].at || 0));
+  for (const n of names) {
+    const b = mk("button", "vault-pick");
+    b.type = "button";
+    const nm = mk("span", "vp-name", n);
+    nm.setAttribute("translate", "no");
+    b.append(nm, mk("span", "vp-at", vs[n].at ? fmtWhen(vs[n].at) : ""));
+    b.onclick = () => { selectVault(n, vs[n].dir); location.reload(); };
+    box.appendChild(b);
+  }
+  if (!names.length) box.appendChild(mk("small", null, "No other vaults found next to index.html."));
+  const f = mk("button", "vault-file-btn", "From a file...");
+  f.type = "button";
+  f.onclick = () => {
+    const r = $("restore-box"), open = r.style.display !== "none";
+    r.style.display = open ? "none" : "flex";
+    if (open) { $("vault-file").value = ""; showFileName(); }
+    syncUnlockLabel();
+  };
+  box.appendChild(f);
 }
-$("restore-toggle").onclick = () => {
-  const b = $("restore-box");
-  const open = b.style.display !== "none";
-  b.style.display = open ? "none" : "flex";
-  if (open) $("vault-file").value = "";
-  syncRestoreToggle();
-  syncUnlockLabel();
+$("other-vault").onclick = async () => {
+  const box = $("vault-list"), open = box.style.display !== "none";
+  box.style.display = open ? "none" : "flex";
+  $("other-vault").setAttribute("aria-expanded", open ? "false" : "true");
+  if (open) return;
+  if (creatingVault) { creatingVault = false; setLockMode(); }
+  renderVaultList();                            // what this device knows, at once
+  if (await scanVaults()) renderVaultList();    // and what the app folder holds
 };
-$("vault-file").addEventListener("change", syncUnlockLabel);
+$("new-vault").onclick = () => {
+  creatingVault = !creatingVault;
+  $("vault-list").style.display = "none";
+  $("other-vault").setAttribute("aria-expanded", "false");
+  setLockMode();
+  if (creatingVault) $("vault-name").focus();
+};
+// The hidden file input behind "Choose file", and the chosen file's name beside
+// it. A file's name is the user's own: never translated.
+$("file-pick").onclick = () => $("vault-file").click();
+function showFileName() {
+  const f = $("vault-file").files[0], el = $("file-name");
+  if (f) el.setAttribute("translate", "no"); else el.removeAttribute("translate");
+  el.textContent = f ? f.name : "No file chosen";
+}
+$("vault-file").addEventListener("change", () => {
+  showFileName();
+  // A file with no vault to restore it into becomes a new vault, named on the form.
+  if ($("vault-file").files.length && !vaultSel && !creatingVault) { creatingVault = true; setLockMode(); }
+  syncUnlockLabel();
+});
+// The language, at the top centre: picking one reloads the page in it.
+for (const [code, name] of Object.entries(LANGS)) $("lang").add(new Option(name, code, code === LANG, code === LANG));
+$("lang").onchange = () => { localStorage.setItem("lang", $("lang").value); location.reload(); };
+$("lock-version").textContent = "v" + APP_VERSION;
 setLockMode();
+// A vault in a folder: its vault.enc.js and backups, by <script> because a page
+// opened from a file may load scripts beside it but not fetch them. Missing
+// files just fail quietly, like the top-level ones in index.html.
+const loadScript = src => new Promise(res => {
+  const el = document.createElement("script");
+  el.src = src;
+  el.onload = el.onerror = () => { el.remove(); res(); };
+  document.body.appendChild(el);
+});
+if (vaultSel && vaultSel.dir) {
+  window.__VAULT__ = window.__VAULT_AT__ = undefined;
+  for (const k of Object.values(BACKUP_KINDS)) window[k.varName] = undefined;
+  const d = encodeURIComponent(vaultSel.dir) + "/";
+  Promise.all([loadScript(d + WRAPPER), ...Object.values(BACKUP_KINDS).map(k => loadScript(d + k.file))]).then(() => {
+    autoVault = window.__VAULT__ && typeof window.__VAULT__ === "object" ? JSON.stringify(window.__VAULT__) : null;
+    setLockMode();
+    refreshLockBackupRow();
+  });
+}
 // A wrong guess costs one of the ten attempts: say when Caps Lock is on.
 for (const id of ["password", "password2"]) {
   const caps = e => { $("caps-msg").hidden = !(e.getModifierState && e.getModifierState("CapsLock")); };
@@ -197,6 +280,23 @@ function shakeLock() {
 $("unlock-form").onsubmit = async e => {
   e.preventDefault();
   if (attemptBusy) return;
+  const lockMsg = (t, err) => {
+    $("lock-msg").style.color = err ? "var(--bad)" : "var(--t3)";
+    $("lock-msg").textContent = t;
+  };
+  const mode = $("unlock-form").dataset.mode;
+  if (mode === "none" || mode === "missing") return;
+  // A new vault needs a name that can be its folder; checked before anything else, as no attempt is spent on it.
+  const creating = mode === "new" && !pendingBackupKind;
+  const newName = creating ? $("vault-name").value.trim() : "";
+  if (creating) {
+    const why = vaultNameProblem(newName);
+    if (why) { lockMsg(why, true); $("vault-name").focus(); return; }
+  }
+  // Folder access needs this very click, so it is asked for before anything is
+  // awaited: the app folder for a new vault (its folder is made there), and
+  // permission to keep writing an existing vault's folder otherwise.
+  const appDir = creating ? notesDirHandle() : (vaultSel && vaultSel.dir ? askAppDirAccess() : null);
   // Re-read both stores on EVERY attempt: another copy of this page may have
   // burned attempts (or triggered the lockout) since this one loaded.
   await loadGuard();
@@ -204,15 +304,11 @@ $("unlock-form").onsubmit = async e => {
   if (isLockedOut()) return;
   const pw = $("password").value;
   if (!pw) return;
-  const stored = localStorage.getItem("vault");
+  const stored = creating ? null : localStorage.getItem(vkey("vault"));
   let restored = false;
   // Only a genuine decrypt failure burns an attempt; a first-run validation
   // slip (mismatched confirm, missing token) must not.
   let decrypted = false, refocus = false;
-  const lockMsg = (t, err) => {
-    $("lock-msg").style.color = err ? "var(--bad)" : "var(--t3)";
-    $("lock-msg").textContent = t;
-  };
   attemptBusy = true;
   renderGuard();                 // freezes the form; the button shows the attempt running
   lockMsg("", false);
@@ -258,9 +354,10 @@ $("unlock-form").onsubmit = async e => {
       let blobText = null;
       const file = picked;
       if (file) blobText = await file.text();
+      else if (creating) blobText = null;
       else if (autoVault) blobText = autoVault;
       else try {
-        const r = await fetch("vault.enc");
+        const r = await fetch(vpath(FILE));
         if (r.ok) blobText = await r.text();
       } catch {}
       if (blobText) {
@@ -272,6 +369,7 @@ $("unlock-form").onsubmit = async e => {
         // pushing old notes over it.
         needPersist = true;
       } else {
+        if (!creating) { lockMsg("This vault's files were not found next to index.html.", true); return; }
         if (!$("token").value.trim()) {
           lockMsg("Paste a token (new vault) or pick your vault.enc (restore).", true);
           return;
@@ -300,6 +398,19 @@ $("unlock-form").onsubmit = async e => {
         needPersist = true;
       }
     }
+    // A new vault (empty, or from the picked file) becomes the selected one, with
+    // its own folder and media folder next to index.html - and nothing of the
+    // vault this page had selected before.
+    let noFolder = false;
+    if (creating) {
+      resetVaultState();
+      selectVault(newName, newName);
+      rememberVault(newName, newName, Date.now());   // shown as its date until the first save (savedAt stays 0 for Sync)
+      const root = await appDir;
+      try { await (await root.getDirectoryHandle(newName, { create: true })).getDirectoryHandle("media", { create: true }); }
+      catch { noFolder = true; }
+      needPersist = true;
+    }
     // v2 housekeeping (openVault already migrated the vault shape in memory).
     if (prunePurged()) needPersist = true;
     if (autoPurgeTrash()) needPersist = true;
@@ -316,8 +427,8 @@ $("unlock-form").onsubmit = async e => {
       // A pre-upgrade snapshot is a full copy of every note (and the token)
       // sealed at the weaker KDF. Keeping it would defeat the upgrade, so it
       // goes; the next merge writes a fresh one at the new strength.
-      localStorage.removeItem("vault.prev");
-      localStorage.removeItem("vault.prevAt");
+      localStorage.removeItem(vkey("vault.prev"));
+      localStorage.removeItem(vkey("vault.prevAt"));
     }
     // The media key lives inside the vault, so it must be imported after every
     // path above has settled on which vault object is live.
@@ -344,8 +455,13 @@ $("unlock-form").onsubmit = async e => {
     renderAttachments();
     renderBackupBar();
     await registerSuccess();   // a correct password wipes the attempt counter
-    status(stored ? "Unlocked" : restored ? "Vault restored, press Sync to connect" : "Vault created, use Sync to push it");
-    promptDueBackups();   // fire-and-forget: the modal flow owns its own clicks
+    if (vaultSel) rememberVault(vaultSel.name, vaultSel.dir, vault.savedAt);
+    creatingVault = false;
+    status(creating && noFolder ? "Vault created in this browser only: without access to the app folder, its folder could not be made"
+      : stored ? "Unlocked" : restored ? "Vault restored, press Sync to connect" : "Vault created, use Sync to push it", noFolder);
+    // Fire-and-forget: each modal flow owns its own clicks. The old top-level
+    // vault is offered its move into a folder first, then any overdue backup.
+    (async () => { await offerVaultMove(); await promptDueBackups(); })();
   } catch {
     // Drop the typed password: a failed unlock is exactly when someone walks
     // away, and it would otherwise sit in a DOM input value indefinitely.

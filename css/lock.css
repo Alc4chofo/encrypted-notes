@@ -3,7 +3,8 @@
    Black, and nothing on it but the form: no card, no colour of its own.
    The only tints are the meanings every screen shares (amber for a warning,
    red for an error). */
-#lock { flex: 1; display: flex; overflow-y: auto; position: relative; background: #000; }
+#lock { flex: 1; display: flex; overflow-y: auto; position: relative; background: #000;
+  --lock-back: rgb(6 6 6 / .93); }
 /* Your own background video, when there is one: full screen and fading in, the
    form moved low so the middle of the picture stays clear, over a fade to black
    that keeps it readable. */
@@ -15,10 +16,11 @@
   background: linear-gradient(to top, rgb(0 0 0 / .9) 30%, transparent); }
 .lock-stage { position: relative; z-index: 1; }
 #lock.has-bg .lock-stage { margin: auto auto 0; padding-bottom: 5vh; }
-#lock.has-bg input[type="password"] { background: rgb(8 8 8 / .78); }
+#lock.has-bg input[type="password"] { background: var(--lock-back); }
 /* margin:auto centres the form, and when the window is shorter than it the
-   page scrolls instead of cutting the top off (align-items:center would). */
-.lock-stage { margin: auto; padding: 40px 20px; width: 100%; display: flex; justify-content: center;
+   page scrolls instead of cutting the top off (align-items:center would). The
+   top padding keeps a tall form (a new vault) clear of the language list. */
+.lock-stage { margin: auto; padding: 72px 20px 40px; width: 100%; display: flex; justify-content: center;
   animation: lock-in .5s ease-out both; }
 @keyframes lock-in { from { opacity: 0; } }
 #lock form { display: flex; flex-direction: column; gap: 12px; width: min(320px, 100%); }
@@ -26,17 +28,18 @@
 #lock ::selection { background: rgb(255 255 255 / .22); }
 .lock-sub { margin: 0 0 4px; font: italic 14px/1.5 var(--serif); color: #8d877e; text-align: center; }
 .lock-sub span { display: none; }
-#unlock-form[data-mode="new"] .for-new, #unlock-form[data-mode="found"] .for-found { display: inline; }
+#unlock-form[data-mode="new"] .for-new, #unlock-form[data-mode="found"] .for-found,
+#unlock-form[data-mode="missing"] .for-missing, #unlock-form[data-mode="none"] .for-none { display: inline; }
 #unlock-form[data-mode="unlock"] .lock-sub { display: none; }
-#lock input[type="password"] { height: 44px; padding: 0 14px; border: 1px solid #262626; border-radius: 8px;
+#lock input[type="password"], #vault-name { height: 44px; padding: 0 14px; border: 1px solid #262626; border-radius: 8px;
   background: #0b0b0b; color: #e9e5de; font-size: 14px; transition: border-color .15s; }
-#lock input[type="password"]:hover { border-color: #333; }
-#lock input[type="password"]:focus { border-color: #5a5a5a; box-shadow: none; }
-#lock input[type="password"]::placeholder { color: #5f5f5f; }
+#lock input[type="password"]:hover, #vault-name:hover { border-color: #333; }
+#lock input[type="password"]:focus, #vault-name:focus { border-color: #5a5a5a; box-shadow: none; }
+#lock input[type="password"]::placeholder, #vault-name::placeholder { color: #5f5f5f; }
 /* A browser that fills a saved password paints the field pale: keep it black. */
 #lock input:-webkit-autofill { -webkit-box-shadow: 0 0 0 40px #0b0b0b inset; -webkit-text-fill-color: #e9e5de; caret-color: #e9e5de; }
 .lock-caps:not([hidden]) { display: block; margin-top: -4px; font-size: 12px; color: #c9a36a; }
-#unlock-btn { height: 44px; margin-top: 2px; border: 1px solid #333; border-radius: 8px; background: transparent;
+#unlock-btn { height: 44px; margin-top: 2px; border: 1px solid #333; border-radius: 8px; background: var(--lock-back);
   color: #e9e5de; font-size: 14px; font-weight: 500; letter-spacing: .02em; transition: background .15s, border-color .15s; }
 #unlock-btn:hover { background: #141414; border-color: #4a4a4a; }
 #unlock-btn:focus-visible { border-color: #8a8a8a; box-shadow: none; }
@@ -44,8 +47,12 @@
 /* While an attempt runs the button says so ("Unlocking...") and breathes, instead of going grey. */
 #unlock-form.busy #unlock-btn:disabled { opacity: 1; cursor: progress; animation: lock-busy 1.4s ease-in-out infinite; }
 @keyframes lock-busy { 50% { color: #8d877e; } }
-#lock-msg { font-size: 13px; line-height: 1.45; text-align: center; color: #c96b5c; }
+#lock-msg { font-size: 13px; line-height: 1.45; color: #c96b5c; }
 #lock-msg:empty { display: none; }
+/* A centred line (the vault line, the message under Unlock): its text is an inline
+   span, so the backing behind it follows each line it wraps to. */
+.lock-line { margin: 0; text-align: center; }
+.lock-line:has(> :empty) { display: none; }
 /* A wrong password: the form shakes once. */
 #unlock-form.shake { animation: lock-shake .42s cubic-bezier(.36, .07, .19, .97); }
 @keyframes lock-shake { 15% { transform: translateX(-7px); } 35% { transform: translateX(6px); } 55% { transform: translateX(-4px); }
@@ -65,22 +72,62 @@
 
 /* ---------- Lock screen extras ---------- */
 #token-row { display: none; flex-direction: column; gap: 12px; }
-#restore-row { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
-#restore-toggle { align-self: center; padding: 4px 8px; border: 0; background: none; color: #6f6a63; font-size: 12.5px; }
-#restore-toggle:hover { background: none; color: #bdb7ad; }
+/* The language list at the very top centre, the version at the bottom left: both quiet. */
+#lang { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 2; height: 30px;
+  padding: 0 10px; border: 1px solid #262626; border-radius: 7px; background: #0b0b0b; color: #bdb7ad; font-size: 12.5px; cursor: pointer; }
+#lang:hover { border-color: #3a3a3a; color: #e9e5de; }
+#lang:focus-visible { border-color: #5a5a5a; box-shadow: none; }
+#lock-version { position: fixed; left: 14px; bottom: 10px; z-index: 2; font: 11px var(--mono); letter-spacing: .04em;
+  color: #4f4f4f; pointer-events: none; }
+/* Which vault the form opens: its name bright, the rest muted. */
+#vault-line { font-size: 12.5px; line-height: 1.5; color: #6f6a63; overflow-wrap: anywhere; }
+#vault-line .vn { color: #cfc9c0; }
+/* Only what the mode needs: a name for a new vault, nothing to type when there is nothing to open. */
+#vault-name { display: none; }
+#unlock-form[data-mode="new"] #vault-name { display: block; }
+#unlock-form[data-mode="none"] #password, #unlock-form[data-mode="missing"] #password,
+#unlock-form[data-mode="none"] #unlock-btn, #unlock-form[data-mode="missing"] #unlock-btn { display: none; }
+#vault-row { display: flex; gap: 8px; margin-top: 6px; }
+#vault-row button { flex: 1; height: 34px; border: 1px solid #222; border-radius: 8px; background: var(--lock-back);
+  color: #8d877e; font-size: 12.5px; }
+#vault-row button:hover { background: #111; border-color: #333; color: #cfc9c0; }
+#vault-row button[aria-pressed="true"], #vault-row button[aria-expanded="true"] { border-color: #5a5a5a; color: #e9e5de; }
+#vault-list { flex-direction: column; gap: 6px; }
+#vault-list .vault-pick { display: flex; align-items: center; justify-content: space-between; gap: 10px; height: 38px; padding: 0 12px;
+  border: 1px solid #222; border-radius: 8px; background: var(--lock-back); color: #cfc9c0; font-size: 13px; text-align: left; }
+#vault-list .vault-pick:hover { background: #111; border-color: #333; }
+#vault-list .vp-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#vault-list .vp-at { flex: none; font-size: 12px; color: #6f6a63; }
+#vault-list .vault-file-btn { align-self: center; padding: 4px 8px; border: 0; border-radius: 6px; background: var(--lock-back);
+  color: #6f6a63; font-size: 12.5px; }
+#vault-list .vault-file-btn:hover { background: var(--lock-back); color: #bdb7ad; }
 #restore-box { display: flex; flex-direction: column; gap: 8px; }
-#vault-file { padding: 8px; border: 1px dashed #2e2e2e; border-radius: 8px; background: #0b0b0b; font-size: 12px; color: #6f6a63; }
-#vault-file::file-selector-button { margin-right: 10px; padding: 5px 11px; border: 1px solid #333; border-radius: 6px;
-  background: #141414; color: #e9e5de; font: inherit; cursor: pointer; }
+/* The file picker: the app's own button and the chosen file's name. The
+   browser's control stays hidden, since it speaks the browser's language. */
+#file-row { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 8px; border: 1px dashed #2e2e2e; border-radius: 8px;
+  background: #0b0b0b; font-size: 12px; color: #6f6a63; }
+#file-pick { flex: none; padding: 5px 11px; border: 1px solid #333; border-radius: 6px; background: #141414; color: #e9e5de; font-size: 12px; }
+#file-pick:hover { background: #1b1b1b; border-color: #4a4a4a; }
+#file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Backups found beside the file: one quiet row each, its age in the sidebar's colour for it. */
 #backup-row { flex-direction: column; gap: 6px; margin-top: 10px; padding-top: 14px; border-top: 1px solid #1c1c1c; }
 .lock-label { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #5f5f5f; }
 #view-weekly, #view-monthly { display: flex; align-items: center; justify-content: space-between; height: 38px; padding: 0 12px;
-  border: 1px solid #222; border-radius: 8px; background: transparent; color: #cfc9c0; font-size: 13px; text-align: left; }
+  border: 1px solid #222; border-radius: 8px; background: var(--lock-back); color: #cfc9c0; font-size: 13px; text-align: left; }
 #view-weekly:hover, #view-monthly:hover { background: #111; border-color: #333; }
 #backup-row .bk-age { padding: 0; border: 0; background: none; color: var(--bk, #8d877e); font-size: 12px; }
 #backup-row button.sel { border-color: #c9a36a; color: #e9e5de; }
 #backup-sel { color: #c9a36a; font-size: 12.5px; line-height: 1.45; }
+/* Every piece of text sits on a backing just its own size, so it reads over a
+   background video (on plain black the backing is invisible). The buttons
+   above carry the same colour in their own box. */
+.lock-caps, #guard-msg, #lock small, .lock-label, #backup-sel, .pw-line, #lock-version {
+  width: fit-content; padding: 1px 7px; border-radius: 6px; background: var(--lock-back); }
+#guard-msg, #vault-list small { align-self: center; }
+/* Centred text that can wrap is backed line by line, the way captions sit over a
+   video, so a wrapped sentence never gets a box wider than its lines. */
+#vault-line, .lock-sub span, #lock-msg { padding: 1px 7px; border-radius: 6px; background: var(--lock-back);
+  -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 
 /* ---------- Password strength meter (first run) ---------- */
 /* A thin bar, then the verdict and the rough crack time; --pw is the band colour set by the class. */

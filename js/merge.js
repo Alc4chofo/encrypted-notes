@@ -399,9 +399,9 @@ async function applyMerge(info, remote) {
   // snapshotTakenThisRun keeps a 409 retry from overwriting the genuine
   // pre-merge state with the already-merged vault from the first attempt.
   if (!snapshotTakenThisRun &&
-      (anyUnsynced() || info.lost.length || info.replaced.length || !localStorage.getItem("vault.prev"))) {
-    localStorage.setItem("vault.prev", await sealVault());
-    localStorage.setItem("vault.prevAt", String(vault.savedAt || 0));
+      (anyUnsynced() || info.lost.length || info.replaced.length || !localStorage.getItem(vkey("vault.prev")))) {
+    localStorage.setItem(vkey("vault.prev"), await sealVault());
+    localStorage.setItem(vkey("vault.prevAt"), String(vault.savedAt || 0));
     snapshotTakenThisRun = true;
   }
   revokeAllMediaUrls();   // every decrypted-media URL belongs to the pre-merge vault
@@ -462,7 +462,7 @@ async function applyMerge(info, remote) {
     pullDiff = { lost: info.lost, replaced: info.replaced, added: info.added, conflicts: info.conflicts };
     pullBanner = { at: Date.now(), remoteSavedAt: remote.savedAt || 0,
       lost: info.lost.length, replaced: info.replaced.length, added: info.added.length };
-    localStorage.setItem("pullBanner", JSON.stringify(pullBanner));
+    localStorage.setItem(vkey("pullBanner"), JSON.stringify(pullBanner));
   }
   renderList();
   renderStatus();
