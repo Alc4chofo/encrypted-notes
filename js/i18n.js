@@ -88,6 +88,7 @@ const I18N = {
   "Moving the vault into its folder...": ["Tresor wird in seinen Ordner verschoben...", "Moviendo la bóveda a su carpeta..."],
   "Vault moved into its folder \"Main\"": ["Tresor in seinen Ordner \"Main\" verschoben", "Bóveda movida a su carpeta \"Main\""],
   "Could not move the vault: {0}": ["Der Tresor konnte nicht verschoben werden: {0}", "No se ha podido mover la bóveda: {0}"],
+  "Could not reach GitHub, so nothing was moved. Lock and unlock to try again.": ["GitHub war nicht erreichbar, daher wurde nichts verschoben. Sperre und entsperre, um es erneut zu versuchen.", "No se ha podido conectar con GitHub, así que no se ha movido nada. Bloquea y desbloquea para volver a intentarlo."],
   "This vault moved into its folder on another device: following it...": ["Dieser Tresor wurde auf einem anderen Gerät in seinen Ordner verschoben: wird übernommen...", "Esta bóveda se movió a su carpeta en otro dispositivo: siguiéndola..."],
   // ---- Password meter ----
   "{0} million years": ["{0} Millionen Jahre", "{0} millones de años"],

@@ -153,28 +153,38 @@ async function moveVaultToFolder(dir) {
 // so nothing is uploaded. A file the folder already has (put back at the top by
 // an older copy of the app) is only removed: that device's own copy still holds
 // its changes, and its next Sync merges them into the folder.
+// Two cases start again from the fresh head: 422 (someone pushed in between, so
+// the ref is fast-forward only) and a TypeError (the connection dropped, fetch
+// says "Failed to fetch"). Starting again is safe either way: a move whose
+// answer was lost already landed, and finds nothing left to move.
 async function moveRepoVault(dir) {
-  const branch = (await ensurePrivateRepo()).default_branch || "main";
   for (let attempt = 0; ; attempt++) {
-    const head = (await ghGit("GET", "git/ref/heads/" + encodeURIComponent(branch))).object.sha;
-    const commit = await ghGit("GET", "git/commits/" + head);
-    const tree = await ghGit("GET", "git/trees/" + commit.tree.sha + "?recursive=1");
-    if (tree.truncated) throw new Error("the repo is too large to move in one step");
-    const have = new Set(tree.tree.map(e => e.path));
-    const changes = [];
-    for (const e of tree.tree) {
-      if (e.type !== "blob" || !(LEGACY_FILES.includes(e.path) || e.path.startsWith("media/"))) continue;
-      const to = dir + "/" + e.path;
-      if (!have.has(to)) changes.push({ path: to, mode: e.mode, type: "blob", sha: e.sha });
-      changes.push({ path: e.path, mode: e.mode, type: "blob", sha: null });
+    try { return await moveRepoVaultOnce(dir); }
+    catch (e) {
+      if (!(e.status === 422 || e instanceof TypeError) || attempt >= 2) throw e;
+      await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
     }
-    if (!changes.length) return false;
-    const nt = await ghGit("POST", "git/trees", { base_tree: commit.tree.sha, tree: changes });
-    const nc = await ghGit("POST", "git/commits", { message: `Move the vault into ${dir}/`, tree: nt.sha, parents: [head] });
-    // Fast-forward only: if someone pushed in between, start again from the new head.
-    try { await ghGit("PATCH", "git/refs/heads/" + encodeURIComponent(branch), { sha: nc.sha }); return true; }
-    catch (e) { if (e.status !== 422 || attempt >= 2) throw e; }
   }
+}
+async function moveRepoVaultOnce(dir) {
+  const branch = (await ensurePrivateRepo()).default_branch || "main";
+  const head = (await ghGit("GET", "git/ref/heads/" + encodeURIComponent(branch))).object.sha;
+  const commit = await ghGit("GET", "git/commits/" + head);
+  const tree = await ghGit("GET", "git/trees/" + commit.tree.sha + "?recursive=1");
+  if (tree.truncated) throw new Error("the repo is too large to move in one step");
+  const have = new Set(tree.tree.map(e => e.path));
+  const changes = [];
+  for (const e of tree.tree) {
+    if (e.type !== "blob" || !(LEGACY_FILES.includes(e.path) || e.path.startsWith("media/"))) continue;
+    const to = dir + "/" + e.path;
+    if (!have.has(to)) changes.push({ path: to, mode: e.mode, type: "blob", sha: e.sha });
+    changes.push({ path: e.path, mode: e.mode, type: "blob", sha: null });
+  }
+  if (!changes.length) return false;
+  const nt = await ghGit("POST", "git/trees", { base_tree: commit.tree.sha, tree: changes });
+  const nc = await ghGit("POST", "git/commits", { message: `Move the vault into ${dir}/`, tree: nt.sha, parents: [head] });
+  await ghGit("PATCH", "git/refs/heads/" + encodeURIComponent(branch), { sha: nc.sha });
+  return true;
 }
 // The app folder: the backups and media/ move into the folder (renamed in place
 // where the browser can, copied otherwise), the vault itself is written fresh
@@ -230,7 +240,8 @@ async function offerVaultMove() {
     await moveVaultToFolder(LEGACY_VAULT);
     status("Vault moved into its folder \"Main\"");
   } catch (e) {
-    status("Could not move the vault: " + e.message, true);
+    status(e instanceof TypeError ? "Could not reach GitHub, so nothing was moved. Lock and unlock to try again."
+      : "Could not move the vault: " + e.message, true);
   } finally {
     syncing = false;
     setEditingEnabled(true);
