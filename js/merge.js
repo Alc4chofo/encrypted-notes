@@ -26,8 +26,8 @@
  * staleDeviceExclusions, scopeForNote, scopeForFolder, augmentScope,
  * computeOutOfScopeDiverged.
  * Auxiliary functions: canonicalJson, noteKey, contentKey, textKey,
- * sameMediaSet, orderWinner, mergedOrder, pickMax, setOrDelete, countDiff,
- * sha256Hex, conflictStamp, scopeAddNote.
+ * orderWinner, mergedOrder, pickMax, setOrDelete, countDiff, sha256Hex,
+ * conflictStamp, scopeAddNote.
  *
  * Complexity: a merge is O(n * s) over the ids and the size of each note
  * (each is serialised to compare it), plus one SHA-256 per tie.
@@ -62,7 +62,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
  *
  * Used by: media-sync.js (syncOnce).
  * Uses: pickMax, noteKey, contentKey, textKey, orderWinner, mergedOrder,
- * sameMediaSet, resolveConflict, setOrDelete, countDiff,
+ * resolveConflict, setOrDelete, countDiff,
  * computeOutOfScopeDiverged, syncMeta (core.js).
  * Complexity: O(n * s) over the ids and the notes' sizes.
  */
@@ -130,19 +130,15 @@ async function mergeVaults(local, remote, scope, exclude) {
         live = { ...winner, order: mergedOrder(localNote, remoteNote) };
       } else if (((localNote.mtime || 0) > base && (remoteNote.mtime || 0) > base) ||
         (localNote.mtime || 0) === (remoteNote.mtime || 0)) {
-        // Both changed since the base. A reorder racing a text edit does not
-        // overlap: the newer text keeps the order winner's place.
-        if ((localNote.folderId || null) === (remoteNote.folderId || null) && sameMediaSet(localNote, remoteNote) &&
-            (localNote.mtime || 0) !== (remoteNote.mtime || 0)) {
-          const winner = (remoteNote.mtime || 0) > (localNote.mtime || 0) ? remoteNote : localNote;
-          live = { ...winner, order: mergedOrder(localNote, remoteNote) };
-        } else {
-          // A real conflict: both are kept.
-          const resolved = await resolveConflict(id, localNote, remoteNote);
-          live = resolved.winner;
-          copy = resolved.copy;
-          cid = resolved.cid;
-        }
+        // Both changed since the base and their text or attachments differ: a
+        // real conflict, so both are kept. The merge remembers only when a
+        // note last synced, not what it said then, so it cannot tell a text
+        // edit from a reorder or a move (all three stamp the note). Keeping
+        // only the newer here once dropped the other device's text.
+        const resolved = await resolveConflict(id, localNote, remoteNote);
+        live = resolved.winner;
+        copy = resolved.copy;
+        cid = resolved.cid;
       } else {
         live = (remoteNote.mtime || 0) > (localNote.mtime || 0) ? remoteNote : localNote;
       }
@@ -719,12 +715,6 @@ function contentKey(note) {
 function textKey(note) {
   return note ? canonicalJson([note.title || "", note.body || "",
     (note.media || []).map(item => [item.id, item.mime, item.name, item.size])]) : "";
-}
-
-/** Whether two notes have the same attachments. Complexity: O(m). */
-function sameMediaSet(a, b) {
-  return canonicalJson((a.media || []).map(item => [item.id, item.mime, item.name, item.size])) ===
-    canonicalJson((b.media || []).map(item => [item.id, item.mime, item.name, item.size]));
 }
 
 /**
