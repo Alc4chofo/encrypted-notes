@@ -1,27 +1,97 @@
-// notes: Vaults side by side: their folders next to index.html, picking one, making one, and moving the old top-level vault into its folder.
+/*
+ * vaults.js - vaults side by side: their folders next to index.html,
+ * choosing one, making one, keeping its folder up to date, and moving the
+ * old top-level vault into its own folder.
+ *
+ * Each vault has a folder of its own, next to index.html and in the
+ * repository, named after the vault. In it: vault.enc (the sealed vault),
+ * vault.enc.js (the same bytes as a script, which a page opened from a file
+ * can read where fetch is blocked), the backups, and media/ with every
+ * attachment. Everything in the folder is the same ciphertext this browser
+ * keeps (AES-256-GCM; nothing is decrypted to be written); only the time the
+ * vault last changed ("at") is plain text, so the lock screen can say it
+ * before unlocking. Before folders, the one vault lived at the top level;
+ * moving it puts every file it owns under "Main/", in the repository, in
+ * this browser and in the app folder.
+ *
+ * Main functions: knownVaults, rememberVault, selectVault, resetVaultState,
+ * vaultNameProblem, scanVaults, saveVaultFiles, inVaultFolder,
+ * askAppDirAccess, saveMediaFile, loadMediaFile, removeMediaFile,
+ * moveVaultToFolder, moveRepoVault, moveRepoVaultOnce, moveDiskVault,
+ * offerVaultMove.
+ * Auxiliary functions: legacyVaultHere, formatWhen, grantedAppDir,
+ * vaultFolder, writeDirFile, vaultWrapper, vaultMediaDir.
+ *
+ * Complexity: a save writes two files; moving a vault is one commit in the
+ * repository (no file uploaded again) and one copy per file on disk.
+ */
 "use strict";
 
+// ---------- State ----------
+
+// What the old top-level vault owns: its two vault files and its backups (and
+// all of media/), and its localStorage keys in this browser.
+const LEGACY_FILES = [FILE, WRAPPER, "backup-weekly.enc.js", "backup-monthly.enc.js"];
+const VAULT_KEYS = ["vault", "vault.prev", "vault.prevAt", "syncMeta", "pullBanner", "backupMeta"];
+
 // ---------- Which vaults there are ----------
-// The vaults this device knows, with each one's folder and when it last
-// changed: { name: { dir, at } }. Plain localStorage: names and times, nothing
-// from inside a vault.
+
+/**
+ * The vaults this device knows, each with its folder and when it last
+ * changed: { name: { dir, at } }. Plain localStorage: names and times,
+ * nothing from inside a vault.
+ *
+ * Used by: this file (rememberVault, vaultNameProblem), lock.js
+ * (renderVaultLine, renderVaultList, and the vault being made).
+ * Uses: nothing.
+ * Complexity: O(v) in the vaults.
+ */
 function knownVaults() {
-  try { const v = JSON.parse(localStorage.getItem("vaults")); if (v && typeof v === "object") return v; } catch {}
+  try {
+    const known = JSON.parse(localStorage.getItem("vaults"));
+    if (known && typeof known === "object") {
+      return known;
+    }
+  } catch {}
   return {};
 }
+
+/**
+ * Remembers a vault, its folder and when it last changed (never moving that
+ * time backwards).
+ *
+ * Used by: this file (selectVault, scanVaults), lock.js (on load), vault.js (persistLocal).
+ * Uses: knownVaults.
+ * Complexity: O(v).
+ */
 function rememberVault(name, dir, at) {
-  const v = knownVaults();
-  v[name] = { dir, at: Math.max(+at || 0, (v[name] && v[name].at) || 0) };
-  localStorage.setItem("vaults", JSON.stringify(v));
+  const known = knownVaults();
+  known[name] = { dir, at: Math.max(+at || 0, (known[name] && known[name].at) || 0) };
+  localStorage.setItem("vaults", JSON.stringify(known));
 }
-// The vault this device opens. Switching is a reload: every per-vault value
-// (its sync bookkeeping, its backups) is then read fresh for the new one.
+
+/**
+ * Makes a vault the one this device opens. Switching is a reload: every
+ * value kept per vault (its sync bookkeeping, its backups) is then read fresh.
+ *
+ * Used by: this file (moveVaultToFolder), lock.js (renderVaultList, and on load).
+ * Uses: rememberVault.
+ * Complexity: O(v).
+ */
 function selectVault(name, dir) {
-  vaultSel = { name, dir };
-  localStorage.setItem("vaultSel", JSON.stringify(vaultSel));
+  selectedVault = { name, dir };
+  localStorage.setItem("vaultSel", JSON.stringify(selectedVault));
   rememberVault(name, dir, 0);
 }
-// For a vault made in this page: nothing of the previous one may carry over.
+
+/**
+ * Clears the per-vault state for a vault made in this page: nothing of the
+ * previous one may carry over.
+ *
+ * Used by: lock.js (making a vault, on load).
+ * Uses: syncMeta, pullBanner and lastSyncError (core.js), backupMeta (backups.js).
+ * Complexity: O(1).
+ */
 function resetVaultState() {
   syncMeta = { lastSyncedAt: null, syncedSavedAt: 0, remoteSha: null,
     noteMtimes: {}, folderMtimes: {}, trashSeen: {}, mediaSynced: {} };
@@ -29,209 +99,390 @@ function resetVaultState() {
   backupMeta = { weeklyAt: 0, monthlyAt: 0 };
   lastSyncError = null;
 }
-const legacyVaultHere = () => !!legacyBlob || !!localStorage.getItem("vault") || !!(vaultSel && !vaultSel.dir);
-// A vault's name is its folder's name too, next to index.html and in the repo:
-// letters, digits, spaces and . _ -, and never one of the app's own folders.
+
+/**
+ * What is wrong with a name for a new vault, or null. A vault's name is also
+ * its folder's, next to index.html and in the repository: up to 40 letters,
+ * digits, spaces and . _ -, starting with a letter or digit, not ending in a
+ * dot or space, not a reserved DOS name, not one of the app's own folders
+ * (css, js, media), not "Main" while the old vault is still here, and not a
+ * name already in use.
+ *
+ * Used by: lock.js (making a vault, on load).
+ * Uses: LEGACY_VAULT (core.js), legacyVaultHere, knownVaults.
+ * Complexity: O(v).
+ */
 function vaultNameProblem(name) {
   if (!/^[\p{L}\p{N}][\p{L}\p{N} ._-]{0,39}$/u.test(name) || /[. ]$/.test(name) ||
-      /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(name))
+      /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(name)) {
     return "Use up to 40 letters, digits, spaces, dots, dashes or underscores, starting with a letter or digit.";
-  const low = name.toLowerCase();
-  if (["css", "js", "media"].includes(low)) return "That name is taken by one of the app's own folders.";
-  if (low === LEGACY_VAULT.toLowerCase() && legacyVaultHere()) return "\"Main\" is kept for the vault that is already here.";
-  if (Object.keys(knownVaults()).some(n => n.toLowerCase() === low)) return "There is already a vault with that name.";
+  }
+  const lower = name.toLowerCase();
+  if (["css", "js", "media"].includes(lower)) {
+    return "That name is taken by one of the app's own folders.";
+  }
+  if (lower === LEGACY_VAULT.toLowerCase() && legacyVaultHere()) {
+    return "\"Main\" is kept for the vault that is already here.";
+  }
+  if (Object.keys(knownVaults()).some(known => known.toLowerCase() === lower)) {
+    return "There is already a vault with that name.";
+  }
   return null;
 }
-// "4 Nov 2026, 19:14" in the app's language.
-const fmtWhen = at => new Date(at).toLocaleString(LANG, { dateStyle: "medium", timeStyle: "short" });
 
-// ---------- The vault's folder on disk ----------
-// The app folder only when access is already granted: saving must never open a prompt.
-async function grantedAppDir() {
-  if (!("showDirectoryPicker" in window)) return null;
-  try {
-    const rec = await idbGet("__notesDir__");
-    const h = rec && rec.bytes;
-    return h && await h.queryPermission({ mode: "readwrite" }) === "granted" ? h : null;
-  } catch { return null; }
-}
-// Asked once per unlock - pressing Unlock is the gesture it needs - so the
-// vault's folder can be written from then on. Never opens the folder picker.
-async function askAppDirAccess() {
-  try {
-    const rec = await idbGet("__notesDir__");
-    if (rec && rec.bytes) await rec.bytes.requestPermission({ mode: "readwrite" });
-  } catch {}
-}
-// The selected vault's own folder inside the app folder, made if missing. The
-// old top-level vault's "folder" is the app folder itself.
-async function inVaultFolder(root) {
-  if (!root || !vaultSel || !vaultSel.dir) return root;
-  try { return await root.getDirectoryHandle(vaultSel.dir, { create: true }); } catch { return null; }
-}
-// For saving as you go: only a vault in a folder, only with access already given.
-async function vaultFolder() {
-  if (!vaultSel || !vaultSel.dir) return null;
-  return inVaultFolder(await grantedAppDir());
-}
-async function writeDirFile(dir, name, data) {
-  const fh = await dir.getFileHandle(name, { create: true });
-  const w = await fh.createWritable();
-  await w.write(data);
-  await w.close();
-}
-// The wrapper a page opened from a file can read by <script> (fetch is blocked
-// there). `at` is plaintext, like a backup's, so the lock screen can say when
-// the vault last changed before it is unlocked.
-const vaultWrapper = (sealed, at) => `window.__VAULT__ = ${sealed};\nwindow.__VAULT_AT__ = ${+at || 0};`;
-// After every save: the vault's folder holds the same ciphertext as this browser.
-async function saveVaultFiles(sealed, at) {
-  const dir = await vaultFolder();
-  if (!dir) return;
-  await writeDirFile(dir, FILE, sealed);
-  await writeDirFile(dir, WRAPPER, vaultWrapper(sealed, at));
-}
-// Attachments, still encrypted, in the vault's media folder: written when they
-// arrive, read before downloading, removed when purged. Best effort throughout.
-async function vaultMediaDir() {
-  const dir = await vaultFolder();
-  try { return dir && await dir.getDirectoryHandle("media", { create: true }); } catch { return null; }
-}
-async function saveMediaFile(id, bytes) {
-  const dir = await vaultMediaDir();
-  if (dir) try { await writeDirFile(dir, id, bytes); } catch {}
-}
-async function loadMediaFile(id) {
-  const dir = await vaultMediaDir();
-  try { return dir ? await (await (await dir.getFileHandle(id)).getFile()).arrayBuffer() : null; } catch { return null; }
-}
-async function removeMediaFile(id) {
-  const dir = await vaultMediaDir();
-  if (dir) try { await dir.removeEntry(id); } catch {}
-}
-// The vaults in the app folder: every folder holding a vault.enc(.js), plus the
-// old top-level one. Asks for the folder (picker or prompt) when needed.
+/**
+ * Finds the vaults in the app folder: every folder holding a vault.enc (or
+ * vault.enc.js), plus the old top-level one, and remembers each with the
+ * time its files last changed. Asks for the folder when needed (picker or
+ * permission prompt). Returns whether it could look.
+ *
+ * Used by: lock.js (the vault list, on load).
+ * Uses: notesDirHandle (backups.js), FILE, WRAPPER and LEGACY_VAULT (core.js), rememberVault.
+ * Complexity: O(d) in the app folder's entries.
+ */
 async function scanVaults() {
   const root = await notesDirHandle();
-  if (!root) return false;
-  const stamp = async (dir, name) => { try { return (await (await dir.getFileHandle(name)).getFile()).lastModified; } catch { return 0; } };
+  if (!root) {
+    return false;
+  }
+  const stamp = async (dir, name) => {
+    try {
+      return (await (await dir.getFileHandle(name)).getFile()).lastModified;
+    } catch {
+      return 0;
+    }
+  };
   let folderMain = false;
-  for await (const [name, h] of root.entries()) {
-    if (h.kind !== "directory" || ["css", "js", "media"].includes(name.toLowerCase())) continue;
-    const at = Math.max(await stamp(h, FILE), await stamp(h, WRAPPER));
-    if (!at) continue;
+  for await (const [name, handle] of root.entries()) {
+    if (handle.kind !== "directory" || ["css", "js", "media"].includes(name.toLowerCase())) {
+      continue;
+    }
+    const at = Math.max(await stamp(handle, FILE), await stamp(handle, WRAPPER));
+    if (!at) {
+      continue;
+    }
     rememberVault(name, name, at);
-    if (name === LEGACY_VAULT) folderMain = true;
+    if (name === LEGACY_VAULT) {
+      folderMain = true;
+    }
   }
   const top = Math.max(await stamp(root, FILE), await stamp(root, WRAPPER));
-  if (top && !folderMain) rememberVault(LEGACY_VAULT, "", top);
+  if (top && !folderMain) {
+    rememberVault(LEGACY_VAULT, "", top);
+  }
   return true;
 }
 
+// ---------- The vault's folder on disk ----------
+
+/**
+ * After every save: the vault's folder gets the same sealed vault as this
+ * browser, as vault.enc and vault.enc.js. Only for a vault in a folder, and
+ * only with access already given (saving never opens a prompt).
+ *
+ * Used by: this file (moveDiskVault), vault.js (persistLocal).
+ * Uses: vaultFolder, writeDirFile, vaultWrapper, FILE and WRAPPER (core.js).
+ * Complexity: O(n) in the sealed vault.
+ */
+async function saveVaultFiles(sealed, at) {
+  const dir = await vaultFolder();
+  if (!dir) {
+    return;
+  }
+  await writeDirFile(dir, FILE, sealed);
+  await writeDirFile(dir, WRAPPER, vaultWrapper(sealed, at));
+}
+
+/**
+ * The chosen vault's own folder inside the app folder, made if missing (the
+ * old top-level vault's "folder" is the app folder itself); null when it
+ * cannot be had.
+ *
+ * Used by: this file (vaultFolder), backups.js (updateBackup, converting a backup).
+ * Uses: selectedVault (core.js).
+ * Complexity: O(1).
+ */
+async function inVaultFolder(root) {
+  if (!root || !selectedVault || !selectedVault.dir) {
+    return root;
+  }
+  try {
+    return await root.getDirectoryHandle(selectedVault.dir, { create: true });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Asks once per unlock for write access to the app folder remembered (the
+ * Unlock click is the gesture it needs), so the vault's folder can be written
+ * from then on. It never opens the folder picker.
+ *
+ * Used by: lock.js (unlocking, on load).
+ * Uses: idbGet (vault.js).
+ * Complexity: O(1).
+ */
+async function askAppDirAccess() {
+  try {
+    const record = await idbGet("__notesDir__");
+    if (record && record.bytes) {
+      await record.bytes.requestPermission({ mode: "readwrite" });
+    }
+  } catch {}
+}
+
+/**
+ * Writes an attachment, still encrypted, into the vault's media folder.
+ * Best effort.
+ *
+ * Used by: attachments.js (addMedia), media-sync.js (getMedia).
+ * Uses: vaultMediaDir, writeDirFile.
+ * Complexity: O(size).
+ */
+async function saveMediaFile(id, bytes) {
+  const dir = await vaultMediaDir();
+  if (dir) {
+    try {
+      await writeDirFile(dir, id, bytes);
+    } catch {}
+  }
+}
+
+/**
+ * Reads an attachment's encrypted bytes from the vault's media folder, or
+ * null (read before downloading it, so bytes already beside index.html are
+ * not fetched again).
+ *
+ * Used by: media-sync.js (syncMediaPhase).
+ * Uses: vaultMediaDir.
+ * Complexity: O(size).
+ */
+async function loadMediaFile(id) {
+  const dir = await vaultMediaDir();
+  try {
+    return dir ? await (await (await dir.getFileHandle(id)).getFile()).arrayBuffer() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Removes an attachment from the vault's media folder when it is purged.
+ * Best effort.
+ *
+ * Used by: media-sync.js (syncMediaPhase), notes.js (purgeTrashCore), vault.js (autoPurgeTrash).
+ * Uses: vaultMediaDir.
+ * Complexity: O(1).
+ */
+async function removeMediaFile(id) {
+  const dir = await vaultMediaDir();
+  if (dir) {
+    try {
+      await dir.removeEntry(id);
+    } catch {}
+  }
+}
+
 // ---------- Moving the old top-level vault into its folder ----------
-// Before folders, the one vault lived at the top level of the app folder and of
-// the repo. Moving it puts every file it owns under "Main/", in three places.
-const LEGACY_FILES = [FILE, WRAPPER, "backup-weekly.enc.js", "backup-monthly.enc.js"];
-const VAULT_KEYS = ["vault", "vault.prev", "vault.prevAt", "syncMeta", "pullBanner", "backupMeta"];
+
+/**
+ * Moves the old top-level vault into its folder, in three places. The
+ * repository first: if that fails, nothing else has moved and the vault
+ * stays where it was. Then this browser: its copy and bookkeeping move to
+ * the folder's keys; a save still on its way lands first, and from the
+ * renames on nothing is awaited until the vault is selected, so no save can
+ * fall between the old keys and the new. Then the app folder, when access is
+ * granted (a later save writes the vault there anyway).
+ *
+ * Used by: this file (offerVaultMove), media-sync.js (runSync, following a
+ * move made on another device).
+ * Uses: moveRepoVault, persistChain (vault.js), VAULT_KEYS, selectVault,
+ * LEGACY_VAULT (core.js), moveDiskVault.
+ * Complexity: that of moveRepoVault and moveDiskVault.
+ */
 async function moveVaultToFolder(dir) {
-  // The repo first: if that fails nothing else has moved, and the vault stays where it was.
-  if (vault.token) await moveRepoVault(dir);
-  // This browser: its copy and bookkeeping move under the folder's keys. A save
-  // still in flight lands first; from the renames on, nothing is awaited until
-  // the vault is selected, so no save can fall between the old keys and the new.
+  if (vault.token) {
+    await moveRepoVault(dir);
+  }
   await persistChain;
-  for (const k of VAULT_KEYS) {
-    const v = localStorage.getItem(k);
-    if (v !== null) { localStorage.setItem(k + "@" + dir, v); localStorage.removeItem(k); }
+  for (const key of VAULT_KEYS) {
+    const value = localStorage.getItem(key);
+    if (value !== null) {
+      localStorage.setItem(key + "@" + dir, value);
+      localStorage.removeItem(key);
+    }
   }
   selectVault(LEGACY_VAULT, dir);
-  // The app folder, when access is granted (a later save writes the vault there anyway).
   await moveDiskVault(dir).catch(() => {});
 }
-// One commit: every file of the vault (vault.enc, its wrapper, the backups and
-// all of media/) re-pointed into the folder. The files themselves are reused,
-// so nothing is uploaded. A file the folder already has (put back at the top by
-// an older copy of the app) is only removed: that device's own copy still holds
-// its changes, and its next Sync merges them into the folder.
-// Two cases start again from the fresh head: 422 (someone pushed in between, so
-// the ref is fast-forward only) and a TypeError (the connection dropped, fetch
-// says "Failed to fetch"). Starting again is safe either way: a move whose
-// answer was lost already landed, and finds nothing left to move.
+
+/**
+ * Moves the vault's files in the repository, trying again (after 1.5 s, then
+ * 3 s) on a 422 (someone pushed in between, and the branch only moves
+ * forward) or a TypeError (the connection dropped). Trying again is safe
+ * either way: a move whose answer was lost already landed, and finds nothing
+ * left to move.
+ *
+ * Used by: this file (moveVaultToFolder).
+ * Uses: moveRepoVaultOnce.
+ * Complexity: at most three tries.
+ */
 async function moveRepoVault(dir) {
   for (let attempt = 0; ; attempt++) {
-    try { return await moveRepoVaultOnce(dir); }
-    catch (e) {
-      if (!(e.status === 422 || e instanceof TypeError) || attempt >= 2) throw e;
-      await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+    try {
+      return await moveRepoVaultOnce(dir);
+    } catch (error) {
+      if (!(error.status === 422 || error instanceof TypeError) || attempt >= 2) {
+        throw error;
+      }
+      await new Promise(resolve => setTimeout(resolve, 1500 * (attempt + 1)));
     }
   }
 }
+
+/**
+ * One commit on the default branch that moves every file of the vault
+ * (vault.enc, its wrapper, the backups and all of media/) into the folder.
+ * The files themselves are reused, so nothing is uploaded again. A file the
+ * folder already has (put back at the top by an older copy of the app) is
+ * only removed: that device's own copy still holds its changes, and its
+ * next Sync merges them into the folder. Returns whether there was anything
+ * to move; a repository too large for one tree listing is refused.
+ *
+ * Used by: this file (moveRepoVault).
+ * Uses: ensurePrivateRepo and ghGit (sync.js), LEGACY_FILES.
+ * Complexity: five requests, plus O(t) over the repository's tree.
+ */
 async function moveRepoVaultOnce(dir) {
   const branch = (await ensurePrivateRepo()).default_branch || "main";
   const head = (await ghGit("GET", "git/ref/heads/" + encodeURIComponent(branch))).object.sha;
   const commit = await ghGit("GET", "git/commits/" + head);
   const tree = await ghGit("GET", "git/trees/" + commit.tree.sha + "?recursive=1");
-  if (tree.truncated) throw new Error("the repo is too large to move in one step");
-  const have = new Set(tree.tree.map(e => e.path));
-  const changes = [];
-  for (const e of tree.tree) {
-    if (e.type !== "blob" || !(LEGACY_FILES.includes(e.path) || e.path.startsWith("media/"))) continue;
-    const to = dir + "/" + e.path;
-    if (!have.has(to)) changes.push({ path: to, mode: e.mode, type: "blob", sha: e.sha });
-    changes.push({ path: e.path, mode: e.mode, type: "blob", sha: null });
+  if (tree.truncated) {
+    throw new Error("the repo is too large to move in one step");
   }
-  if (!changes.length) return false;
-  const nt = await ghGit("POST", "git/trees", { base_tree: commit.tree.sha, tree: changes });
-  const nc = await ghGit("POST", "git/commits", { message: `Move the vault into ${dir}/`, tree: nt.sha, parents: [head] });
-  await ghGit("PATCH", "git/refs/heads/" + encodeURIComponent(branch), { sha: nc.sha });
+  const have = new Set(tree.tree.map(entry => entry.path));
+  const changes = [];
+  for (const entry of tree.tree) {
+    if (entry.type !== "blob" || !(LEGACY_FILES.includes(entry.path) || entry.path.startsWith("media/"))) {
+      continue;
+    }
+    const to = dir + "/" + entry.path;
+    if (!have.has(to)) {
+      changes.push({ path: to, mode: entry.mode, type: "blob", sha: entry.sha });
+    }
+    changes.push({ path: entry.path, mode: entry.mode, type: "blob", sha: null });
+  }
+  if (!changes.length) {
+    return false;
+  }
+  const newTree = await ghGit("POST", "git/trees", { base_tree: commit.tree.sha, tree: changes });
+  const newCommit = await ghGit("POST", "git/commits", { message: `Move the vault into ${dir}/`, tree: newTree.sha, parents: [head] });
+  await ghGit("PATCH", "git/refs/heads/" + encodeURIComponent(branch), { sha: newCommit.sha });
   return true;
 }
-// The app folder: the backups and media/ move into the folder (renamed in place
-// where the browser can, copied otherwise), the vault itself is written fresh
-// there, and the old top-level copies go.
+
+/**
+ * Moves the vault in the app folder (when access is already granted): the
+ * backups and media/ move into the folder (renamed in place where the
+ * browser can, copied otherwise; a file already there is kept), the vault
+ * itself is written there freshly sealed, and the old top-level copies go.
+ * Returns whether it could.
+ *
+ * Used by: this file (moveVaultToFolder).
+ * Uses: grantedAppDir, writeDirFile, LEGACY_FILES, status (pagination.js),
+ * saveVaultFiles, sealVault (core.js).
+ * Complexity: O(f) in the files moved, plus one seal.
+ */
 async function moveDiskVault(dir) {
   const root = await grantedAppDir();
-  if (!root) return false;
+  if (!root) {
+    return false;
+  }
   const to = await root.getDirectoryHandle(dir, { create: true });
   const move = async (from, name, dest) => {
-    let fh;
-    try { fh = await from.getFileHandle(name); } catch { return; }
+    let fileHandle;
+    try {
+      fileHandle = await from.getFileHandle(name);
+    } catch {
+      return;
+    }
     let there = true;
-    try { await dest.getFileHandle(name); } catch { there = false; }
+    try {
+      await dest.getFileHandle(name);
+    } catch {
+      there = false;
+    }
     if (!there) {
-      if (typeof fh.move === "function") { try { await fh.move(dest); return; } catch {} }
-      await writeDirFile(dest, name, await fh.getFile());
+      if (typeof fileHandle.move === "function") {
+        try {
+          await fileHandle.move(dest);
+          return;
+        } catch {}
+      }
+      await writeDirFile(dest, name, await fileHandle.getFile());
     }
     await from.removeEntry(name);
   };
-  for (const name of LEGACY_FILES.slice(2)) await move(root, name, to);
+  for (const name of LEGACY_FILES.slice(2)) {
+    await move(root, name, to);
+  }
   let media = null;
-  try { media = await root.getDirectoryHandle("media"); } catch {}
+  try {
+    media = await root.getDirectoryHandle("media");
+  } catch {}
   if (media) {
     const dest = await to.getDirectoryHandle("media", { create: true });
     const names = [];
-    for await (const [name, h] of media.entries()) if (h.kind === "file") names.push(name);
+    for await (const [name, handle] of media.entries()) {
+      if (handle.kind === "file") {
+        names.push(name);
+      }
+    }
     for (let i = 0; i < names.length; i++) {
-      if (i % 20 === 0) status(`Moving attachments into the vault's folder (${i}/${names.length})...`, false, true);
+      if (i % 20 === 0) {
+        status(`Moving attachments into the vault's folder (${i}/${names.length})...`, false, true);
+      }
       await move(media, names[i], dest);
     }
-    try { await root.removeEntry("media"); } catch {}   // only once it is empty
+    // Only once it is empty.
+    try {
+      await root.removeEntry("media");
+    } catch {}
   }
   await saveVaultFiles(await sealVault(), vault.savedAt);
-  for (const name of LEGACY_FILES.slice(0, 2)) try { await root.removeEntry(name); } catch {}
+  for (const name of LEGACY_FILES.slice(0, 2)) {
+    try {
+      await root.removeEntry(name);
+    } catch {}
+  }
   return true;
 }
-// Offered after unlocking the old top-level vault, until it is moved.
+
+/**
+ * Offered after unlocking the old top-level vault, until it is moved: asks,
+ * then moves it into "Main" with editing frozen. The confirming click is the
+ * gesture the folder picker needs, so folder access is asked for first.
+ *
+ * Used by: lock.js (unlocking, on load).
+ * Uses: confirmModal (modal.js), notesDirHandle (backups.js),
+ * setEditingEnabled (sync.js), status and renderStatus (pagination.js),
+ * moveVaultToFolder, LEGACY_VAULT (core.js).
+ * Complexity: that of moveVaultToFolder.
+ */
 async function offerVaultMove() {
-  if (!vault || backupView || !vaultSel || vaultSel.dir) return;
-  const ok = await confirmModal({
+  if (!vault || backupView || !selectedVault || selectedVault.dir) {
+    return;
+  }
+  const confirmed = await confirmModal({
     title: "Move this vault into its own folder?",
     body: "Every vault now has a folder of its own. This one moves into \"Main\", next to index.html and in the repo. " +
       "Update the app on your other devices first: an older copy would put the vault back at the top level.",
     confirmLabel: "Move it now", cancelLabel: "Later",
   });
-  if (!ok || !vault || syncing || vaultSel.dir) return;
-  // The click that confirmed is the gesture the folder picker needs, so ask now.
+  if (!confirmed || !vault || syncing || selectedVault.dir) {
+    return;
+  }
   await notesDirHandle();
   syncing = true;
   setEditingEnabled(false);
@@ -239,12 +490,73 @@ async function offerVaultMove() {
   try {
     await moveVaultToFolder(LEGACY_VAULT);
     status("Vault moved into its folder \"Main\"");
-  } catch (e) {
-    status(e instanceof TypeError ? "Could not reach GitHub, so nothing was moved. Lock and unlock to try again."
-      : "Could not move the vault: " + e.message, true);
+  } catch (error) {
+    status(error instanceof TypeError ? "Could not reach GitHub, so nothing was moved. Lock and unlock to try again."
+      : "Could not move the vault: " + error.message, true);
   } finally {
     syncing = false;
     setEditingEnabled(true);
     renderStatus();
+  }
+}
+
+// =================== Auxiliary functions ===================
+
+/** Whether the old top-level vault is still in use here. Complexity: O(1). */
+function legacyVaultHere() {
+  return !!legacyBlob || !!localStorage.getItem("vault") || !!(selectedVault && !selectedVault.dir);
+}
+
+/** A time as "4 Nov 2026, 19:14" in the app's language. Also used by lock.js. Complexity: O(1). */
+function formatWhen(at) {
+  return new Date(at).toLocaleString(LANG, { dateStyle: "medium", timeStyle: "short" });
+}
+
+/** The app folder's handle, only when write access is already granted (saving must never prompt). Complexity: O(1). */
+async function grantedAppDir() {
+  if (!("showDirectoryPicker" in window)) {
+    return null;
+  }
+  try {
+    const record = await idbGet("__notesDir__");
+    const handle = record && record.bytes;
+    return handle && await handle.queryPermission({ mode: "readwrite" }) === "granted" ? handle : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The chosen vault's folder for saving as you go (a vault in a folder, access given). Complexity: O(1). */
+async function vaultFolder() {
+  if (!selectedVault || !selectedVault.dir) {
+    return null;
+  }
+  return inVaultFolder(await grantedAppDir());
+}
+
+/** Writes data into a file in a folder (made if missing). Also used by backups.js. Complexity: O(n). */
+async function writeDirFile(dir, name, data) {
+  const fileHandle = await dir.getFileHandle(name, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(data);
+  await writable.close();
+}
+
+/**
+ * The vault.enc.js script for a sealed vault: the same bytes as a script a
+ * page opened from a file can load, with the plain-text time it last
+ * changed. Also used by backups.js and sync.js. Complexity: O(n).
+ */
+function vaultWrapper(sealed, at) {
+  return `window.__VAULT__ = ${sealed};\nwindow.__VAULT_AT__ = ${+at || 0};`;
+}
+
+/** The vault folder's media/ folder (made if missing), or null. Complexity: O(1). */
+async function vaultMediaDir() {
+  const dir = await vaultFolder();
+  try {
+    return dir && await dir.getDirectoryHandle("media", { create: true });
+  } catch {
+    return null;
   }
 }

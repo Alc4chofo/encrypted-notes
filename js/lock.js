@@ -1,130 +1,235 @@
-// notes: The lock screen: password strength, unlocking and its background.
+/*
+ * lock.js - the lock screen: unlocking, making a vault, choosing another
+ * one, the password-strength meter, and the background video.
+ *
+ * What happens to the password, step by step (all of it in the Unlock
+ * handler at the end of this file):
+ *   - Unlocking: openVault (core.js) derives the vault's key from the
+ *     password with PBKDF2-SHA256, at the round count stored in the vault
+ *     (1,200,000 now: about 0.6 s here, measured in Chrome 156), then
+ *     decrypts it with AES-256-GCM (about 1 ms per 500 KB). A wrong password
+ *     fails GCM's authentication check, which is how it is told apart. Every
+ *     attempt also waits 3 seconds and counts against ten (guard.js); ten
+ *     wrong ones lock the vault for 30 days.
+ *   - Making a vault: a random 16-byte salt (crypto.getRandomValues), the
+ *     key derived with PBKDF2 at 1,200,000 rounds, and the new vault sealed
+ *     with AES-256-GCM by persistLocal.
+ *   - An older vault (sealed with fewer rounds, such as the former 310,000,
+ *     about 0.13 s) is re-keyed on unlock: a fresh salt, 1,200,000 rounds,
+ *     sealed again; the pre-merge snapshot sealed at the weaker cost is
+ *     deleted, since keeping it would defeat the upgrade.
+ *   - Viewing a backup opens its sealed copy with the same password and
+ *     writes nothing.
+ *   - After unlocking, the password is kept in memory only (masterPassword),
+ *     to open copies sealed under other salts (the repository's vault,
+ *     snapshots), and the form's fields are emptied (hiding a field does not
+ *     remove its value from the page).
+ *
+ * How long guessing takes: someone with a copy of vault.enc pays a full
+ * PBKDF2 per guess (2 SHA-256 compressions per round, 2.4 million per
+ * guess). The meter assumes 1,000 GPUs doing about 2e10 compressions a
+ * second each, about 8.3 million guesses a second, searching half the space
+ * on average: a 40-bit password falls in about 18 hours, 60 bits takes
+ * about 2,200 years, 75 bits about 70 million years. On one ordinary
+ * computer a guess costs about 0.6 s.
+ *
+ * Main functions: estimateBits, crackSeconds, renderPwMeter, setLockMode,
+ * renderVaultLine, syncUnlockLabel, renderVaultList, closeVaultList,
+ * syncLockBg, lockBgFile.
+ * Auxiliary functions: formatCrackTime, showFileName, loadScript,
+ * showLockBg, shakeLock.
+ *
+ * Complexity: unlocking is one PBKDF2 (about 0.6 s) and one decrypt, O(n) in
+ * the vault; the meter is O(n) in the password.
+ */
 "use strict";
 
-// ---------- Password strength (first run only) ----------
-// A rough entropy estimate, turned into a crack time with the same model as
-// HOW-IT-WORKS.md section 7: every guess costs one PBKDF2 run of ITER
-// iterations (2 SHA-256 compressions each), against an attacker with 1,000 GPUs
-// doing ~2e10 compressions per second each, who on average searches half the
-// space. Deliberately approximate: it is a nudge, not an audit.
-const COMMON_PW = ["password", "passw0rd", "123456", "12345678", "123456789", "qwerty", "qwertyuiop", "letmein",
+// ---------- State: password strength ----------
+
+// Passwords so common they are tried first.
+const COMMON_PASSWORDS = ["password", "passw0rd", "123456", "12345678", "123456789", "qwerty", "qwertyuiop", "letmein",
   "admin", "welcome", "iloveyou", "monkey", "dragon", "football", "baseball", "abc123", "111111", "sunshine",
   "princess", "master", "shadow", "superman", "trustno1", "contraseña", "contrasena", "secret", "notes"];
-function estimateBits(pw) {
-  if (!pw) return 0;
-  // So first the character pool the password actually draws from.
-  let pool = 0;
-  if (/[a-z]/.test(pw)) pool += 26;
-  if (/[A-Z]/.test(pw)) pool += 26;
-  if (/[0-9]/.test(pw)) pool += 10;
-  if (/[^a-zA-Z0-9]/.test(pw)) pool += 33;
-  // Effective length: a repeated character or a step (aa, ab, 12, ba) adds a quarter of a character, not one.
-  let eff = 1;
-  for (let i = 1; i < pw.length; i++) {
-    const step = pw.charCodeAt(i) - pw.charCodeAt(i - 1);
-    eff += (step >= -1 && step <= 1) ? 0.25 : 1;
+
+// ---------- Password strength (making a vault only) ----------
+
+/**
+ * A rough estimate of a password's strength in bits, deliberately
+ * approximate (a nudge, not an audit), and on the safe side: it reads weaker
+ * rather than stronger. It starts from the characters it draws from and its
+ * length (a repeated character or a step, like aa, ab or 12, adds a quarter
+ * of a character, not one), then lowers that for what crackers try first:
+ *   - a common password, alone or padded with digits and symbols
+ *     ("Password1!"): one guess from a short list;
+ *   - one word with a short suffix: a 100,000-word dictionary (about 17
+ *     bits), a capital, and about 3.3 bits per extra character;
+ *   - leetspeak undone ("tr0ub4dor" is "troubador" to a cracker), the
+ *     padding cut off first so "2024" or "!" stays padding;
+ *   - a run of six or more letters that looks like a word (two vowels typed,
+ *     or two once the swaps are undone with no capital after its first
+ *     letter): about 17 bits, plus 1 for the swaps, 1 for a capital, and 4.5
+ *     per other character;
+ *   - three or more words split by spaces or dashes: words from a 7,776-word
+ *     list, 12.9 bits each.
+ * Known limit: two rules, not a dictionary; a random all-lowercase string
+ * can read weaker than it is.
+ *
+ * Used by: this file (renderPwMeter).
+ * Uses: COMMON_PASSWORDS.
+ * Complexity: O(n) in the password.
+ */
+function estimateBits(password) {
+  if (!password) {
+    return 0;
   }
-  let bits = eff * Math.log2(pool);
-  // A list password, alone or with digits/symbols around it ("Password1!"), is one guess from a short list.
-  const lower = pw.toLowerCase();
+  let pool = 0;
+  if (/[a-z]/.test(password)) {
+    pool += 26;
+  }
+  if (/[A-Z]/.test(password)) {
+    pool += 26;
+  }
+  if (/[0-9]/.test(password)) {
+    pool += 10;
+  }
+  if (/[^a-zA-Z0-9]/.test(password)) {
+    pool += 33;
+  }
+  let effective = 1;
+  for (let i = 1; i < password.length; i++) {
+    const step = password.charCodeAt(i) - password.charCodeAt(i - 1);
+    effective += (step >= -1 && step <= 1) ? 0.25 : 1;
+  }
+  let bits = effective * Math.log2(pool);
+
+  const lower = password.toLowerCase();
   const core = lower.replace(/^[^a-z]+|[^a-z]+$/g, "");
-  if (COMMON_PW.includes(lower) || COMMON_PW.includes(core)) bits = Math.min(bits, 8 + (pw.length - core.length) * 3.3);
-  // One word plus a short suffix: a ~100k-word dictionary (~17 bits), a capital, and ~3.3 bits per suffix character.
-  else if (core.length >= 3 && core.length <= 12 && /^[a-zA-Z]+[^a-zA-Z]{0,6}$/.test(pw))
-    bits = Math.min(bits, 17 + (/[A-Z]/.test(pw) ? 1 : 0) + (pw.length - core.length) * 3.3);
-  // Leetspeak barely helps ("tr0ub4dor" is "troubador" to a cracker): undo the usual swaps first.
+  if (COMMON_PASSWORDS.includes(lower) || COMMON_PASSWORDS.includes(core)) {
+    bits = Math.min(bits, 8 + (password.length - core.length) * 3.3);
+  } else if (core.length >= 3 && core.length <= 12 && /^[a-zA-Z]+[^a-zA-Z]{0,6}$/.test(password)) {
+    bits = Math.min(bits, 17 + (/[A-Z]/.test(password) ? 1 : 0) + (password.length - core.length) * 3.3);
+  }
+
   const LEET = { "0": "o", "1": "l", "3": "e", "4": "a", "5": "s", "7": "t", "@": "a", "$": "s", "!": "i" };
   const plain = lower.replace(/[013457@$!]/g, c => LEET[c]);
-  // A swapped list password ("P@ssw0rd2024") is still a list password. The padding is cut off BEFORE
-  // undoing the swaps, so a trailing "2024" or "!" is treated as padding and not read as letters.
   const plainCore = lower.replace(/^[^a-z]+|[^a-z]+$/g, "").replace(/[013457@$!]/g, c => LEET[c]);
-  if (COMMON_PW.includes(plainCore)) bits = Math.min(bits, 9 + (pw.length - plainCore.length) * 3.3);
-  // A run of 6+ letters after the swaps counts as one dictionary word (~17 bits, +1 for the swaps, +1 for a
-  // capital, ~4.5 bits for each other character) when it looks like a word:
-  for (const m of plain.matchAll(/[a-z]{6,}/g)) {
+  if (COMMON_PASSWORDS.includes(plainCore)) {
+    bits = Math.min(bits, 9 + (password.length - plainCore.length) * 3.3);
+  }
+  for (const match of plain.matchAll(/[a-z]{6,}/g)) {
     // The run as typed, so its own vowels and capitals can be checked.
-    const typed = pw.slice(m.index, m.index + m[0].length);
-    // Real words have vowels: either typed ("tr0ub4dor") ...
+    const typed = password.slice(match.index, match.index + match[0].length);
     const typedVowels = (typed.toLowerCase().match(/[aeiou]/g) || []).length;
-    // ... or only appearing once the swaps are undone ("dr4g0nfly").
-    const plainVowels = (m[0].match(/[aeiou]/g) || []).length;
-    // The second case also needs no capital after the first letter: a random string like "xR4!nq8Zk2",
-    // whose swaps happen to spell "xrainq", mixes case mid-run, so it keeps its full random-string score.
-    // ponytail: two-rule heuristic, not a dictionary; random all-lowercase strings can still undershoot,
-    // which errs on the safe side (the meter says weaker, never stronger).
+    const plainVowels = (match[0].match(/[aeiou]/g) || []).length;
+    // A random string like "xR4!nq8Zk2", whose swaps happen to spell
+    // "xrainq", mixes case in the run, so it keeps its full score.
     if (typedVowels >= 2 || (plainVowels >= 2 && !/[A-Z]/.test(typed.slice(1)))) {
-      bits = Math.min(bits, 17 + (plain !== lower ? 1 : 0) + (/[A-Z]/.test(pw) ? 1 : 0) + (pw.length - m[0].length) * 4.5);
+      bits = Math.min(bits, 17 + (plain !== lower ? 1 : 0) + (/[A-Z]/.test(password) ? 1 : 0) +
+        (password.length - match[0].length) * 4.5);
     }
   }
-  // Several words separated by spaces or dashes count as words from a 7,776-word list (12.9 bits each).
-  const parts = pw.trim().split(/[\s\-_.]+/);
-  if (parts.length >= 3 && parts.every(w => /^[a-zA-Z]{2,}$/.test(w))) bits = Math.min(bits, parts.length * 12.9);
+
+  const parts = password.trim().split(/[\s\-_.]+/);
+  if (parts.length >= 3 && parts.every(word => /^[a-zA-Z]{2,}$/.test(word))) {
+    bits = Math.min(bits, parts.length * 12.9);
+  }
   return bits;
 }
+
+/**
+ * How long, in seconds, an attacker would take on average to guess a
+ * password of that strength: every guess costs one PBKDF2 (2 SHA-256
+ * compressions per round), against 1,000 GPUs at about 2e10 compressions a
+ * second each, searching half the space.
+ *
+ * Used by: this file (renderPwMeter).
+ * Uses: PBKDF2_ITERATIONS (core.js).
+ * Complexity: O(1).
+ */
 function crackSeconds(bits) {
-  // SHA-256 compressions per guess: two per PBKDF2 iteration.
-  const perGuess = 2 * ITER;
-  // 1,000 GPUs at ~2e10 compressions per second each.
+  const perGuess = 2 * PBKDF2_ITERATIONS;
   const guessesPerSec = 1000 * 2e10 / perGuess;
-  // Half the space on average.
   return Math.pow(2, bits - 1) / guessesPerSec;
 }
-function fmtCrack(sec) {
-  // Two significant figures are plenty for an estimate this rough; en-US so the
-  // decimal point matches the English sentence instead of the browser's locale.
-  const r = x => Number(x.toPrecision(2)).toLocaleString("en-US");
-  if (sec < 60) return `${r(Math.max(sec, 1))} seconds`;
-  if (sec < 3600) return `${r(sec / 60)} minutes`;
-  if (sec < 86400) return `${r(sec / 3600)} hours`;
-  const years = sec / (365.25 * 86400);
-  if (years < 1) return `${r(sec / 86400)} days`;
-  if (years < 1e6) return `${r(years)} years`;
-  if (years < 1e9) return `${r(years / 1e6)} million years`;
-  if (years < 1e12) return `${r(years / 1e9)} billion years`;
-  return "far longer than the age of the universe";
-}
+
+/**
+ * The strength meter under the password while making a vault (hidden
+ * otherwise, and while the field is empty): five bands by bits (very weak
+ * under 36, weak, fair from 50, strong from 60, very strong from 75), a bar
+ * full at 90 bits, and the time to crack it, worded so it always reads right.
+ *
+ * Used by: this file (typing a password, setLockMode).
+ * Uses: estimateBits, crackSeconds, formatCrackTime.
+ * Complexity: O(n) in the password.
+ */
 function renderPwMeter() {
-  const box = $("pw-meter"), pw = $("password").value;
-  // So first: the meter only matters while creating a vault, and an empty field shows nothing.
-  if ($("token-row").style.display !== "flex" || !pw) { box.className = ""; box.style.display = "none"; return; }
-  const bits = estimateBits(pw);
-  // Five bands by entropy; the class colours the bar and the label.
-  let level = "vweak", label = "Very weak";
-  if (bits >= 75) { level = "vstrong"; label = "Very strong"; }
-  else if (bits >= 60) { level = "strong"; label = "Strong"; }
-  else if (bits >= 50) { level = "fair"; label = "Fair"; }
-  else if (bits >= 36) { level = "weak"; label = "Weak"; }
+  const box = $("pw-meter");
+  const password = $("password").value;
+  if ($("token-row").style.display !== "flex" || !password) {
+    box.className = "";
+    box.style.display = "none";
+    return;
+  }
+  const bits = estimateBits(password);
+  let level = "vweak";
+  let label = "Very weak";
+  if (bits >= 75) {
+    level = "vstrong";
+    label = "Very strong";
+  } else if (bits >= 60) {
+    level = "strong";
+    label = "Strong";
+  } else if (bits >= 50) {
+    level = "fair";
+    label = "Fair";
+  } else if (bits >= 36) {
+    level = "weak";
+    label = "Weak";
+  }
   box.className = level;
   box.style.display = "block";
-  // The bar fills to 100% at 90 bits.
   box.querySelector(".pw-fill").style.width = Math.min(100, Math.max(6, bits / 90 * 100)) + "%";
   box.querySelector(".pw-label").textContent = label;
-  const sec = crackSeconds(bits);
-  const t = fmtCrack(sec);
-  // Three phrasings so the sentence always reads right: almost instantly, beyond the universe's age, or "in about <time>".
-  let line = `1,000 GPUs would crack it in about ${t} (rough estimate).`;
-  if (sec < 1) line = "1,000 GPUs would crack it almost instantly (rough estimate).";
-  else if (t.startsWith("far longer")) line = "1,000 GPUs would need far longer than the age of the universe (rough estimate).";
+  const seconds = crackSeconds(bits);
+  const time = formatCrackTime(seconds);
+  let line = `1,000 GPUs would crack it in about ${time} (rough estimate).`;
+  if (seconds < 1) {
+    line = "1,000 GPUs would crack it almost instantly (rough estimate).";
+  } else if (time.startsWith("far longer")) {
+    line = "1,000 GPUs would need far longer than the age of the universe (rough estimate).";
+  }
   box.querySelector(".pw-time").textContent = line;
 }
+
+// ---------- On load: the meter follows the password ----------
+
 $("password").addEventListener("input", renderPwMeter);
 
-// ---------- Unlock ----------
-// The vault the form opens: the old top-level one comes in through index.html's
-// own <script>; a vault in a folder is loaded from its folder below.
-let autoVault = vaultSel && !vaultSel.dir ? legacyBlob : null;
-// No vault on this device at all yet: the form starts by making one.
-let creatingVault = !vaultSel && !Object.keys(knownVaults()).length;
-// The restore picker stays available even when a local vault exists: hiding it
-// made a corrupted localStorage vault unrecoverable (correct password, no way
-// in) and left the Backup button's own output unrestorable on the machine most
-// likely to need it. It lives under "Other vault" now, as "From a file...".
-// What the lock screen is for: unlocking this device's copy of the selected
-// vault, unlocking a synced one found in its folder (a fresh clone), making a
-// new one, or - with nothing to open - picking one.
+// ---------- State: the form ----------
+
+// The vault the form opens without a file: the old top-level one comes in
+// through index.html's own <script>; a vault in a folder is loaded below.
+let autoVault = selectedVault && !selectedVault.dir ? legacyBlob : null;
+
+// Whether the form is making a vault (it starts so when this device knows none).
+let creatingVault = !selectedVault && !Object.keys(knownVaults()).length;
+
+// ---------- The form ----------
+
+/**
+ * Sets what the lock screen is for: making a vault ("new"), unlocking this
+ * device's copy of the chosen vault ("unlock"), unlocking a copy found in
+ * its folder, such as a fresh clone ("found"), a chosen vault whose files
+ * are missing ("missing"), or nothing chosen ("none"). The token row shows
+ * only when making a vault.
+ *
+ * Used by: this file (on load, the buttons), settings.js (lockApp).
+ * Uses: vaultStorageKey (core.js), renderVaultLine, renderPwMeter, syncUnlockLabel.
+ * Complexity: O(1).
+ */
 function setLockMode() {
-  const mode = creatingVault ? "new" : !vaultSel ? "none"
-    : localStorage.getItem(vkey("vault")) ? "unlock" : autoVault ? "found" : "missing";
+  const mode = creatingVault ? "new" : !selectedVault ? "none"
+    : localStorage.getItem(vaultStorageKey("vault")) ? "unlock" : autoVault ? "found" : "missing";
   $("unlock-form").dataset.mode = mode;
   $("token-row").style.display = mode === "new" ? "flex" : "none";
   $("new-vault").setAttribute("aria-pressed", creatingVault ? "true" : "false");
@@ -132,60 +237,117 @@ function setLockMode() {
   renderPwMeter();
   syncUnlockLabel();
 }
-// "Vault selected: Main - 4 Nov 2026, 19:14". The name is the user's own: never translated.
+
+/**
+ * "Vault selected: Main - 4 Nov 2026, 19:14" above the form ("New vault" or
+ * "No vault selected" otherwise). The name is the user's own, so it is never
+ * translated.
+ *
+ * Used by: this file (setLockMode).
+ * Uses: knownVaults and formatWhen (vaults.js), makeElement (sidebar.js).
+ * Complexity: O(v) in the vaults known.
+ */
 function renderVaultLine() {
   const el = $("vault-line");
   el.textContent = "";
-  if (creatingVault) { el.textContent = "New vault"; return; }
-  if (!vaultSel) { el.textContent = "No vault selected"; return; }
-  const at = Math.max((knownVaults()[vaultSel.name] || {}).at || 0, +window.__VAULT_AT__ || 0);
-  const nm = mk("span", "vn", vaultSel.name);
-  nm.setAttribute("translate", "no");
-  el.append("Vault selected:", " ", nm);
-  if (at) el.append(" - " + fmtWhen(at));
+  if (creatingVault) {
+    el.textContent = "New vault";
+    return;
+  }
+  if (!selectedVault) {
+    el.textContent = "No vault selected";
+    return;
+  }
+  const at = Math.max((knownVaults()[selectedVault.name] || {}).at || 0, +window.__VAULT_AT__ || 0);
+  const nameEl = makeElement("span", "vn", selectedVault.name);
+  nameEl.setAttribute("translate", "no");
+  el.append("Vault selected:", " ", nameEl);
+  if (at) {
+    el.append(" - " + formatWhen(at));
+  }
 }
-// The button says what pressing it will do.
+
+/**
+ * Makes the button say what pressing it will do: open a backup, create a
+ * vault, restore from the file chosen, or unlock (and "...ing" while an
+ * attempt runs).
+ *
+ * Used by: this file, guard.js (renderGuard), backups.js (choosing a backup, on load).
+ * Uses: attemptBusy (guard.js), pendingBackupKind (backups.js).
+ * Complexity: O(1).
+ */
 function syncUnlockLabel() {
   const label = $("unlock-label");
-  if (!label) return;
+  if (!label) {
+    return;
+  }
   const mode = $("unlock-form").dataset.mode;
   const fromFile = $("restore-box").style.display !== "none" && $("vault-file").files.length > 0;
   const creating = mode === "new" && !pendingBackupKind;
-  if (attemptBusy) label.textContent = pendingBackupKind ? "Opening backup..." : creating ? "Creating vault..." : "Unlocking...";
-  else label.textContent = pendingBackupKind ? `Open ${pendingBackupKind} backup` : creating ? "Create vault" :
-    fromFile ? "Restore and unlock" : "Unlock";
-}
-// "Other vault": the vaults next to index.html (looked up in the app folder,
-// which asks for access the first time) and the ones this device knows, each
-// with when it last changed, plus restoring one from a file. Picking a vault
-// reloads the page with it selected.
-function renderVaultList() {
-  const box = $("vault-list"), vs = knownVaults();
-  box.textContent = "";
-  const names = Object.keys(vs).filter(n => !(vaultSel && n === vaultSel.name))
-    .sort((a, b) => (vs[b].at || 0) - (vs[a].at || 0));
-  for (const n of names) {
-    const b = mk("button", "vault-pick");
-    b.type = "button";
-    const nm = mk("span", "vp-name", n);
-    nm.setAttribute("translate", "no");
-    b.append(nm, mk("span", "vp-at", vs[n].at ? fmtWhen(vs[n].at) : ""));
-    b.onclick = () => { selectVault(n, vs[n].dir); location.reload(); };
-    box.appendChild(b);
+  if (attemptBusy) {
+    label.textContent = pendingBackupKind ? "Opening backup..." : creating ? "Creating vault..." : "Unlocking...";
+  } else {
+    label.textContent = pendingBackupKind ? `Open ${pendingBackupKind} backup` : creating ? "Create vault" :
+      fromFile ? "Restore and unlock" : "Unlock";
   }
-  if (!names.length) box.appendChild(mk("small", null, "No other vaults found next to index.html."));
-  const f = mk("button", "vault-file-btn", "From a file...");
-  f.type = "button";
-  f.onclick = () => {
-    const r = $("restore-box"), open = r.style.display !== "none";
-    r.style.display = open ? "none" : "flex";
-    if (open) { $("vault-file").value = ""; showFileName(); }
+}
+
+/**
+ * The "Other vault" list: every other vault this device knows (those next to
+ * index.html included), the most recent first, each with when it last
+ * changed; choosing one reloads the page with it selected. At the end,
+ * "From a file..." shows or hides the restore picker (and forgets a file
+ * chosen there when it hides).
+ *
+ * Used by: this file (the Other vault button).
+ * Uses: knownVaults, formatWhen and selectVault (vaults.js), makeElement
+ * (sidebar.js), showFileName, syncUnlockLabel.
+ * Complexity: O(v log v) in the vaults.
+ */
+function renderVaultList() {
+  const box = $("vault-list");
+  const known = knownVaults();
+  box.textContent = "";
+  const names = Object.keys(known).filter(name => !(selectedVault && name === selectedVault.name))
+    .sort((a, b) => (known[b].at || 0) - (known[a].at || 0));
+  for (const name of names) {
+    const button = makeElement("button", "vault-pick");
+    button.type = "button";
+    const nameEl = makeElement("span", "vp-name", name);
+    nameEl.setAttribute("translate", "no");
+    button.append(nameEl, makeElement("span", "vp-at", known[name].at ? formatWhen(known[name].at) : ""));
+    button.onclick = () => {
+      selectVault(name, known[name].dir);
+      location.reload();
+    };
+    box.appendChild(button);
+  }
+  if (!names.length) {
+    box.appendChild(makeElement("small", null, "No other vaults found next to index.html."));
+  }
+  const fileButton = makeElement("button", "vault-file-btn", "From a file...");
+  fileButton.type = "button";
+  fileButton.onclick = () => {
+    const restore = $("restore-box");
+    const open = restore.style.display !== "none";
+    restore.style.display = open ? "none" : "flex";
+    if (open) {
+      $("vault-file").value = "";
+      showFileName();
+    }
     syncUnlockLabel();
   };
-  box.appendChild(f);
+  box.appendChild(fileButton);
 }
-// Closing the list closes "From a file..." with it and forgets the file picked
-// there: a hidden file would still be what Unlock opens.
+
+/**
+ * Closes the "Other vault" list, and "From a file..." with it, forgetting
+ * the file chosen there: a hidden file would still be what Unlock opens.
+ *
+ * Used by: this file (the Other vault and New vault buttons).
+ * Uses: showFileName, syncUnlockLabel.
+ * Complexity: O(1).
+ */
 function closeVaultList() {
   $("vault-list").style.display = "none";
   $("other-vault").setAttribute("aria-expanded", "false");
@@ -194,258 +356,341 @@ function closeVaultList() {
   showFileName();
   syncUnlockLabel();
 }
+
+// ---------- On load: the form's buttons and fields ----------
+
+// "Other vault" opens or closes the list: what this device knows at once,
+// then what the app folder holds (which asks for access the first time).
 $("other-vault").onclick = async () => {
-  if ($("vault-list").style.display !== "none") { closeVaultList(); return; }
+  if ($("vault-list").style.display !== "none") {
+    closeVaultList();
+    return;
+  }
   $("vault-list").style.display = "flex";
   $("other-vault").setAttribute("aria-expanded", "true");
-  if (creatingVault) { creatingVault = false; setLockMode(); }
-  renderVaultList();                            // what this device knows, at once
-  if (await scanVaults()) renderVaultList();    // and what the app folder holds
+  if (creatingVault) {
+    creatingVault = false;
+    setLockMode();
+  }
+  renderVaultList();
+  if (await scanVaults()) {
+    renderVaultList();
+  }
 };
+
 $("new-vault").onclick = () => {
   creatingVault = !creatingVault;
   closeVaultList();
   setLockMode();
-  if (creatingVault) $("vault-name").focus();
+  if (creatingVault) {
+    $("vault-name").focus();
+  }
 };
-// The hidden file input behind "Choose file", and the chosen file's name beside
-// it. A file's name is the user's own: never translated.
+
+// "Choose file" opens the hidden file input. A file chosen with no vault to
+// restore it into becomes a new vault, named on the form.
 $("file-pick").onclick = () => $("vault-file").click();
-function showFileName() {
-  const f = $("vault-file").files[0], el = $("file-name");
-  if (f) el.setAttribute("translate", "no"); else el.removeAttribute("translate");
-  el.textContent = f ? f.name : "No file chosen";
-}
 $("vault-file").addEventListener("change", () => {
   showFileName();
-  // A file with no vault to restore it into becomes a new vault, named on the form.
-  if ($("vault-file").files.length && !vaultSel && !creatingVault) { creatingVault = true; setLockMode(); }
+  if ($("vault-file").files.length && !selectedVault && !creatingVault) {
+    creatingVault = true;
+    setLockMode();
+  }
   syncUnlockLabel();
 });
-// The language, at the top centre: picking one reloads the page in it.
-for (const [code, name] of Object.entries(LANGS)) $("lang").add(new Option(name, code, code === LANG, code === LANG));
-$("lang").onchange = () => { localStorage.setItem("lang", $("lang").value); location.reload(); };
+
+// The language list, at the top centre: choosing one reloads the page in it.
+for (const [code, name] of Object.entries(LANGS)) {
+  $("lang").add(new Option(name, code, code === LANG, code === LANG));
+}
+$("lang").onchange = () => {
+  localStorage.setItem("lang", $("lang").value);
+  location.reload();
+};
+
 $("lock-version").textContent = "v" + APP_VERSION;
 setLockMode();
-// A vault in a folder: its vault.enc.js and backups, by <script> because a page
-// opened from a file may load scripts beside it but not fetch them. Missing
-// files just fail quietly, like the top-level ones in index.html.
-const loadScript = src => new Promise(res => {
-  const el = document.createElement("script");
-  el.src = src;
-  el.onload = el.onerror = () => { el.remove(); res(); };
-  document.body.appendChild(el);
-});
-if (vaultSel && vaultSel.dir) {
+
+// A vault in a folder: its vault.enc.js and backups, loaded by <script>,
+// because a page opened from a file may load scripts beside it but not fetch
+// them. Missing files just fail quietly, like the top-level ones in index.html.
+if (selectedVault && selectedVault.dir) {
   window.__VAULT__ = window.__VAULT_AT__ = undefined;
-  for (const k of Object.values(BACKUP_KINDS)) window[k.varName] = undefined;
-  const d = encodeURIComponent(vaultSel.dir) + "/";
-  Promise.all([loadScript(d + WRAPPER), ...Object.values(BACKUP_KINDS).map(k => loadScript(d + k.file))]).then(() => {
+  for (const kind of Object.values(BACKUP_KINDS)) {
+    window[kind.varName] = undefined;
+  }
+  const folder = encodeURIComponent(selectedVault.dir) + "/";
+  Promise.all([loadScript(folder + WRAPPER),
+    ...Object.values(BACKUP_KINDS).map(kind => loadScript(folder + kind.file))]).then(() => {
     autoVault = window.__VAULT__ && typeof window.__VAULT__ === "object" ? JSON.stringify(window.__VAULT__) : null;
     setLockMode();
     refreshLockBackupRow();
   });
 }
-// A wrong guess costs one of the ten attempts: say when Caps Lock is on.
+
+// A wrong guess costs one of the ten attempts: the form says when Caps Lock is on.
 for (const id of ["password", "password2"]) {
-  const caps = e => { $("caps-msg").hidden = !(e.getModifierState && e.getModifierState("CapsLock")); };
+  const caps = event => {
+    $("caps-msg").hidden = !(event.getModifierState && event.getModifierState("CapsLock"));
+  };
   $(id).addEventListener("keydown", caps);
   $(id).addEventListener("keyup", caps);
-  $(id).addEventListener("blur", () => { $("caps-msg").hidden = true; });
-}
-// ---------- Lock screen background ----------
-// A video of your own behind the lock screen, when lock-background.mp4 or
-// lock-background.webm sits next to index.html: the app never syncs it (git can
-// carry it in your own private repo; the public mirror's .gitignore refuses it)
-// and it is only a picture, so it can run no code. It plays only while the lock
-// screen shows, muted, and stays on its first frame if the system asks for
-// reduced motion.
-const stillMotion = matchMedia("(prefers-reduced-motion: reduce)");
-function syncLockBg() {
-  const v = $("lock-bg");
-  if (!v || !$("lock").classList.contains("has-bg")) return;
-  if ($("lock").style.display !== "none" && !stillMotion.matches) v.play().catch(() => {});
-  else v.pause();
-}
-function showLockBg() { $("lock").classList.add("has-bg"); syncLockBg(); }
-// The file the lock screen found and shows, or null: for its line in Settings.
-function lockBgFile() {
-  if (!$("lock").classList.contains("has-bg")) return null;
-  return decodeURIComponent(($("lock-bg").currentSrc || "").split("/").pop()) || null;
-}
-$("lock-bg").addEventListener("loadeddata", showLockBg);
-// A local file can finish loading before this script runs, and then the event is already gone.
-if ($("lock-bg").readyState >= 2) showLockBg();
-// One shake of the card for a wrong password.
-function shakeLock() {
-  const f = $("unlock-form");
-  f.classList.remove("shake");
-  void f.offsetWidth;   // restart the animation
-  f.classList.add("shake");
-  setTimeout(() => f.classList.remove("shake"), 500);
+  $(id).addEventListener("blur", () => {
+    $("caps-msg").hidden = true;
+  });
 }
 
-$("unlock-form").onsubmit = async e => {
-  e.preventDefault();
-  if (attemptBusy) return;
-  const lockMsg = (t, err) => {
-    $("lock-msg").style.color = err ? "var(--bad)" : "var(--t3)";
-    $("lock-msg").textContent = t;
+// ---------- The background video ----------
+
+// A video of the user's own behind the lock screen, when lock-background.mp4
+// or lock-background.webm sits next to index.html. The app never syncs it
+// (git can carry it in the user's own private repository; the public
+// mirror's .gitignore refuses it), and it is only a picture, so it runs no
+// code. It plays only while the lock screen shows, muted, and stays on its
+// first frame when the system asks for reduced motion.
+const stillMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+/**
+ * Plays the background video while the lock screen shows (unless reduced
+ * motion is asked for), and pauses it otherwise.
+ *
+ * Used by: this file (showLockBg, unlocking), settings.js (lockApp).
+ * Uses: stillMotion.
+ * Complexity: O(1).
+ */
+function syncLockBg() {
+  const video = $("lock-bg");
+  if (!video || !$("lock").classList.contains("has-bg")) {
+    return;
+  }
+  if ($("lock").style.display !== "none" && !stillMotion.matches) {
+    video.play().catch(() => {});
+  } else {
+    video.pause();
+  }
+}
+
+/**
+ * The background file the lock screen found and shows, or null: for its line in Settings.
+ *
+ * Used by: settings.js (openSettings).
+ * Uses: nothing.
+ * Complexity: O(1).
+ */
+function lockBgFile() {
+  if (!$("lock").classList.contains("has-bg")) {
+    return null;
+  }
+  return decodeURIComponent(($("lock-bg").currentSrc || "").split("/").pop()) || null;
+}
+
+// ---------- On load: the background, once its first frame is there ----------
+
+$("lock-bg").addEventListener("loadeddata", showLockBg);
+// A local file can finish loading before this script runs, and then the event is already gone.
+if ($("lock-bg").readyState >= 2) {
+  showLockBg();
+}
+
+// ---------- On load: unlocking ----------
+
+// The Unlock (or Create vault, or Open backup) button. Before anything is
+// awaited: a new vault's name is checked (no attempt is spent on it), and
+// folder access is asked for, since it needs this very click (the app folder
+// for a new vault, where its folder is made; permission to keep writing an
+// existing vault's folder otherwise). Both guard stores are read again on
+// every attempt, since another copy of this page may have spent attempts or
+// started the lockout. The attempt then waits 3 seconds, and:
+//   - a backup is opened read-only: no saving, no housekeeping, no
+//     re-keying, no sync, nothing that touches the real vault or the
+//     repository until "Convert" is pressed;
+//   - otherwise the vault opened is, in order: this device's copy (unless a
+//     file was chosen: an explicit file always wins), the file chosen, the
+//     vault.enc.js found in the folder, ./vault.enc over http, or a brand
+//     new vault (which needs a token, a matching confirmation and at least 8
+//     characters: this password is the only key). None of these moves
+//     savedAt, or a stale or restored vault would look newest and win the
+//     next sync; a new vault keeps savedAt 0, so a same-password vault
+//     already in the repository is pulled, not overwritten;
+//   - a new vault becomes the selected one, with its own folder and media
+//     folder next to index.html, and nothing of the previous vault;
+//   - housekeeping (old tombstones, expired trash) and the re-keying of an
+//     older vault, then the attachment key (it lives inside the vault, so
+//     only once the live vault is settled);
+//   - the app opens with every folder and the trash folded, the attempt
+//     count is reset, and the old top-level vault is offered its move into a
+//     folder, then any overdue backup.
+// Only a real decrypt failure spends an attempt (a slip such as a
+// mismatched confirmation does not); it empties the password field, shakes
+// the card and says how many attempts are left.
+$("unlock-form").onsubmit = async event => {
+  event.preventDefault();
+  if (attemptBusy) {
+    return;
+  }
+  const lockMsg = (text, isError) => {
+    $("lock-msg").style.color = isError ? "var(--bad)" : "var(--t3)";
+    $("lock-msg").textContent = text;
   };
   const mode = $("unlock-form").dataset.mode;
-  if (mode === "none" || mode === "missing") return;
-  // A new vault needs a name that can be its folder; checked before anything else, as no attempt is spent on it.
+  if (mode === "none" || mode === "missing") {
+    return;
+  }
   const creating = mode === "new" && !pendingBackupKind;
   const newName = creating ? $("vault-name").value.trim() : "";
   if (creating) {
     const why = vaultNameProblem(newName);
-    if (why) { lockMsg(why, true); $("vault-name").focus(); return; }
+    if (why) {
+      lockMsg(why, true);
+      $("vault-name").focus();
+      return;
+    }
   }
-  // Folder access needs this very click, so it is asked for before anything is
-  // awaited: the app folder for a new vault (its folder is made there), and
-  // permission to keep writing an existing vault's folder otherwise.
-  const appDir = creating ? notesDirHandle() : (vaultSel && vaultSel.dir ? askAppDirAccess() : null);
-  // Re-read both stores on EVERY attempt: another copy of this page may have
-  // burned attempts (or triggered the lockout) since this one loaded.
+  const appDir = creating ? notesDirHandle() : (selectedVault && selectedVault.dir ? askAppDirAccess() : null);
   await loadGuard();
   renderGuard();
-  if (isLockedOut()) return;
-  const pw = $("password").value;
-  if (!pw) return;
-  const stored = creating ? null : localStorage.getItem(vkey("vault"));
+  if (isLockedOut()) {
+    return;
+  }
+  const password = $("password").value;
+  if (!password) {
+    return;
+  }
+  const stored = creating ? null : localStorage.getItem(vaultStorageKey("vault"));
   let restored = false;
-  // Only a genuine decrypt failure burns an attempt; a first-run validation
-  // slip (mismatched confirm, missing token) must not.
-  let decrypted = false, refocus = false;
+  let decrypted = false;
+  let refocus = false;
   attemptBusy = true;
-  renderGuard();                 // freezes the form; the button shows the attempt running
+  // It freezes the form; the button shows the attempt running.
+  renderGuard();
   lockMsg("", false);
-  await new Promise(r => setTimeout(r, ATTEMPT_DELAY_MS));
+  await new Promise(resolve => setTimeout(resolve, ATTEMPT_DELAY_MS));
   try {
-    // ---- Backup view: open the CHOSEN backup blob read-only. No persist, no
-    // housekeeping, no KDF upgrade, no sync - nothing may touch the real vault
-    // or the repo until "Convert to the original file" is pressed.
+    // A backup, read-only.
     if (pendingBackupKind) {
-      const w = backupWrapper(pendingBackupKind);
-      if (!w) { lockMsg("Backup file not found next to index.html.", true); return; }
-      ({ vault, key, salt, iter: iterUsed } = await openVault(w.data, pw));
+      const wrapper = backupWrapper(pendingBackupKind);
+      if (!wrapper) {
+        lockMsg("Backup file not found next to index.html.", true);
+        return;
+      }
+      ({ vault, key: vaultKey, salt: vaultSalt, iter: vaultKeyIterations } = await openVault(wrapper.data, password));
       decrypted = true;
       await registerSuccess();
-      await loadMediaKey();   // in-memory only: lets attachments decrypt for viewing
-      masterPw = pw;
-      $("password").value = ""; $("password2").value = ""; $("token").value = "";
+      // In memory only: attachments can be decrypted for viewing.
+      await loadMediaKey();
+      masterPassword = password;
+      $("password").value = "";
+      $("password2").value = "";
+      $("token").value = "";
       lockMsg("", true);
       $("lock").style.display = "none";
       syncLockBg();
       $("app").style.display = "flex";
-      dirty = false;
-      enterBackupView(pendingBackupKind, w.at);
+      unsavedEdits = false;
+      enterBackupView(pendingBackupKind, wrapper.at);
       renderList();
       renderStatus();
       renderAttachments();
       status("Viewing backup - read-only");
       return;
     }
-    // Every unlock-path write below is stamp=false: savedAt must never move
-    // here or a stale/restored vault would look newest and win the next sync.
+
     let needPersist = false;
-    // An explicitly picked file always wins over the local copy: that is the
-    // whole point of "Restore from a file instead".
     const picked = $("vault-file").files[0];
     if (stored && !picked) {
-      ({ vault, key, salt, iter: iterUsed } = await openVault(stored, pw));
+      ({ vault, key: vaultKey, salt: vaultSalt, iter: vaultKeyIterations } = await openVault(stored, password));
       decrypted = true;
     } else {
-      // Restore order: chosen vault file, then the vault.enc.js auto-loaded by
-      // script tag from this folder, then ./vault.enc if the page is served
-      // over http, then brand-new vault (needs a token).
       let blobText = null;
       const file = picked;
-      if (file) blobText = await file.text();
-      else if (creating) blobText = null;
-      else if (autoVault) blobText = autoVault;
-      else try {
-        const r = await fetch(vpath(FILE));
-        if (r.ok) blobText = await r.text();
-      } catch {}
+      if (file) {
+        blobText = await file.text();
+      } else if (creating) {
+        blobText = null;
+      } else if (autoVault) {
+        blobText = autoVault;
+      } else {
+        try {
+          const res = await fetch(vaultPath(FILE));
+          if (res.ok) {
+            blobText = await res.text();
+          }
+        } catch {}
+      }
       if (blobText) {
-        ({ vault, key, salt, iter: iterUsed } = await openVault(blobText, pw));
+        ({ vault, key: vaultKey, salt: vaultSalt, iter: vaultKeyIterations } = await openVault(blobText, password));
         decrypted = true;
         restored = true;
-        // stamp=false: a restored clone may be stale; keeping its original
-        // savedAt makes the first Sync pull the newer remote instead of
-        // pushing old notes over it.
         needPersist = true;
       } else {
-        if (!creating) { lockMsg("This vault's files were not found next to index.html.", true); return; }
+        if (!creating) {
+          lockMsg("This vault's files were not found next to index.html.", true);
+          return;
+        }
         if (!$("token").value.trim()) {
           lockMsg("Paste a token (new vault) or pick your vault.enc (restore).", true);
           return;
         }
-        // Creating a vault is the one irreversible moment: nothing can open it
-        // again without this exact password.
-        if ($("password2").value !== pw) {
+        if ($("password2").value !== password) {
           lockMsg("The two passwords do not match.", true);
           return;
         }
-        if (pw.length < 8) {
+        if (password.length < 8) {
           lockMsg("Use at least 8 characters: this password is the only key.", true);
           return;
         }
-        salt = crypto.getRandomValues(new Uint8Array(16));
-        key = await deriveKey(pw, salt, ITER);
-        iterUsed = ITER;
-        // Through migrateVault like every opened vault, so a brand-new one has
-        // every map too: without pins, "Pin to top" threw until the next unlock.
+        vaultSalt = crypto.getRandomValues(new Uint8Array(16));
+        vaultKey = await deriveKey(password, vaultSalt, PBKDF2_ITERATIONS);
+        vaultKeyIterations = PBKDF2_ITERATIONS;
+        // Through migrateVault like every vault opened, so a new one has every
+        // map too (without pins, "Pin to top" once failed until the next unlock).
         vault = migrateVault({ v: 2, token: $("token").value.trim(), savedAt: 0,
           notes: {}, folders: {}, trash: {}, purged: {} });
-        decrypted = true;   // a brand-new vault is not a failed guess
-        // stamp=false (savedAt stays 0): if a same-password remote already
-        // exists, the first Sync must pull it, not push this empty vault over
-        // it. The push path stamps savedAt itself when it actually pushes.
+        // A brand-new vault is not a failed guess.
+        decrypted = true;
         needPersist = true;
       }
     }
-    // A new vault (empty, or from the picked file) becomes the selected one, with
-    // its own folder and media folder next to index.html - and nothing of the
-    // vault this page had selected before.
+
     let noFolder = false;
     if (creating) {
       resetVaultState();
       selectVault(newName, newName);
-      rememberVault(newName, newName, Date.now());   // shown as its date until the first save (savedAt stays 0 for Sync)
+      // Shown with this date until its first save (savedAt stays 0 for Sync).
+      rememberVault(newName, newName, Date.now());
       const root = await appDir;
-      try { await (await root.getDirectoryHandle(newName, { create: true })).getDirectoryHandle("media", { create: true }); }
-      catch { noFolder = true; }
+      try {
+        await (await root.getDirectoryHandle(newName, { create: true })).getDirectoryHandle("media", { create: true });
+      } catch {
+        noFolder = true;
+      }
       needPersist = true;
     }
-    // v2 housekeeping (openVault already migrated the vault shape in memory).
-    if (prunePurged()) needPersist = true;
-    if (autoPurgeTrash()) needPersist = true;
-    // PBKDF2 upgrade: old blobs re-key to ITER iterations with a fresh 16-byte
-    // salt. The outer blob keeps its {v:1, iter, salt, iv, data} shape; only
-    // the iter value changes, so any copy of the app can still open it.
-    if (iterUsed < ITER) {
+    if (prunePurged()) {
+      needPersist = true;
+    }
+    if (autoPurgeTrash()) {
+      needPersist = true;
+    }
+    // Re-keying an older vault: a fresh 16-byte salt and the full round count.
+    // The sealed blob keeps its { v: 1, iter, salt, iv, data } shape, only
+    // iter changes, so any copy of the app can still open it.
+    if (vaultKeyIterations < PBKDF2_ITERATIONS) {
       lockMsg("Upgrading encryption, one second...", false);
-      await new Promise(r => setTimeout(r, 30));   // let the message paint
-      salt = crypto.getRandomValues(new Uint8Array(16));
-      key = await deriveKey(pw, salt, ITER);
-      iterUsed = ITER;
+      // The message paints first.
+      await new Promise(resolve => setTimeout(resolve, 30));
+      vaultSalt = crypto.getRandomValues(new Uint8Array(16));
+      vaultKey = await deriveKey(password, vaultSalt, PBKDF2_ITERATIONS);
+      vaultKeyIterations = PBKDF2_ITERATIONS;
       needPersist = true;
-      // A pre-upgrade snapshot is a full copy of every note (and the token)
-      // sealed at the weaker KDF. Keeping it would defeat the upgrade, so it
-      // goes; the next merge writes a fresh one at the new strength.
-      localStorage.removeItem(vkey("vault.prev"));
-      localStorage.removeItem(vkey("vault.prevAt"));
+      localStorage.removeItem(vaultStorageKey("vault.prev"));
+      localStorage.removeItem(vaultStorageKey("vault.prevAt"));
     }
-    // The media key lives inside the vault, so it must be imported after every
-    // path above has settled on which vault object is live.
     await loadMediaKey();
-    if (needPersist) await persistLocal(false);
-    // The password lives in masterPw from here on (sync and snapshot restore
-    // must decrypt blobs sealed under other salts/iters); drop both secrets
-    // from the DOM (display:none does not remove a value from the document).
-    masterPw = pw;
+    if (needPersist) {
+      await persistLocal(false);
+    }
+    masterPassword = password;
     $("password").value = "";
     $("password2").value = "";
     $("token").value = "";
@@ -453,37 +698,124 @@ $("unlock-form").onsubmit = async e => {
     $("lock").style.display = "none";
     syncLockBg();
     $("app").style.display = "flex";
-    dirty = false;
-    // Fresh open = everything folded: seed the collapse set with every folder id
-    // so the whole tree renders collapsed, and fold the trash section too.
+    unsavedEdits = false;
     collapsed = new Set(Object.keys(vault.folders));
     trashCollapsed = true;
     renderList();
     renderStatus();
     renderAttachments();
     renderBackupBar();
-    await registerSuccess();   // a correct password wipes the attempt counter
-    if (vaultSel) rememberVault(vaultSel.name, vaultSel.dir, vault.savedAt);
+    await registerSuccess();
+    if (selectedVault) {
+      rememberVault(selectedVault.name, selectedVault.dir, vault.savedAt);
+    }
     creatingVault = false;
     status(creating && noFolder ? "Vault created in this browser only: without access to the app folder, its folder could not be made"
       : stored ? "Unlocked" : restored ? "Vault restored, press Sync to connect" : "Vault created, use Sync to push it", noFolder);
-    // Fire-and-forget: each modal flow owns its own clicks. The old top-level
-    // vault is offered its move into a folder first, then any overdue backup.
-    (async () => { await offerVaultMove(); await promptDueBackups(); })();
+    // Not awaited: each dialog owns its own clicks.
+    (async () => {
+      await offerVaultMove();
+      await promptDueBackups();
+    })();
   } catch {
-    // Drop the typed password: a failed unlock is exactly when someone walks
-    // away, and it would otherwise sit in a DOM input value indefinitely.
-    // Validation early-returns above deliberately keep their fields (the user
-    // is mid-flow and must retype otherwise).
+    // The typed password goes: a failed unlock is exactly when someone walks
+    // away. (The early returns above keep their fields on purpose: the user
+    // is in the middle of the form.)
     $("password").value = "";
-    refocus = true;   // in finally: the field is still disabled here, and focus() would do nothing
-    if (!decrypted) { await registerFailedAttempt(); shakeLock(); }
-    if (isLockedOut()) { lockMsg("", true); return; }   // renderGuard owns the screen now
+    // Focusing waits for finally: the field is still disabled here.
+    refocus = true;
+    if (!decrypted) {
+      await registerFailedAttempt();
+      shakeLock();
+    }
+    // renderGuard owns the screen now.
+    if (isLockedOut()) {
+      lockMsg("", true);
+      return;
+    }
     const left = triesLeft();
     lockMsg(`Wrong password (or corrupted vault). ${left} attempt${left === 1 ? "" : "s"} remaining.`, true);
   } finally {
     attemptBusy = false;
     renderGuard();
-    if (refocus && !isLockedOut()) $("password").focus();
+    if (refocus && !isLockedOut()) {
+      $("password").focus();
+    }
   }
 };
+
+// =================== Auxiliary functions ===================
+
+/**
+ * A number of seconds for the meter's sentence, to two significant figures
+ * (plenty for an estimate this rough), in en-US so the decimal point matches
+ * the English sentence: "45 seconds" up to "3.2 billion years", or "far
+ * longer than the age of the universe". Complexity: O(1).
+ */
+function formatCrackTime(sec) {
+  const round = x => Number(x.toPrecision(2)).toLocaleString("en-US");
+  if (sec < 60) {
+    return `${round(Math.max(sec, 1))} seconds`;
+  }
+  if (sec < 3600) {
+    return `${round(sec / 60)} minutes`;
+  }
+  if (sec < 86400) {
+    return `${round(sec / 3600)} hours`;
+  }
+  const years = sec / (365.25 * 86400);
+  if (years < 1) {
+    return `${round(sec / 86400)} days`;
+  }
+  if (years < 1e6) {
+    return `${round(years)} years`;
+  }
+  if (years < 1e9) {
+    return `${round(years / 1e6)} million years`;
+  }
+  if (years < 1e12) {
+    return `${round(years / 1e9)} billion years`;
+  }
+  return "far longer than the age of the universe";
+}
+
+/** Shows the chosen file's name beside "Choose file" (the user's own name: never translated). Complexity: O(1). */
+function showFileName() {
+  const file = $("vault-file").files[0];
+  const el = $("file-name");
+  if (file) {
+    el.setAttribute("translate", "no");
+  } else {
+    el.removeAttribute("translate");
+  }
+  el.textContent = file ? file.name : "No file chosen";
+}
+
+/** Loads a script beside index.html; resolves whether it loaded or not. Complexity: O(1). */
+function loadScript(src) {
+  return new Promise(resolve => {
+    const el = document.createElement("script");
+    el.src = src;
+    el.onload = el.onerror = () => {
+      el.remove();
+      resolve();
+    };
+    document.body.appendChild(el);
+  });
+}
+
+/** Shows the background video once it has a frame, and starts it. Complexity: O(1). */
+function showLockBg() {
+  $("lock").classList.add("has-bg");
+  syncLockBg();
+}
+
+/** One shake of the card for a wrong password. Complexity: O(1). */
+function shakeLock() {
+  const form = $("unlock-form");
+  form.classList.remove("shake");
+  // Reading the width restarts the animation.
+  void form.offsetWidth;
+  form.classList.add("shake");
+  setTimeout(() => form.classList.remove("shake"), 500);
+}

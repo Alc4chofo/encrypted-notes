@@ -1,4 +1,13 @@
 <!DOCTYPE html>
+<!--
+  index.html - the whole app on one page.
+
+  Two parts: #lock, the lock screen (unlock, make a vault, pick another one,
+  restore from a file, open a backup), and #app, the notes themselves (the
+  sidebar, the editor and its toolbar, the status bar). The scripts at the
+  bottom fill both in, and lock.js decides which one shows. Nothing is
+  encrypted or decrypted in the page itself: js/vault.js and js/lock.js do it.
+-->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -172,7 +181,7 @@
         <button id="pull-details">Details</button>
         <button id="pull-dismiss">Dismiss</button>
       </div>
-      <!-- Toolbar icons are one drawn set (16px grid, 1.5px strokes) instead of mixed unicode glyphs and emoji. -->
+      <!-- The toolbar icons are one drawn set (16px grid, 1.5px strokes), so they look the same on every system. -->
       <div id="fmt-bar">
         <span class="fmt-group">
           <button id="undo-btn" title="Undo (Ctrl+Z)" type="button" disabled><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 3.5 2.5 6.5l3 3"/><path d="M2.5 6.5h7a3.5 3.5 0 0 1 0 7H7"/></svg></button>
@@ -228,7 +237,7 @@
     <button id="sync">Sync</button>
     <button id="backup" type="button" title="Download an encrypted backup of all notes. Keep it anywhere (Google Drive, Dropbox, a USB stick): it is useless without your master password. Media syncs through the repo, not this file.">Backup</button>
     <button id="lock-btn" type="button" title="Lock and forget the decrypted vault (Ctrl+L)">Lock</button>
-    <!-- Per-device settings (auto-lock time) open in a dialog. -->
+    <!-- The settings of this device only (such as the auto-lock time), in a dialog. -->
     <button id="settings-btn" type="button" title="Settings">Settings</button>
     <span id="last-synced"></span>
     <span id="status"></span>
@@ -246,15 +255,17 @@
   </div>
 </div>
 
-<!-- Synced alongside vault.enc: same ciphertext wrapped as JS, because a plain
-     script tag may load from the folder next to a double-clicked index.html
-     where fetch() is blocked. Missing file just 404s silently. These three are
-     the vault from before vaults had folders, at the top level; a vault in a
-     folder has the same files there, loaded by lock.js once it is selected. -->
+<!-- The vault as a script: the same ciphertext as vault.enc, wrapped in one line
+     of JavaScript and synced with it. A page opened from a file may not fetch()
+     the files next to it, but it may load them with a script tag; a missing one
+     only shows as a 404 in the console. These top-level files are a vault from
+     before vaults had folders. A vault in a folder has the same files there,
+     and lock.js loads them once it is selected. -->
 <script src="vault.enc.js"></script>
-<!-- Same wrapper trick for the weekly/monthly backups: present = detectable at
-     the lock screen, missing = silent 404. Their `at` field is plaintext by
-     design (age must be readable before unlock); content is sealed like vault.enc. -->
+<!-- The weekly and monthly backups, wrapped the same way, so the lock screen
+     can tell they are there (a missing one is a quiet 404). Each one's `at`
+     field is plain text on purpose, so its age shows before unlocking; the
+     notes inside are sealed like vault.enc. -->
 <script src="backup-weekly.enc.js"></script>
 <script src="backup-monthly.enc.js"></script>
 <!-- Your repo (config.js), then the app. Plain scripts, in this order: each one
@@ -300,8 +311,10 @@
 <script>
 // Opened without the files beside it (only index.html copied somewhere): say so
 // instead of showing a page that does nothing.
-if (typeof openVault !== "function") document.body.innerHTML = '<p style="margin:40px;font:14px/1.5 system-ui,sans-serif;color:#bbb">' +
-  'This page needs the files next to it: config.js and the css and js folders. Copy the whole app folder.</p>';
+if (typeof openVault !== "function") {
+  document.body.innerHTML = '<p style="margin:40px;font:14px/1.5 system-ui,sans-serif;color:#bbb">' +
+    'This page needs the files next to it: config.js and the css and js folders. Copy the whole app folder.</p>';
+}
 </script>
 </body>
 </html>

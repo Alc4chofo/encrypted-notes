@@ -1,448 +1,533 @@
-// notes: Paged notes: flowing text across A4 sheets.
+/*
+ * pagination.js - flowing a paged note across its A4 sheets, opening and
+ * saving notes, and the status line, chips and banners.
+ *
+ * A sheet is a printed page, so text that no longer fits moves to the next
+ * page instead of making the sheet taller than A4: otherwise the screen and
+ * the PDF would disagree, which is the one thing the paged view promises. A
+ * design's frame (the data-frame blocks) and pinned items stay put on their
+ * page; only the content between the frames flows. Pages the flow made
+ * ("continuation" pages, data-cont) are taken back when their content fits
+ * on the page before again, so deleting text collapses the pages it created.
+ *
+ * Every height used here is a layout height (offsetHeight), never a painted
+ * one: a sheet may be scaled down to fit a narrow pane, and measuring what
+ * is painted made a page look like it fits when it does not, so one sheet
+ * swallowed the whole note.
+ *
+ * Main functions: repaginateDom, syncPagesFromDom, contentCapacity,
+ * repaginate, scheduleRepaginate, scrollToPage, markActiveSheet,
+ * clearEditor, openNote, openTrash, applyReadonly, saveCurrent, flushSave,
+ * manualSave, status, classifySyncError, renderStatus, bannerText, dismissBanner.
+ * Auxiliary functions: sheetEls, bodyOf, isFrame, isFloat, flowChildren,
+ * layoutH, sheetScale, contentLimit, splitTextTail, splitBox, splitCount,
+ * pageBoxHeight, overflowing, flowStart, flowEnd, makeContinuation,
+ * renumberSheets, toggleChip, renderBanner, renderTrashBanner.
+ *
+ * Complexity: a reflow makes at most about b moves per sheet (b its blocks),
+ * each followed by a layout measurement, so O(b^2) layout work per sheet in
+ * the worst case, and it gives up after 2.5 s (to carry on later); cutting a
+ * line of text at the page's bottom is a binary search, O(log n) measurements.
+ */
 "use strict";
 
-// ---------- Pagination ----------
-// A sheet IS a printed page, so text that no longer fits must move to the next
-// page instead of making the sheet taller than A4 - otherwise the screen and
-// the PDF disagree, which is the one thing the paged view promises.
-// A design's frame (the data-frame blocks) is furniture: it stays put on every
-// page and only the content between the frames flows.
-const sheetEls = () => [...$("sheets").querySelectorAll(".sheet")];
-const bodyOf = sh => sh.querySelector(".sheet-body");
-const isFrame = n => n && n.nodeType === 1 && n.dataset && (n.dataset.frame === "top" || n.dataset.frame === "bottom");
-// A pinned item is out of flow: moving it changes nothing about the page height
-// and it would land on the next page still wearing its old coordinates. It is
-// furniture, like the frame.
-const isFloat = n => n && n.nodeType === 1 && n.classList && n.classList.contains("floating");
-const flowChildren = el => [...el.childNodes].filter(n => !isFrame(n) && !isFloat(n));
-// Room for content on one page: the page box minus its margins and minus
-// whatever the frame occupies. Used to tell "too tall to EVER fit" from
-// "does not fit right here".
-// Every height used for pagination is a LAYOUT height (offsetHeight), never a
-// painted one: the sheet may be visually scaled down to fit a narrow pane, and
-// measuring the painted size would make a page look like it fits when it does
-// not - one sheet then swallows the whole note.
-const layoutH = n => n && n.nodeType === 1 ? n.offsetHeight : 0;
-// How much the sheet is being shown at, so viewport coordinates can be compared
-// with layout ones. 1 when it is not scaled.
-function sheetScale(el) {
-  const h = el.offsetHeight;
-  return h ? el.getBoundingClientRect().height / h : 1;
-}
-function contentCapacity(el) {
-  const cs = getComputedStyle(el);
-  let frames = 0;
-  for (const n of el.childNodes) if (isFrame(n)) frames += layoutH(n);
-  return Math.max(80, pageBoxHeight(el) - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - frames);
-}
-// The y coordinate content must stay above on this page, in VIEWPORT units,
-// because that is what a Range measures in.
-function contentLimit(el) {
-  const cs = getComputedStyle(el);
-  let foot = 0;
-  for (const n of el.childNodes) if (isFrame(n) && n.dataset.frame === "bottom") foot += layoutH(n);
-  const k = sheetScale(el);
-  return el.getBoundingClientRect().top + (pageBoxHeight(el) - parseFloat(cs.paddingBottom) - foot) * k;
-}
-// Cut a text node at the line that crosses the page bottom. Typed prose is one
-// text node with no newlines in it - wrapping is done by the browser - so
-// splitting on "\n" alone left a whole paragraph unsplittable. Binary search on
-// a Range finds the character where the text crosses the limit; the cut then
-// backs up to the nearest newline or space so words stay whole.
-function splitTextTail(el, tail) {
-  const limit = contentLimit(el);
-  const r = document.createRange();
-  let lo = 0, hi = tail.data.length;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    r.setStart(tail, 0); r.setEnd(tail, mid);
-    if (r.getBoundingClientRect().bottom <= limit) lo = mid; else hi = mid - 1;
-  }
-  if (lo <= 0 || lo >= tail.data.length) return null;   // nothing fits, or it all fits
-  const nl = tail.data.lastIndexOf("\n", lo);
-  const sp = tail.data.lastIndexOf(" ", lo);
-  let cut = nl > 0 ? nl + 1 : (sp > 0 ? sp + 1 : lo);
-  if (cut <= 0 || cut >= tail.data.length) cut = lo;
-  const rest = document.createTextNode(tail.data.slice(cut));
-  tail.data = tail.data.slice(0, cut);
-  if (!tail.data) tail.remove();
-  return rest;
-}
-// Split INTO a block that is too tall on its own - a centred run of images, a
-// long table, a 200-item list. Without this the page just stayed oversized,
-// because only top-level children were ever moved. A shallow clone of the block
-// leads the next page and the block's last child moves across, one per pass, so
-// the wrapper's alignment and a table's header survive on both halves.
-function splitBox(nb, box) {
-  const tag = box.tagName;
-  const rows = tag === "TABLE";
-  const src = rows ? (box.querySelector("tbody") || box) : box;
-  if (!src.lastChild) return false;
-  let dest = flowChildren(nb)[0];
-  if (!(dest && dest.nodeType === 1 && dest.tagName === tag && dest.dataset.split === "1")) {
-    dest = box.cloneNode(false);
-    dest.dataset.split = "1";
-    if (rows) {
-      const head = box.querySelector("thead");
-      if (head) dest.appendChild(head.cloneNode(true));
-      dest.appendChild(document.createElement("tbody"));
-    }
-    const at = flowStart(nb);
-    if (at) nb.insertBefore(dest, at); else nb.appendChild(dest);
-  }
-  const sink = rows ? (dest.querySelector("tbody") || dest) : dest;
-  sink.insertBefore(src.lastChild, sink.firstChild);
-  if (tag === "OL") dest.setAttribute("start", String((+box.getAttribute("start") || 1) + src.children.length));
-  if (!src.firstChild) box.remove();      // husk: everything moved across
-  return true;
-}
-// What can still be taken off a block. A block with one child is atomic here.
-const splitCount = box => box && box.nodeType === 1
-  ? (box.tagName === "TABLE" ? (box.querySelector("tbody") || box).childNodes.length : box.childNodes.length) : 0;
-// Overflow is decided by the PAGE BOX, not by adding up the children. Summing
-// child heights is wrong for anything inline: images sitting side by side each
-// contribute their full height, so a row of pictures measured several times too
-// tall (or, when they had not loaded yet, nothing at all). The sheet has a fixed
-// page height and grows past it only when the content genuinely does not fit -
-// which is exactly the question, and it is true for images, tables and text alike.
-function pageBoxHeight(el) {
-  const cs = getComputedStyle(el);
-  return parseFloat(cs.minHeight) || 0;
-}
-const overflowing = el => layoutH(el) > pageBoxHeight(el) + 1;
-// Where new content belongs inside a framed page: after the top frame.
-function flowStart(el) {
-  for (const n of el.childNodes) {
-    // Stop at the bottom frame: a continuation page starts out holding nothing
-    // but the frame, and falling through to "append at the end" put the text
-    // UNDER the footer - the closing classification line printed above the
-    // content it was supposed to close.
-    if (isFrame(n)) { if (n.dataset.frame === "bottom") return n; continue; }
-    return n;
-  }
-  return null;
-}
-// Where flow content ENDS: before the bottom frame, or at the very end.
-const flowEnd = el => { for (const n of el.childNodes) if (isFrame(n) && n.dataset.frame === "bottom") return n; return null; };
-// Build the next page for overflow: same section, same frame, empty flow.
-function makeContinuation(sh) {
-  const clone = sh.cloneNode(true);
-  const cb = bodyOf(clone);
-  // A clone inherits the ACTIVE ring and the page number of the sheet it came
-  // from. Two ringed sheets and two sheets answering to the same index is what
-  // "it went to pieces after a second" looks like: tab clicks land on the first
-  // duplicate, and an attachment dropped on one writes over the other's page.
-  clone.classList.remove("active");
-  // Strip everything except the frame - floats included. flowChildren skips
-  // floats, so using it here would leave the pinned items cloned onto the new
-  // page as well.
-  for (const n of [...cb.childNodes]) if (!isFrame(n)) n.remove();
-  const nm = clone.querySelector(".sheet-label .nm");
-  const base = (sh.querySelector(".sheet-label .nm").textContent || "Page").replace(/\s+\d+$/, "");
-  if (nm) nm.textContent = base + " " + (sheetEls().indexOf(sh) + 2);
-  cb.contentEditable = "true";
-  sh.after(clone);
-  return clone;
-}
-// Move trailing blocks off pages that overflow, and pull them back up when
-// room appears again, so deleting text collapses the pages it created.
+// ---------- Flowing text across the sheets ----------
+
+/**
+ * Moves content off every body sheet that overflows, and pulls it back up
+ * when room appears again. For each body sheet:
+ *   1. Push down, while the sheet is too tall: the last block moves to the
+ *      next page (a continuation page is made if needed). Typed prose (one
+ *      text node, wrapped by the browser) is cut at the line that crosses
+ *      the bottom. When the page is one block too big, it gives: one line
+ *      longer than a page is cut and goes on at the top of the next page as
+ *      the same line (data-split); a table, list or run of pictures gives up
+ *      its last child. A truly atomic block (one huge picture) stays.
+ *   2. Pull up, while there is room: the next continuation page's first block
+ *      comes back. Every move is a trial: if the page then overflows, the
+ *      node goes straight back where it was, or for text only the part that
+ *      fits stays; nothing is ever copied, so nothing can be duplicated or
+ *      lost. A block split across pages stays split, except a split line,
+ *      which rejoins its first half when all of it fits. Pictures only gain
+ *      their height once decrypted, so the first reflow is always pessimistic
+ *      and this is what stops a page holding one picture from staying.
+ *   3. Continuation pages left empty go (one holding only a pinned picture
+ *      counts as content).
+ * Work is bounded per sheet, never once for the whole note: a single shared
+ * budget was the "one massive page" bug (the cost grows with the square of
+ * the note, so past ten pages the budget ran out mid-sweep and the last page
+ * kept everything, measured at 8444px against a 1123px page). The 2.5 s
+ * deadline only guards against a freeze (a real 12-page note takes about
+ * 0.5 s); when it is hit, another reflow is scheduled to finish. At most 300
+ * sheets. Returns whether anything moved.
+ *
+ * Used by: this file (repaginate), lines.js (renderSheets).
+ * Uses: sheetEls, bodyOf, flowChildren, splitCount, overflowing,
+ * contentCapacity, layoutH, splitTextTail, isLineEl (lines.js),
+ * makeContinuation, splitBox, flowStart, flowEnd, isFrame, scheduleRepaginate.
+ * Complexity: O(b^2) layout work per sheet in the worst case.
+ */
 function repaginateDom() {
-  let moved = false, bailed = false;
-  // Work is bounded PER SHEET, never once for the whole document. A single
-  // shared budget was the "one massive page" bug: moving a block costs a tick,
-  // shedding a page costs one tick per block on it, so the cost grows with the
-  // square of the document. Past about ten pages of formatted paragraphs the
-  // budget ran out mid-sweep, the loop stopped visiting sheets at all, and the
-  // last continuation kept everything - measured at 8444px against a 1123px
-  // page box.
-  // The deadline is only a freeze guard: real pagination of a 12-page document
-  // measures ~0.5s, so anything tighter would abort correct work.
+  let moved = false;
+  let bailed = false;
   const deadline = performance.now() + 2500;
   for (let i = 0; i < sheetEls().length; i++) {
     let sheets = sheetEls();
-    const sh = sheets[i];
-    if (!sh.classList.contains("sec-body")) continue;   // title/final pages are fixed
-    const el = bodyOf(sh);
-    // Enough ticks for every block on this sheet, plus every child that could be
-    // split out of the tail block (a long table sheds one row at a time).
-    const kids0 = flowChildren(el);
+    const sheet = sheets[i];
+    // Title and closing pages are fixed.
+    if (!sheet.classList.contains("sec-body")) {
+      continue;
+    }
+    const el = bodyOf(sheet);
+    // Enough steps for every block on this sheet, plus every child that could
+    // be split out of its last block (a long table gives up one row at a time).
+    const initialChildren = flowChildren(el);
     let guard = 0;
-    const budget = 60 + kids0.length + splitCount(kids0[kids0.length - 1]);
-    // push down
+    const budget = 60 + initialChildren.length + splitCount(initialChildren[initialChildren.length - 1]);
+
+    // 1. Push down.
     while (overflowing(el) && guard++ < budget) {
-      if (sheetEls().length > 300) break;      // runaway guard: never spawn pages endlessly
-      const kids = flowChildren(el);
-      if (!kids.length) break;
-      const solid = kids.filter(k => k.nodeType !== 3 || k.data.trim());
-      const tail = kids[kids.length - 1];
+      // Runaway guard: pages are never made without end.
+      if (sheetEls().length > 300) {
+        break;
+      }
+      const children = flowChildren(el);
+      if (!children.length) {
+        break;
+      }
+      const solid = children.filter(child => child.nodeType !== 3 || child.data.trim());
+      const tail = children[children.length - 1];
       const cap = contentCapacity(el);
-      // Margins count: a table is `margin: 6px 0`, so a block that measures just
-      // inside the page still pushed it 12px over and the reflow gave up with
-      // the page a hair too tall.
-      const tooTall = n => {
-        if (n.nodeType !== 1) return false;
-        const cs = getComputedStyle(n);
-        return layoutH(n) + parseFloat(cs.marginTop) + parseFloat(cs.marginBottom) > cap;
+      // Margins count: a table has a 6px margin above and below, so a block
+      // measuring just inside the page still pushed it 12px over.
+      const tooTall = node => {
+        if (node.nodeType !== 1) {
+          return false;
+        }
+        const style = getComputedStyle(node);
+        return layoutH(node) + parseFloat(style.marginTop) + parseFloat(style.marginBottom) > cap;
       };
-      // Three ways to make room, in order of preference:
-      //   last  - move a whole trailing block down
-      //   into  - the page is ONE block that is too big: split inside it
-      //   (neither) - genuinely atomic, e.g. one huge picture: leave it alone
-      let last = null, into = null, lineRest = null, lineBox = null;
+
+      // Three ways to make room, in order: move the last block down (last),
+      // split inside a page that is one block too big (into, or lineRest for
+      // one long line), or neither (an atomic block: left alone).
+      let last = null;
+      let into = null;
+      let lineRest = null;
+      let lineBox = null;
       if (tail.nodeType === 3 && tail.data.trim()) {
-        last = splitTextTail(el, tail);          // typed prose: cut at the page bottom
-        if (!last && kids.length > 1) last = tail;   // nothing of it fits here at all
-      } else if (kids.length > 1 && !(solid.length === 1 && solid[0] === tail && tooTall(tail))) {
+        last = splitTextTail(el, tail);
+        // Nothing of it fits here at all.
+        if (!last && children.length > 1) {
+          last = tail;
+        }
+      } else if (children.length > 1 && !(solid.length === 1 && solid[0] === tail && tooTall(tail))) {
         last = tail;
       }
       if (!last) {
-        // The page overflows and nothing can be moved off it, so the block
-        // itself has to give. Whether it is "taller than a page" is beside the
-        // point - it does not fit HERE, and anything with more than one child
-        // can give one up.
+        // Nothing can be moved off, so the block itself has to give: whether it
+        // is taller than a page is beside the point, it does not fit here.
         const box = tail.nodeType === 1 ? tail : (solid[0] && solid[0].nodeType === 1 ? solid[0] : null);
-        // One line - a paragraph typed without Enter - longer than a whole page:
-        // its text is cut where the page ends and the rest carries on at the top
-        // of the next page as the same line (data-split), rejoined below when
-        // room appears again.
-        const t = box && isLineEl(box) ? box.lastChild : null;
-        if (t && t.nodeType === 3 && t.data.trim() && (lineRest = splitTextTail(el, t))) lineBox = box;
-        else if (box && splitCount(box) > 1) into = box;
-        else break;
+        const lastText = box && isLineEl(box) ? box.lastChild : null;
+        if (lastText && lastText.nodeType === 3 && lastText.data.trim() && (lineRest = splitTextTail(el, lastText))) {
+          lineBox = box;
+        } else if (box && splitCount(box) > 1) {
+          into = box;
+        } else {
+          break;
+        }
       }
+
       let next = sheetEls()[i + 1];
       if (!next || !next.classList.contains("sec-body") || !next.dataset.cont) {
-        next = makeContinuation(sh);
-        next.dataset.cont = "1";           // created by overflow: may be reabsorbed
+        next = makeContinuation(sheet);
+        // Made by the flow, so it may be taken back.
+        next.dataset.cont = "1";
       }
-      const nb = bodyOf(next);
+      const nextBody = bodyOf(next);
       if (into) {
-        if (!splitBox(nb, into)) break;
-      } else if (lineRest) {
-        const head = flowChildren(nb)[0];
-        if (head && isLineEl(head) && head.dataset.split === "1") head.insertBefore(lineRest, head.firstChild);
-        else {
-          const cont = lineBox.cloneNode(false);
-          cont.dataset.split = "1";
-          cont.appendChild(lineRest);
-          const at = flowStart(nb);
-          if (at) nb.insertBefore(cont, at); else nb.appendChild(cont);
+        if (!splitBox(nextBody, into)) {
+          break;
         }
-        nb.normalize();
+      } else if (lineRest) {
+        const head = flowChildren(nextBody)[0];
+        if (head && isLineEl(head) && head.dataset.split === "1") {
+          head.insertBefore(lineRest, head.firstChild);
+        } else {
+          const continued = lineBox.cloneNode(false);
+          continued.dataset.split = "1";
+          continued.appendChild(lineRest);
+          const at = flowStart(nextBody);
+          if (at) {
+            nextBody.insertBefore(continued, at);
+          } else {
+            nextBody.appendChild(continued);
+          }
+        }
+        nextBody.normalize();
       } else {
-        const at = flowStart(nb);
-        if (at) nb.insertBefore(last, at); else nb.appendChild(last);
-        nb.normalize();                    // keep the moved lines as one text run
+        const at = flowStart(nextBody);
+        if (at) {
+          nextBody.insertBefore(last, at);
+        } else {
+          nextBody.appendChild(last);
+        }
+        // The moved lines stay one run of text.
+        nextBody.normalize();
       }
       moved = true;
     }
-    // Pull back UP: a page that has room again takes the next page's first
-    // block back. Without this, anything pushed down early - images only gain
-    // their height once they decrypt, so the first reflow is always pessimistic
-    // - stayed down, leaving a nearly empty page with one picture or one video
-    // card on it.
-    // Every move is a TRIAL: if the page then overflows, the node goes straight
-    // back where it came from. Nothing is ever split or copied here, so a block
-    // cannot be duplicated or lost.
+
+    // 2. Pull up.
     let up = sheetEls()[i + 1];
     while (up && up.dataset.cont && guard++ < budget) {
-      const ub = bodyOf(up);
-      const first = flowChildren(ub)[0];
-      if (!first) break;                       // empty: the remover below takes it
-      // A block that had to be SPLIT across pages is left alone: pulling the
-      // continuation half up would stack it under its own first half. A split
-      // LINE is the exception: its rest rejoins the line it was cut from, when
-      // the whole of it fits again.
-      if (first.nodeType === 1 && first.dataset && first.dataset.split === "1") {
-        const prev = flowChildren(el).slice(-1)[0];
-        if (!(isLineEl(first) && prev && isLineEl(prev))) break;
-        const moving = [...first.childNodes];
-        for (const c of moving) prev.appendChild(c);
-        if (overflowing(el)) { for (const c of moving) first.appendChild(c); break; }
-        first.remove();
-        prev.normalize();
-        moved = true;
-        if (!flowChildren(ub).some(x => x.nodeType !== 3 || x.data.trim())) { up.remove(); up = sheetEls()[i + 1]; }
-        continue;
+      const upBody = bodyOf(up);
+      const first = flowChildren(upBody)[0];
+      // Empty: step 3 removes it.
+      if (!first) {
+        break;
       }
-      const home = first.nextSibling;          // exactly where to put it back
-      const at = flowEnd(el);
-      if (at) el.insertBefore(first, at); else el.appendChild(first);
-      if (overflowing(el)) {
-        // Too much to take whole. For text, keep the part that fits and hand
-        // the remainder straight back - the node is TRUNCATED and its tail
-        // re-inserted, never copied, so no word can end up on both pages.
-        const rest = first.nodeType === 3 && first.data.trim() ? splitTextTail(el, first) : null;
-        if (!rest || overflowing(el)) {
-          if (rest) { first.data += rest.data; rest.remove(); }   // undo the cut
-          if (first.isConnected) first.remove();
-          ub.insertBefore(first, home);
-          ub.normalize();
+      if (first.nodeType === 1 && first.dataset && first.dataset.split === "1") {
+        const previous = flowChildren(el).slice(-1)[0];
+        if (!(isLineEl(first) && previous && isLineEl(previous))) {
           break;
         }
-        ub.insertBefore(rest, home);
-        ub.normalize();
+        const moving = [...first.childNodes];
+        for (const child of moving) {
+          previous.appendChild(child);
+        }
+        if (overflowing(el)) {
+          for (const child of moving) {
+            first.appendChild(child);
+          }
+          break;
+        }
+        first.remove();
+        previous.normalize();
+        moved = true;
+        if (!flowChildren(upBody).some(node => node.nodeType !== 3 || node.data.trim())) {
+          up.remove();
+          up = sheetEls()[i + 1];
+        }
+        continue;
+      }
+      // Exactly where to put it back.
+      const home = first.nextSibling;
+      const at = flowEnd(el);
+      if (at) {
+        el.insertBefore(first, at);
+      } else {
+        el.appendChild(first);
+      }
+      if (overflowing(el)) {
+        // Too much to take whole. Text keeps the part that fits and hands the
+        // rest straight back: the node is cut and its tail put back, never
+        // copied, so no word can end up on both pages.
+        const rest = first.nodeType === 3 && first.data.trim() ? splitTextTail(el, first) : null;
+        if (!rest || overflowing(el)) {
+          // The cut is undone and the node goes home.
+          if (rest) {
+            first.data += rest.data;
+            rest.remove();
+          }
+          if (first.isConnected) {
+            first.remove();
+          }
+          upBody.insertBefore(first, home);
+          upBody.normalize();
+          break;
+        }
+        upBody.insertBefore(rest, home);
+        upBody.normalize();
         el.normalize();
         moved = true;
-        break;                                 // the page is full now
+        // The page is full now.
+        break;
       }
-      el.normalize(); ub.normalize();          // re-join text that was split
+      // Text that was split is joined again.
+      el.normalize();
+      upBody.normalize();
       moved = true;
-      if (!flowChildren(ub).some(x => x.nodeType !== 3 || x.data.trim())) {
+      if (!flowChildren(upBody).some(node => node.nodeType !== 3 || node.data.trim())) {
         up.remove();
         up = sheetEls()[i + 1];
       }
     }
-    let next = sheetEls()[i + 1];
-    while (next && next.dataset.cont && guard++ < budget) {
-      const nb = bodyOf(next);
-      // Floats count as content here even though they never flow, or a page
-      // holding nothing but a pinned image would be deleted under it.
-      const hasText = [...nb.childNodes].some(x => !isFrame(x) && (x.nodeType !== 3 || x.data.trim().length > 0));
-      if (hasText) break;
-      next.remove();
+
+    // 3. Empty continuation pages go.
+    let following = sheetEls()[i + 1];
+    while (following && following.dataset.cont && guard++ < budget) {
+      const followingBody = bodyOf(following);
+      const hasText = [...followingBody.childNodes]
+        .some(node => !isFrame(node) && (node.nodeType !== 3 || node.data.trim().length > 0));
+      if (hasText) {
+        break;
+      }
+      following.remove();
       moved = true;
-      next = sheetEls()[i + 1];
+      following = sheetEls()[i + 1];
     }
-    // Checked once per sheet, so a sheet is never left half-processed.
-    if (performance.now() > deadline) { bailed = true; break; }
+
+    // Checked once per sheet, so a sheet is never left half done.
+    if (performance.now() > deadline) {
+      bailed = true;
+      break;
+    }
   }
-  // Out of time rather than out of work: come back and finish. Every early exit
-  // used to be permanent - nothing re-ran the sweep, so an oversized sheet just
-  // stayed on screen until the user happened to type.
-  if (bailed) scheduleRepaginate();
+  // Out of time rather than out of work: it comes back to finish (an early
+  // stop once was permanent, and an oversized sheet stayed until the next key).
+  if (bailed) {
+    scheduleRepaginate();
+  }
   return moved;
 }
-// Rewrite the note's pages from the sheets after a reflow, keeping ids where the
-// page still exists so nothing downstream is surprised.
+
+/**
+ * Rewrites the open note's pages from the sheets after a reflow. A page's
+ * identity comes from data-src, which never moves, not from data-page, a
+ * view index that is renumbered: reading it off the index made every page
+ * take its neighbour's id whenever a page was added or removed, so page
+ * identity flapped on each reflow and forked on sync. A continuation page
+ * gets a fresh id and keeps its cont mark when saved; without the mark, the
+ * reflow could never take back a page it made once the sheets were rebuilt.
+ *
+ * Used by: this file (repaginate, saveCurrent), lines.js (renderSheets),
+ * history.js (historyApply).
+ * Uses: isPaged and notePages (content.js), sheetEls, bodyOf, getEditorBody
+ * (lines.js), renumberSheets.
+ * Complexity: O(n) over the pages' content.
+ */
 function syncPagesFromDom() {
-  const n = currentId && vault ? vault.notes[currentId] : null;
-  if (!n || !isPaged(n)) return;
-  const old = notePages(n) || [];
-  n.pages = sheetEls().map((sh, i) => {
-    // Identity comes from data-src, which never moves, NOT from data-page, which
-    // is a view index that gets renumbered. Reading identity off the view index
-    // made every page inherit its neighbour's id whenever a page was added or
-    // removed - page identity flapping on each reflow, and forking on sync.
-    const src = old[+(sh.dataset.src !== undefined ? sh.dataset.src : sh.dataset.page)] || {};
-    const sec = sh.classList.contains("sec-title") ? "title" : sh.classList.contains("sec-final") ? "final" : "body";
-    // `cont` has to survive into the saved page, or the marker is lost the next
-    // time the sheets are rebuilt and the reflow can never reabsorb the page it
-    // created - which is how a note ends up keeping a page holding one picture.
-    const cont = !!(sh.dataset.cont || src.cont);
-    return { id: sh.dataset.cont ? crypto.randomUUID() : (src.id || crypto.randomUUID()),
-      name: (sh.querySelector(".sheet-label .nm") || {}).textContent || "Page " + (i + 1),
-      body: getEditorBody(bodyOf(sh)), bodyV: 2,
+  const note = currentId && vault ? vault.notes[currentId] : null;
+  if (!note || !isPaged(note)) {
+    return;
+  }
+  const old = notePages(note) || [];
+  note.pages = sheetEls().map((sheet, i) => {
+    const source = old[+(sheet.dataset.src !== undefined ? sheet.dataset.src : sheet.dataset.page)] || {};
+    const section = sheet.classList.contains("sec-title") ? "title"
+      : sheet.classList.contains("sec-final") ? "final" : "body";
+    const cont = !!(sheet.dataset.cont || source.cont);
+    return { id: sheet.dataset.cont ? crypto.randomUUID() : (source.id || crypto.randomUUID()),
+      name: (sheet.querySelector(".sheet-label .nm") || {}).textContent || "Page " + (i + 1),
+      body: getEditorBody(bodyOf(sheet)), bodyV: 2,
       ...(cont ? { cont: true } : {}),
-      ...(sec !== "body" ? { section: sec } : {}) };
+      ...(section !== "body" ? { section } : {}) };
   });
   renumberSheets();
-  for (const sh of sheetEls()) sh.dataset.src = sh.dataset.page;   // identity re-based on the new list
+  // Identity is now based on the new list.
+  for (const sheet of sheetEls()) {
+    sheet.dataset.src = sheet.dataset.page;
+  }
 }
-// The view index and the "3 / 7" counter, refreshed after ANY reflow - split
-// mode included, where the note itself is deliberately not written. Skipping it
-// there left continuation pages sharing an index with the sheet they were cloned
-// from, so the tabs, the active ring and every tab click pointed at the wrong
-// page a second after the design landed.
-function renumberSheets() {
-  const sheets = sheetEls();
-  sheets.forEach((sh, i) => {
-    sh.dataset.page = String(i);
-    bodyOf(sh).dataset.page = String(i);
-    const c = sh.querySelector(".sheet-label .n");
-    if (c) c.textContent = (i + 1) + " / " + sheets.length;
-  });
+
+/**
+ * The room for content on one page, in px: the page box minus its margins
+ * and whatever the frame takes (at least 80). It tells "too tall to ever
+ * fit" from "does not fit right here".
+ *
+ * Used by: this file (repaginateDom), history.js (onePageContentPx).
+ * Uses: isFrame, layoutH, pageBoxHeight.
+ * Complexity: O(c) in the page's children.
+ */
+function contentCapacity(el) {
+  const style = getComputedStyle(el);
+  let frames = 0;
+  for (const node of el.childNodes) {
+    if (isFrame(node)) {
+      frames += layoutH(node);
+    }
+  }
+  return Math.max(80, pageBoxHeight(el) - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom) - frames);
 }
-// Reflow keeping the caret exactly where the user left it: a marker rides along
-// with the moved nodes and is removed before anything is serialized.
+
+// ---------- Reflowing as the note changes: state ----------
+
+// The reflow waiting to run, after the last change.
 let repagTimer = null;
+
+// ---------- Reflowing as the note changes ----------
+
+/**
+ * Reflows the sheets, keeping the caret exactly where it was: a marker rides
+ * along with the nodes that move and is removed before anything is saved.
+ * Not in the trash, a backup or during a sync (the sheets on screen are then
+ * the ones from before the merge, and saving them would write them back over
+ * the merged note). In the second screen the pages are only renumbered, not
+ * saved: committing a reflow there made the note grow pages, so the
+ * structure is written when the edit is saved.
+ *
+ * Used by: this file (scheduleRepaginate).
+ * Uses: pagedView, surfaceOfNode and fitSheets (lines.js), repaginateDom,
+ * syncPagesFromDom, renumberSheets, sheetEls, bodyOf, packAttachmentRuns
+ * (history.js), renderPageTabs (content.js), renderStatus.
+ * Complexity: that of repaginateDom.
+ */
 function repaginate() {
-  // Never while a sync is applying a merge: the sheets on screen are the
-  // pre-merge ones, and committing them would write them back over the merged
-  // note.
-  if (!pagedView() || trashViewId || backupView || syncing || !currentId) return;
-  const sel = window.getSelection();
+  if (!pagedView() || trashViewId || backupView || syncing || !currentId) {
+    return;
+  }
+  const selection = window.getSelection();
   let marker = null;
-  if (sel && sel.rangeCount && surfaceOfNode(sel.getRangeAt(0).startContainer)) {
+  if (selection && selection.rangeCount && surfaceOfNode(selection.getRangeAt(0).startContainer)) {
     marker = document.createElement("span");
     marker.setAttribute("data-caret", "1");
-    const r = sel.getRangeAt(0).cloneRange();
-    r.collapse(true);
-    r.insertNode(marker);
+    const range = selection.getRangeAt(0).cloneRange();
+    range.collapse(true);
+    range.insertNode(marker);
   }
   const moved = repaginateDom();
   if (marker && marker.isConnected) {
-    const surf = surfaceOfNode(marker);
-    const r2 = document.createRange();
-    r2.setStartAfter(marker);
-    r2.collapse(true);
-    marker.remove();                       // gone BEFORE any serialization
-    if (surf) {
-      surf.focus();
-      const s = window.getSelection();
-      s.removeAllRanges();
-      s.addRange(r2);
+    const surface = surfaceOfNode(marker);
+    const caret = document.createRange();
+    caret.setStartAfter(marker);
+    caret.collapse(true);
+    marker.remove();
+    if (surface) {
+      surface.focus();
+      const current = window.getSelection();
+      current.removeAllRanges();
+      current.addRange(caret);
     }
-  } else if (marker) marker.remove();
-  if (moved) {
-    // Committing the reflow from inside the second screen made the note GROW
-    // pages, so it does not do that: the second screen only renumbers, and the
-    // structure is written when you save. (The view/state divergence that
-    // caused is handled by rebuilding from the sheets, not from n.pages -
-    // see reloadNoteInPlace.)
-    if (!splitMode) syncPagesFromDom(); else renumberSheets();
-    for (const sh of sheetEls()) packAttachmentRuns(bodyOf(sh));
-    renderPageTabs(); renderStatus();
+  } else if (marker) {
+    marker.remove();
   }
-  // Margins are baked from each sheet's height, so they must be recomputed after
-  // the pass that settles the layout - not only when something moved.
+  if (moved) {
+    if (!splitMode) {
+      syncPagesFromDom();
+    } else {
+      renumberSheets();
+    }
+    for (const sheet of sheetEls()) {
+      packAttachmentRuns(bodyOf(sheet));
+    }
+    renderPageTabs();
+    renderStatus();
+  }
+  // The sheets' margins come from their heights, so they are worked out
+  // again after the pass that settles the layout, whether or not anything moved.
   fitSheets();
 }
+
+/**
+ * Reflows 220 ms after the last change (typing, a picture arriving), so a
+ * burst of changes reflows once.
+ *
+ * Used by: this file (typing in a sheet, repaginateDom), lines.js
+ * (hydrateInlineMedia, scheduleInlineSave, setInlineImage).
+ * Uses: pagedView (lines.js), repaginate.
+ * Complexity: O(1).
+ */
 function scheduleRepaginate() {
-  if (!pagedView()) return;
+  if (!pagedView()) {
+    return;
+  }
   clearTimeout(repagTimer);
   repagTimer = setTimeout(repaginate, 220);
 }
+
+/**
+ * Scrolls the sheets smoothly to page i.
+ *
+ * Used by: content.js (addPage, switchPage).
+ * Uses: nothing.
+ * Complexity: O(1).
+ */
 function scrollToPage(i) {
   const sheet = $("sheets").querySelector('.sheet[data-page="' + i + '"]');
-  if (sheet) sheet.scrollIntoView({ block: "start", behavior: "smooth" });
-}
-function markActiveSheet(i) {
-  for (const s of $("sheets").querySelectorAll(".sheet")) s.classList.toggle("active", +s.dataset.page === i);
-}
-// Scrolling the stack keeps the tabs in step, so the two navigation methods
-// never disagree about which page you are on.
-$("sheets").addEventListener("scroll", () => {
-  if (!pagedView()) return;
-  const box = $("sheets").getBoundingClientRect();
-  let best = 0, bestD = Infinity;
-  for (const s of $("sheets").querySelectorAll(".sheet")) {
-    const d = Math.abs(s.getBoundingClientRect().top - box.top - 8);
-    if (d < bestD) { bestD = d; best = +s.dataset.page; }
+  if (sheet) {
+    sheet.scrollIntoView({ block: "start", behavior: "smooth" });
   }
-  if (best !== currentPage) { currentPage = best; markActiveSheet(best); renderPageTabs(); }
+}
+
+/**
+ * Rings sheet i as the current one.
+ *
+ * Used by: this file (scrolling and focus), content.js (switchPage).
+ * Uses: nothing.
+ * Complexity: O(p) in the sheets.
+ */
+function markActiveSheet(i) {
+  for (const sheet of $("sheets").querySelectorAll(".sheet")) {
+    sheet.classList.toggle("active", +sheet.dataset.page === i);
+  }
+}
+
+// ---------- On load: the sheets ----------
+
+// Scrolling the stack keeps the tabs in step: the sheet nearest the top is
+// the current page, so the two ways of moving never disagree.
+$("sheets").addEventListener("scroll", () => {
+  if (!pagedView()) {
+    return;
+  }
+  const box = $("sheets").getBoundingClientRect();
+  let best = 0;
+  let bestDistance = Infinity;
+  for (const sheet of $("sheets").querySelectorAll(".sheet")) {
+    const distance = Math.abs(sheet.getBoundingClientRect().top - box.top - 8);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = +sheet.dataset.page;
+    }
+  }
+  if (best !== currentPage) {
+    currentPage = best;
+    markActiveSheet(best);
+    renderPageTabs();
+  }
 }, { passive: true });
-// Typing in any sheet marks the note dirty through the same path as #editor.
-$("sheets").addEventListener("input", e => {
-  if (!e.target.classList || !e.target.classList.contains("sheet-body")) return;
-  if (trashViewId || backupView || !currentId) return;
-  if (statusIsError) status("");
+
+// Typing in a sheet marks the note as changed, the same way as in #editor,
+// and text that no longer fits moves to the next page.
+$("sheets").addEventListener("input", event => {
+  if (!event.target.classList || !event.target.classList.contains("sheet-body")) {
+    return;
+  }
+  if (trashViewId || backupView || !currentId) {
+    return;
+  }
+  if (statusIsError) {
+    status("");
+  }
   historyMarkTyping();
-  if (!dirty) { dirty = true; renderList(); }
-  if (!splitMode) { clearTimeout(saveTimer); saveTimer = setTimeout(saveCurrent, 400); }
-  scheduleRepaginate();   // text that no longer fits moves to the next page
+  if (!unsavedEdits) {
+    unsavedEdits = true;
+    renderList();
+  }
+  if (!splitMode) {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveCurrent, 400);
+  }
+  scheduleRepaginate();
   renderStatus();
 });
-// A click inside a sheet makes it the current page for the tabs.
-$("sheets").addEventListener("focusin", e => {
-  const el = e.target.closest && e.target.closest(".sheet-body");
-  if (!el) return;
+
+// Clicking into a sheet makes it the current page for the tabs.
+$("sheets").addEventListener("focusin", event => {
+  const el = event.target.closest && event.target.closest(".sheet-body");
+  if (!el) {
+    return;
+  }
   const i = +el.dataset.page;
-  if (i !== currentPage) { currentPage = i; markActiveSheet(i); renderPageTabs(); }
+  if (i !== currentPage) {
+    currentPage = i;
+    markActiveSheet(i);
+    renderPageTabs();
+  }
 });
 
-// Backs every editor-clear site: cancels in-flight hydration and resets the baseline
-// so the next opened note starts clean.
+// ---------- Opening and saving notes ----------
+
+/**
+ * Empties the editor: decrypts still on their way are cancelled and the
+ * baseline is reset, so the next note opened starts clean.
+ *
+ * Used by: notes.js (purgeTrashCore, trashNote), merge.js (applyMerge),
+ * panel.js (restorePrev), settings.js (lockApp).
+ * Uses: updateEditorEmpty (lines.js).
+ * Complexity: O(1).
+ */
 function clearEditor() {
   editorSeq++;
   $("editor").replaceChildren();
@@ -451,170 +536,273 @@ function clearEditor() {
   updateEditorEmpty();
 }
 
+/**
+ * Opens a note: a paged one as sheets (what is seen is the PDF), a one-page
+ * one in the plain editor. The second screen closes first (its frozen
+ * reference belongs to the note it was taken from), decrypted attachments
+ * are revoked (they never outlive the note they were shown for), and the
+ * undo and pending-change state start fresh for this note. A note in a
+ * collapsed folder is revealed, folders above it included.
+ *
+ * Used by: attachments.js (ensureNoteForMedia), content.js (duplicateNote,
+ * makePagedAndShow), designs.js (applyDesign, applyPreset, designItems,
+ * importDesign, newDesign), events.js (newNote), notes.js (noteMenu,
+ * restoreFromTrash), panel.js (renderDetail), sidebar.js (noteRow, renderUnsynced).
+ * Uses: exitSplit (split.js), revokeAllMediaUrls (vault.js), isPaged,
+ * activeBody and renderPageTabs (content.js), renderSheets and setEditorBody
+ * (lines.js), revealFolder and renderList (sidebar.js), applyReadonly,
+ * renderStatus, renderAttachments (attachments.js), renderHistoryButtons (history.js).
+ * Complexity: O(n) in the note's content.
+ */
 function openNote(id) {
-  if (!vault.notes[id]) return;
-  exitSplit(true);        // a frozen reference belongs to the note it was taken from
-  revokeAllMediaUrls();   // decrypted media never outlives the note it was shown for
-  trashViewId = null;     // leaving the read-only trash view
+  if (!vault.notes[id]) {
+    return;
+  }
+  exitSplit(true);
+  revokeAllMediaUrls();
+  // Leaving the read-only trash view.
+  trashViewId = null;
   currentId = id;
   currentPage = 0;
-  histTypingMarked = false;   // each note keeps its own undo history
-  structureDirty = false;     // pending-change tracking never crosses notes
-  const n = vault.notes[id];
-  $("title").value = n.title;
-  // Paged notes open in the scrolling sheet view (what you see IS the PDF);
-  // single-page notes keep the plain editor.
-  if (isPaged(n)) renderSheets();
-  else { document.body.classList.remove("paged-view"); $("sheets").innerHTML = "";
-    const t = activeBody(n); setEditorBody(t.body, { bodyV: t.bodyV }); }
+  historyTypingMarked = false;
+  structureDirty = false;
+  const note = vault.notes[id];
+  $("title").value = note.title;
+  if (isPaged(note)) {
+    renderSheets();
+  } else {
+    document.body.classList.remove("paged-view");
+    $("sheets").innerHTML = "";
+    const body = activeBody(note);
+    setEditorBody(body.body, { bodyV: body.bodyV });
+  }
   renderPageTabs();
-  // Opening a note programmatically must never leave it hidden in a collapsed folder.
-  if (n.folderId) revealFolder(n.folderId);   // incl. collapsed ancestors
+  if (note.folderId) {
+    revealFolder(note.folderId);
+  }
   applyReadonly();
-  dirty = false;
+  unsavedEdits = false;
   renderList();
   renderStatus();
   renderAttachments();
   renderHistoryButtons();
 }
 
-// Read-only preview of a trashed note. currentId stays null on purpose: nothing
-// in the save path may ever write this buffer back into a live note.
+/**
+ * Shows a note in the trash, read-only. The open note is saved first, while
+ * currentId still points at it. currentId stays null on purpose: nothing in
+ * the save path may ever write this buffer back into a live note. A trashed
+ * snapshot may be an old plain body or a v2 one, and a paged one shows as
+ * read-only sheets; its attachments can be downloaded, not removed or added.
+ *
+ * Used by: panel.js (renderDetail), sidebar.js (renderTrash, renderUnsynced).
+ * Uses: flushSave, exitSplit (split.js), revokeAllMediaUrls (vault.js),
+ * isPaged, activeBody and renderPageTabs (content.js), renderSheets and
+ * setEditorBody (lines.js), applyReadonly, renderList (sidebar.js),
+ * renderStatus, renderAttachments (attachments.js).
+ * Complexity: O(n) in the snapshot's content.
+ */
 function openTrash(id) {
-  if (!vault.trash[id]) return;
-  flushSave();            // commit the live note first, while currentId still points at it
+  if (!vault.trash[id]) {
+    return;
+  }
+  flushSave();
   exitSplit(true);
   revokeAllMediaUrls();
   currentId = null;
   currentPage = 0;
   trashViewId = id;
-  const d = vault.trash[id].data || {};
-  $("title").value = d.title || "";
-  // Branch on the SNAPSHOT's bodyV (a trash snapshot may be v1 plain or v2 HTML);
-  // a paged snapshot shows its pages read-only in the same sheet view.
-  if (isPaged(d)) renderSheets();
-  else { document.body.classList.remove("paged-view"); $("sheets").innerHTML = "";
-    const t = activeBody(d); setEditorBody(t.body || "", { bodyV: t.bodyV }); }
+  const snapshot = vault.trash[id].data || {};
+  $("title").value = snapshot.title || "";
+  if (isPaged(snapshot)) {
+    renderSheets();
+  } else {
+    document.body.classList.remove("paged-view");
+    $("sheets").innerHTML = "";
+    const body = activeBody(snapshot);
+    setEditorBody(body.body || "", { bodyV: body.bodyV });
+  }
   renderPageTabs();
   applyReadonly();
-  dirty = false;
+  unsavedEdits = false;
   renderList();
   renderStatus();
-  renderAttachments();   // trash snapshot media: download-only, no remove, no ingest
+  renderAttachments();
 }
 
-// contentEditable=false (not disabled) so trashed text stays selectable and copyable.
-// Also the single source of truth for the editor's editability: it is off for a
-// trash view OR while a sync is in flight (applyMerge calls this mid-sync), so a
-// keystroke can never land during the merge and flip the pull-vs-push decision.
+/**
+ * Makes the title and the text editable or not: read-only in the trash and
+ * in a backup, and the text also while a sync runs (applyMerge calls this
+ * mid-sync), so a key can never land during the merge and change its
+ * outcome. contentEditable is set to false rather than disabling, so the
+ * text can still be selected and copied.
+ *
+ * Used by: this file (openNote, openTrash), notes.js (purgeTrashCore),
+ * merge.js (applyMerge), panel.js (restorePrev), backups.js
+ * (enterBackupView), sync.js (setEditingEnabled).
+ * Uses: nothing.
+ * Complexity: O(p) in the sheets.
+ */
 function applyReadonly() {
-  const ro = !!trashViewId || !!backupView;
-  $("title").readOnly = ro;
-  const editable = (ro || syncing) ? "false" : "true";
+  const readOnly = !!trashViewId || !!backupView;
+  $("title").readOnly = readOnly;
+  const editable = (readOnly || syncing) ? "false" : "true";
   $("editor").contentEditable = editable;
-  for (const el of $("sheets").querySelectorAll(".sheet-body")) el.contentEditable = editable;
-  $("main").classList.toggle("readonly", ro);
+  for (const el of $("sheets").querySelectorAll(".sheet-body")) {
+    el.contentEditable = editable;
+  }
+  $("main").classList.toggle("readonly", readOnly);
 }
 
-// Returns true when it actually wrote to the vault.
+/**
+ * Saves the open note into the vault (persistLocal seals it with AES-256-GCM,
+ * vault.js) and returns whether it wrote anything. Nothing is written when
+ * nothing changed since the baseline, unless a structural change is pending
+ * (structureDirty, history.js): reshaping the note drew the screen again and
+ * took a new baseline, so "nothing changed" was true while the note itself
+ * was never saved, and "Save edit" once saved nothing.
+ *   - Sheets: the page list is rebuilt from the sheets rather than written
+ *     page by page, since a reflow in the second screen can have added sheets
+ *     the note knows nothing about.
+ *   - One page: the text goes to the current page (or the note itself). The
+ *     comparison is with the baseline, not note.body: for an old plain note
+ *     the editor's text is HTML while note.body is plain, so they would never
+ *     match and every old note merely opened would be converted and synced
+ *     again. For the same reason an old plain body whose text is unchanged
+ *     (and has no inline attachments) stays plain: renaming an old note never
+ *     rewrites its body or forks it against a device not yet upgraded.
+ * A failed save is reported and the note stays unsaved.
+ *
+ * Used by: this file (flushSave, manualSave, typing in a sheet), events.js
+ * (typing, on load), history.js (historyApply), lines.js
+ * (scheduleInlineSave), toolbar.js (markDirtyFromFormatting), media-sync.js (runSync).
+ * Uses: renderStatus, renderList (sidebar.js), pagedView, sheetsSnapshot,
+ * getEditorBody and editorHasInlineMedia (lines.js), isPaged and activeBody
+ * (content.js), syncPagesFromDom, persistLocal (vault.js), status.
+ * Complexity: O(n) in the note, plus the vault's seal.
+ */
 function saveCurrent() {
-  if (trashViewId || !currentId) { dirty = false; renderStatus(); return false; }
-  const n = vault.notes[currentId];
+  if (trashViewId || !currentId) {
+    unsavedEdits = false;
+    renderStatus();
+    return false;
+  }
+  const note = vault.notes[currentId];
   const title = $("title").value;
-  // Paged note in the sheet view: every page is live, so save them all.
-  if (pagedView() && isPaged(n)) {
-    const snap = sheetsSnapshot();
-    // The fast-path is VOID while a structural change is pending: reshaping the
-    // note re-rendered the screen and re-took the baseline, so "nothing changed
-    // since the baseline" was true while the note itself was never persisted -
-    // and "Save edit" silently saved nothing.
-    if (!structureDirty && n.title === title && snap === editorBaseline) {
-      dirty = false; renderList(); renderStatus(); return false;
+
+  if (pagedView() && isPaged(note)) {
+    const snapshot = sheetsSnapshot();
+    if (!structureDirty && note.title === title && snapshot === editorBaseline) {
+      unsavedEdits = false;
+      renderList();
+      renderStatus();
+      return false;
     }
-    n.title = title;
-    // Rebuild the page list from the sheets rather than writing body-by-body:
-    // a reflow in split mode can have added sheets that n.pages knows nothing
-    // about, and index-mapping would have dropped them on the floor.
+    note.title = title;
     syncPagesFromDom();
-    n.mtime = Date.now();
-    persistLocal().catch(e => { dirty = true; status("Save failed: " + e.message, true); renderStatus(); });
-    dirty = false;
-    structureDirty = false;     // the pending structural change reached disk
-    histTypingMarked = false;   // the next keystroke opens a new undo step
-    editorBaseline = snap;
+    note.mtime = Date.now();
+    persistLocal().catch(error => {
+      unsavedEdits = true;
+      status("Save failed: " + error.message, true);
+      renderStatus();
+    });
+    unsavedEdits = false;
+    structureDirty = false;
+    // The next key starts a new undo step.
+    historyTypingMarked = false;
+    editorBaseline = snapshot;
     renderList();
     renderStatus();
     return true;
   }
+
   const html = getEditorBody();
-  // Compare against the load-time baseline, NOT n.body: for a v1 note getEditorBody()
-  // is canonical HTML while n.body is plain, so they would never match and every
-  // merely-opened old note would migrate + resync. The baseline is that same HTML.
-  if (!structureDirty && n.title === title && html === editorBaseline) {
-    dirty = false;
+  if (!structureDirty && note.title === title && html === editorBaseline) {
+    unsavedEdits = false;
     renderList();
     renderStatus();
     return false;
   }
-  n.title = title;
-  // Writes land on the ACTIVE PAGE for a paged note, on the note itself
-  // otherwise - the only difference between the two shapes at save time.
-  const tgt = activeBody(n);
-  // Migration is edit-triggered: a still-legacy body whose text is unchanged (and
-  // has no inline media) stays plain with no bodyV, so renaming an old note never
-  // rewrites its body or forks it against a not-yet-upgraded device. "Unchanged"
-  // is judged against the load-time baseline: the page shows the text as lines,
-  // so its textContent no longer carries the newlines to compare with.
+  note.title = title;
+  const target = activeBody(note);
   if (editorPlainOrig !== null && !editorHasInlineMedia() && html === editorBaseline) {
-    // body unchanged; leave the body / bodyV as-is (only the title moved)
+    // The text is unchanged: the body and bodyV stay as they are (only the title moved).
   } else {
-    tgt.body = html;
-    tgt.bodyV = 2;
+    target.body = html;
+    target.bodyV = 2;
     editorPlainOrig = null;
   }
-  n.mtime = Date.now();
-  persistLocal().catch(e => { dirty = true; status("Save failed: " + e.message, true); renderStatus(); });
-  dirty = false;
+  note.mtime = Date.now();
+  persistLocal().catch(error => {
+    unsavedEdits = true;
+    status("Save failed: " + error.message, true);
+    renderStatus();
+  });
+  unsavedEdits = false;
   structureDirty = false;
-  histTypingMarked = false;
+  historyTypingMarked = false;
   editorBaseline = html;
   renderList();
   renderStatus();
   return true;
 }
 
-function flushSave() { clearTimeout(saveTimer); saveCurrent(); }
+/**
+ * Saves the open note now, cancelling the save waiting after typing: called
+ * before anything reads or changes the note, so keys typed a moment ago are
+ * in it.
+ *
+ * Used by: this file (openTrash) and most scripts that change notes:
+ * attachments.js, backups.js, content.js, designs.js, events.js, history.js,
+ * media-sync.js, notes.js, panel.js, pdf.js, settings.js, sidebar.js,
+ * split.js, toolbar.js, updates.js.
+ * Uses: saveTimer (events.js), saveCurrent.
+ * Complexity: that of saveCurrent.
+ */
+function flushSave() {
+  clearTimeout(saveTimer);
+  saveCurrent();
+}
 
+/**
+ * The Save button and Ctrl+S: saves now and says so with the time.
+ *
+ * Used by: events.js (the Save button and Ctrl+S, on load), history.js
+ * ("Save edit", on load), panel.js (renderDetail).
+ * Uses: saveTimer (events.js), saveCurrent, status.
+ * Complexity: that of saveCurrent.
+ */
 function manualSave() {
   clearTimeout(saveTimer);
   const wrote = saveCurrent();
-  if (wrote) status("Saved " + new Date().toLocaleTimeString());
-  else if (statusIsError) status("");
+  if (wrote) {
+    status("Saved " + new Date().toLocaleTimeString());
+  } else if (statusIsError) {
+    status("");
+  }
 }
 
-// Transient messages: non-errors auto-clear after 4s; errors persist until the
-// next keystroke, save, or sync attempt; sticky ("Syncing...") never auto-clears.
-let statusTimer = null, statusIsError = false;
-function status(msg, err, sticky) {
-  clearTimeout(statusTimer);
-  $("status").textContent = msg;
-  $("status").style.color = err ? "var(--bad)" : "var(--t3)";
-  statusIsError = !!err;
-  if (msg && !err && !sticky) statusTimer = setTimeout(() => { $("status").textContent = ""; }, 4000);
-}
+// ---------- The status line and sync errors: state ----------
 
-const ERR_LABEL = {
+// The pending clear of the status line, and whether it shows an error.
+let statusTimer = null;
+let statusIsError = false;
+
+// The chip text for each kind of sync failure.
+const ERROR_LABELS = {
   offline: "Sync failed: offline",
   auth: "Sync failed: token rejected",
   ratelimit: "Sync failed: rate limited",
   conflict: "Sync failed: remote changed",
   pwmismatch: "Sync blocked: remote password mismatch",
-  // The two repo-guard refusals: this copy has no repo configured yet, or it points at a public one.
+  // The two repository-guard refusals: this copy has no repository set yet, or it points at a public one.
   unset: "Sync off: no repo set",
   public: "Sync blocked: repo is public",
   other: "Sync failed",
 };
-const ERR_EXPLAIN = {
+
+// What each failure means and what to do, for the detail panel.
+const ERROR_EXPLANATIONS = {
   offline: "The request never reached GitHub. Your notes are safe in this browser; press Sync when back online.",
   auth: "GitHub rejected the token (expired, revoked, or it lost access to the repo). Paste a new fine-grained token below.",
   ratelimit: "GitHub is rate limiting this token. Wait a few minutes and press Sync again.",
@@ -627,103 +815,435 @@ const ERR_EXPLAIN = {
   other: "Unexpected error during sync. Press Sync to retry.",
 };
 
-function classifySyncError(e) {
-  let kind = "other";
-  // A repo-guard refusal already names its own kind ("unset" or "public"), so it wins over the generic checks.
-  if (e.guard) kind = e.guard;
-  else if (e instanceof TypeError || navigator.onLine === false) kind = "offline";
-  else if (e.status === 401 || e.status === 404) kind = "auth";
-  else if (e.status === 403 && /rate.?limit/i.test(e.message)) kind = "ratelimit";
-  else if (e.status === 409) kind = "conflict";
-  return { at: Date.now(), httpStatus: e.status || null, kind, raw: e.message };
-}
+// ---------- The status line, chips and banners ----------
 
-// count goes in a fixed-width span so 9 -> 10 cannot shove the neighbouring
-// chip out from under the cursor.
-function toggleChip(id, show, text, count) {
-  const c = $(id);
-  c.style.display = show ? "inline-block" : "none";
-  if (text != null) {
-    c.textContent = text;
-    if (count != null) {
-      c.appendChild(document.createTextNode(" ("));
-      c.appendChild(mk("span", "n", String(count)));
-      c.appendChild(document.createTextNode(")"));
-    }
+/**
+ * Shows a message on the status line. An ordinary message clears itself
+ * after 4 s; an error stays until the next key, save or sync; a sticky one
+ * ("Syncing...") never clears by itself.
+ *
+ * Used by: this file and almost every script: alignment.js, attachments.js,
+ * backups.js, censor.js, content.js, designs.js, events.js, format-menu.js,
+ * history.js, lines.js, lock.js, media-sync.js, notes.js, panel.js, pdf.js,
+ * settings.js, sidebar.js, split.js, tables.js, toolbar.js, updates.js,
+ * vault.js, vaults.js.
+ * Uses: nothing.
+ * Complexity: O(1).
+ */
+function status(message, isError, sticky) {
+  clearTimeout(statusTimer);
+  $("status").textContent = message;
+  $("status").style.color = isError ? "var(--bad)" : "var(--t3)";
+  statusIsError = !!isError;
+  if (message && !isError && !sticky) {
+    statusTimer = setTimeout(() => {
+      $("status").textContent = "";
+    }, 4000);
   }
 }
 
-// Single writer for chips, Save/Delete buttons, Last synced, banner, and the
-// open detail panel. Every state transition funnels through here.
+/**
+ * What kind of sync failure an error is, as { at, httpStatus, kind, raw }:
+ * a repository-guard refusal names its own kind ("unset" or "public") and
+ * wins; otherwise offline (a network error), auth (401 or 404), ratelimit
+ * (403 saying so), conflict (409) or other.
+ *
+ * Used by: media-sync.js (overwriteRemote, runSync).
+ * Uses: nothing.
+ * Complexity: O(1).
+ */
+function classifySyncError(error) {
+  let kind = "other";
+  if (error.guard) {
+    kind = error.guard;
+  } else if (error instanceof TypeError || navigator.onLine === false) {
+    kind = "offline";
+  } else if (error.status === 401 || error.status === 404) {
+    kind = "auth";
+  } else if (error.status === 403 && /rate.?limit/i.test(error.message)) {
+    kind = "ratelimit";
+  } else if (error.status === 409) {
+    kind = "conflict";
+  }
+  return { at: Date.now(), httpStatus: error.status || null, kind, raw: error.message };
+}
+
+/**
+ * Brings everything that shows the vault's state up to date: the Save
+ * button, the second-screen button, "Last synced", the chips (unsaved
+ * content, sync error), the unsynced section, the banners, and the detail
+ * panel (closed when there is nothing left to show). Every change of state
+ * goes through here.
+ *
+ * Used by: this file and most scripts: attachments.js, content.js,
+ * designs.js, events.js, history.js, lines.js, lock.js, media-sync.js,
+ * merge.js, notes.js, panel.js, sidebar.js, split.js, toolbar.js, vault.js, vaults.js.
+ * Uses: unsyncedCount (vault.js), toggleChip, renderUnsynced (sidebar.js),
+ * ERROR_LABELS, renderBanner, renderTrashBanner, closePanel and renderDetail (panel.js).
+ * Complexity: O(n) over the vault, to count what is unsynced.
+ */
 function renderStatus() {
-  if (!vault) return;
-  const sb = $("save");
-  sb.disabled = !dirty || syncing || !!trashViewId;
-  sb.textContent = dirty ? "Save" : (currentId ? "Saved" : "Save");
-  sb.style.minWidth = "62px";   // label swaps Save/Saved; do not resize the title input
-  // Second screen compares against the open note: with none open it could only do nothing.
+  if (!vault) {
+    return;
+  }
+  const saveButton = $("save");
+  saveButton.disabled = !unsavedEdits || syncing || !!trashViewId;
+  saveButton.textContent = unsavedEdits ? "Save" : (currentId ? "Saved" : "Save");
+  // The label swaps between Save and Saved; the title field must not change width.
+  saveButton.style.minWidth = "62px";
+  // The second screen compares with the open note: with none open it could do nothing.
   $("split-btn").disabled = !splitMode && (!currentId || !!trashViewId || syncing);
 
-  const ls = $("last-synced");
+  const lastSynced = $("last-synced");
   if (syncMeta.lastSyncedAt == null) {
-    ls.textContent = "Never synced";
-    ls.style.color = "var(--warn)";
+    lastSynced.textContent = "Never synced";
+    lastSynced.style.color = "var(--warn)";
   } else {
-    const d = new Date(syncMeta.lastSyncedAt);
-    const dOpts = { month: "short", day: "numeric" };
-    if (d.getFullYear() !== new Date().getFullYear()) dOpts.year = "numeric";
-    ls.textContent = "Last synced " +
-      d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) + ", " +
-      d.toLocaleDateString(undefined, dOpts);
-    ls.style.color = "var(--t3)";
+    const when = new Date(syncMeta.lastSyncedAt);
+    const dateOptions = { month: "short", day: "numeric" };
+    if (when.getFullYear() !== new Date().getFullYear()) {
+      dateOptions.year = "numeric";
+    }
+    lastSynced.textContent = "Last synced " +
+      when.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) + ", " +
+      when.toLocaleDateString(undefined, dateOptions);
+    lastSynced.style.color = "var(--t3)";
   }
 
-  const unsyncedN = unsyncedCount();   // notes + folders + trash + both deletion kinds
-  toggleChip("chip-unsaved", dirty, "Unsaved content");
-  renderUnsynced();   // its own section in the sidebar, above the trash
-  toggleChip("chip-syncerr", !!lastSyncError, lastSyncError ? ERR_LABEL[lastSyncError.kind] : null);
+  // Notes, folders, trash and both kinds of deletion.
+  const unsyncedTotal = unsyncedCount();
+  toggleChip("chip-unsaved", unsavedEdits, "Unsaved content");
+  renderUnsynced();
+  toggleChip("chip-syncerr", !!lastSyncError, lastSyncError ? ERROR_LABELS[lastSyncError.kind] : null);
 
   renderBanner();
   renderTrashBanner();
 
   if (panelOpen) {
-    if (!dirty && unsyncedN === 0 && !lastSyncError && !pullBanner) closePanel();
-    else renderDetail();
+    if (!unsavedEdits && unsyncedTotal === 0 && !lastSyncError && !pullBanner) {
+      closePanel();
+    } else {
+      renderDetail();
+    }
   }
 }
 
-// Shown only when a merge actually replaced or removed local content (the case
-// the pre-merge snapshot exists for); a merge that only ADOPTS remote notes
-// takes the snapshot silently, since nothing local was overwritten.
+/**
+ * The merge banner's text: when the repository's vault was saved, and how
+ * many local notes it replaced, removed and added. The banner is only shown
+ * when a merge really replaced or removed local content (what the snapshot
+ * taken before the merge is for); a merge that only adds notes from the
+ * repository takes the snapshot silently.
+ *
+ * Used by: this file (renderBanner), panel.js (renderDetail).
+ * Uses: pullBanner (core.js).
+ * Complexity: O(1).
+ */
 function bannerText() {
   return `Merged the repo vault (saved ${new Date(pullBanner.remoteSavedAt).toLocaleString()}): ` +
     `${pullBanner.replaced} local note(s) replaced by a newer remote version, ` +
     `${pullBanner.lost} removed, ${pullBanner.added} new from remote.`;
 }
+
+/**
+ * Dismisses the merge banner and forgets it (not in a backup, which is
+ * read-only, down to this one localStorage write).
+ *
+ * Used by: events.js (the banner's close button, on load), panel.js (restorePrev).
+ * Uses: vaultStorageKey (core.js), renderStatus.
+ * Complexity: O(1), plus renderStatus.
+ */
+function dismissBanner() {
+  if (backupView) {
+    return;
+  }
+  pullBanner = null;
+  pullDiff = null;
+  localStorage.removeItem(vaultStorageKey("pullBanner"));
+  renderStatus();
+}
+
+// =================== Auxiliary functions ===================
+
+/** Every sheet in the stack. Complexity: O(p). */
+function sheetEls() {
+  return [...$("sheets").querySelectorAll(".sheet")];
+}
+
+/** A sheet's editable body. Complexity: O(1). */
+function bodyOf(sheet) {
+  return sheet.querySelector(".sheet-body");
+}
+
+/** Whether a node is a design's frame (top or bottom), which stays on its page. Complexity: O(1). */
+function isFrame(node) {
+  return node && node.nodeType === 1 && node.dataset && (node.dataset.frame === "top" || node.dataset.frame === "bottom");
+}
+
+/**
+ * Whether a node is pinned. A pinned item is out of the flow: moving it
+ * changes nothing about the page's height, and it would land on the next
+ * page with its old place, so it stays, like the frame. Complexity: O(1).
+ */
+function isFloat(node) {
+  return node && node.nodeType === 1 && node.classList && node.classList.contains("floating");
+}
+
+/** The children of a page that flow: everything but the frame and pinned items. Complexity: O(c). */
+function flowChildren(el) {
+  return [...el.childNodes].filter(node => !isFrame(node) && !isFloat(node));
+}
+
+/** An element's layout height (0 for anything else). Complexity: O(1). */
+function layoutH(node) {
+  return node && node.nodeType === 1 ? node.offsetHeight : 0;
+}
+
+/** How much a sheet is scaled on screen (1 when it is not), to compare screen and layout units. Complexity: O(1). */
+function sheetScale(el) {
+  const height = el.offsetHeight;
+  return height ? el.getBoundingClientRect().height / height : 1;
+}
+
+/**
+ * The screen y content must stay above on this page, in viewport units
+ * (what a Range measures in): the page's bottom less its margin and the
+ * bottom frame. Complexity: O(c) in the page's children.
+ */
+function contentLimit(el) {
+  const style = getComputedStyle(el);
+  let foot = 0;
+  for (const node of el.childNodes) {
+    if (isFrame(node) && node.dataset.frame === "bottom") {
+      foot += layoutH(node);
+    }
+  }
+  const scale = sheetScale(el);
+  return el.getBoundingClientRect().top + (pageBoxHeight(el) - parseFloat(style.paddingBottom) - foot) * scale;
+}
+
+/**
+ * Cuts a text node at the line that crosses the page's bottom and returns
+ * the rest as a new node (null when nothing fits or everything does). Typed
+ * prose is one text node with no newlines (the browser wraps it), so cutting
+ * on "\n" alone left a whole paragraph uncuttable. A binary search on a
+ * Range finds the character where the text crosses the limit; the cut then
+ * backs up to the nearest newline or space, so words stay whole.
+ * Complexity: O(log n) layout measurements.
+ */
+function splitTextTail(el, tail) {
+  const limit = contentLimit(el);
+  const range = document.createRange();
+  let lo = 0;
+  let hi = tail.data.length;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    range.setStart(tail, 0);
+    range.setEnd(tail, mid);
+    if (range.getBoundingClientRect().bottom <= limit) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  if (lo <= 0 || lo >= tail.data.length) {
+    return null;
+  }
+  const newline = tail.data.lastIndexOf("\n", lo);
+  const space = tail.data.lastIndexOf(" ", lo);
+  let cut = newline > 0 ? newline + 1 : (space > 0 ? space + 1 : lo);
+  if (cut <= 0 || cut >= tail.data.length) {
+    cut = lo;
+  }
+  const rest = document.createTextNode(tail.data.slice(cut));
+  tail.data = tail.data.slice(0, cut);
+  if (!tail.data) {
+    tail.remove();
+  }
+  return rest;
+}
+
+/**
+ * Splits inside a block too tall on its own (a centred run of pictures, a
+ * long table, a 200-item list): without this the page just stayed
+ * oversized, since only whole children were moved. A shallow copy of the
+ * block leads the next page and the block's last child moves across, one per
+ * pass, so the wrapper's alignment and a table's header survive on both
+ * halves (a numbered list keeps counting). Returns false when there is
+ * nothing to move. Complexity: O(1) per child moved.
+ */
+function splitBox(nextBody, box) {
+  const tag = box.tagName;
+  const rows = tag === "TABLE";
+  const source = rows ? (box.querySelector("tbody") || box) : box;
+  if (!source.lastChild) {
+    return false;
+  }
+  let dest = flowChildren(nextBody)[0];
+  if (!(dest && dest.nodeType === 1 && dest.tagName === tag && dest.dataset.split === "1")) {
+    dest = box.cloneNode(false);
+    dest.dataset.split = "1";
+    if (rows) {
+      const head = box.querySelector("thead");
+      if (head) {
+        dest.appendChild(head.cloneNode(true));
+      }
+      dest.appendChild(document.createElement("tbody"));
+    }
+    const at = flowStart(nextBody);
+    if (at) {
+      nextBody.insertBefore(dest, at);
+    } else {
+      nextBody.appendChild(dest);
+    }
+  }
+  const sink = rows ? (dest.querySelector("tbody") || dest) : dest;
+  sink.insertBefore(source.lastChild, sink.firstChild);
+  if (tag === "OL") {
+    dest.setAttribute("start", String((+box.getAttribute("start") || 1) + source.children.length));
+  }
+  // An empty husk: everything moved across.
+  if (!source.firstChild) {
+    box.remove();
+  }
+  return true;
+}
+
+/** How many children a block could still give up (a table: its rows). Complexity: O(1). */
+function splitCount(box) {
+  return box && box.nodeType === 1
+    ? (box.tagName === "TABLE" ? (box.querySelector("tbody") || box).childNodes.length : box.childNodes.length) : 0;
+}
+
+/**
+ * The page box's height (its min-height). Overflow is decided by the page
+ * box, not by adding up children: summing heights is wrong for anything
+ * inline (pictures side by side each added their full height, or nothing
+ * before they loaded). The sheet grows past its height only when the
+ * content really does not fit, which is exactly the question. Complexity: O(1).
+ */
+function pageBoxHeight(el) {
+  const style = getComputedStyle(el);
+  return parseFloat(style.minHeight) || 0;
+}
+
+/** Whether a page is taller than its page box. Complexity: O(1). */
+function overflowing(el) {
+  return layoutH(el) > pageBoxHeight(el) + 1;
+}
+
+/**
+ * Where new content belongs in a framed page: after the top frame. It stops
+ * at the bottom frame: a continuation page starts out holding nothing but
+ * the frame, and falling through to the end put the text under the footer.
+ * Complexity: O(c).
+ */
+function flowStart(el) {
+  for (const node of el.childNodes) {
+    if (isFrame(node)) {
+      if (node.dataset.frame === "bottom") {
+        return node;
+      }
+      continue;
+    }
+    return node;
+  }
+  return null;
+}
+
+/** Where flowing content ends: before the bottom frame, or null for the very end. Complexity: O(c). */
+function flowEnd(el) {
+  for (const node of el.childNodes) {
+    if (isFrame(node) && node.dataset.frame === "bottom") {
+      return node;
+    }
+  }
+  return null;
+}
+
+/**
+ * A new continuation page after a sheet: the same part and frame, with no
+ * flowing content (pinned items are not copied either). It does not inherit
+ * the current-page ring: two ringed sheets answering to the same index
+ * made tab clicks land on the wrong one. Complexity: O(c).
+ */
+function makeContinuation(sheet) {
+  const clone = sheet.cloneNode(true);
+  const cloneBody = bodyOf(clone);
+  clone.classList.remove("active");
+  for (const node of [...cloneBody.childNodes]) {
+    if (!isFrame(node)) {
+      node.remove();
+    }
+  }
+  const nameEl = clone.querySelector(".sheet-label .nm");
+  const base = (sheet.querySelector(".sheet-label .nm").textContent || "Page").replace(/\s+\d+$/, "");
+  if (nameEl) {
+    nameEl.textContent = base + " " + (sheetEls().indexOf(sheet) + 2);
+  }
+  cloneBody.contentEditable = "true";
+  sheet.after(clone);
+  return clone;
+}
+
+/**
+ * Renumbers the sheets and their "3 / 7" counters after any reflow, the
+ * second screen included (skipping it there left continuation pages sharing
+ * an index with the sheet they were copied from). Complexity: O(p).
+ */
+function renumberSheets() {
+  const sheets = sheetEls();
+  sheets.forEach((sheet, i) => {
+    sheet.dataset.page = String(i);
+    bodyOf(sheet).dataset.page = String(i);
+    const counter = sheet.querySelector(".sheet-label .n");
+    if (counter) {
+      counter.textContent = (i + 1) + " / " + sheets.length;
+    }
+  });
+}
+
+/**
+ * Shows or hides a chip, with its text and a count in a fixed-width span
+ * (so 9 becoming 10 does not shove the next chip from under the pointer).
+ * Complexity: O(1).
+ */
+function toggleChip(id, show, text, count) {
+  const chip = $(id);
+  chip.style.display = show ? "inline-block" : "none";
+  if (text != null) {
+    chip.textContent = text;
+    if (count != null) {
+      chip.appendChild(document.createTextNode(" ("));
+      chip.appendChild(makeElement("span", "n", String(count)));
+      chip.appendChild(document.createTextNode(")"));
+    }
+  }
+}
+
+/** Shows the merge banner while there is one. Complexity: O(1). */
 function renderBanner() {
-  const b = $("pull-banner");
-  if (!pullBanner) { b.style.display = "none"; return; }
-  b.style.display = "flex";
+  const banner = $("pull-banner");
+  if (!pullBanner) {
+    banner.style.display = "none";
+    return;
+  }
+  banner.style.display = "flex";
   $("pull-banner-text").textContent = bannerText();
 }
 
-// Amber banner over the read-only trash view.
+/** The amber banner over a note in the trash: when it was deleted, and the days it has left. Complexity: O(1). */
 function renderTrashBanner() {
-  const b = $("trash-banner");
-  if (!trashViewId || !vault.trash[trashViewId]) { b.style.display = "none"; return; }
-  b.style.display = "flex";
-  const delAt = vault.trash[trashViewId].deletedAt || 0;
-  const daysLeft = Math.max(0, 30 - Math.floor((Date.now() - delAt) / 86400e3));
-  $("trash-banner-text").textContent = "In trash, deleted " + relTime(delAt) +
+  const banner = $("trash-banner");
+  if (!trashViewId || !vault.trash[trashViewId]) {
+    banner.style.display = "none";
+    return;
+  }
+  banner.style.display = "flex";
+  const deletedAt = vault.trash[trashViewId].deletedAt || 0;
+  const daysLeft = Math.max(0, 30 - Math.floor((Date.now() - deletedAt) / 86400e3));
+  $("trash-banner-text").textContent = "In trash, deleted " + relativeTime(deletedAt) +
     " - deleted permanently in " + daysLeft + " day" + (daysLeft === 1 ? "" : "s");
   $("trash-restore").disabled = syncing;
   $("trash-purge").disabled = syncing;
-}
-
-function dismissBanner() {
-  if (backupView) return;   // read-only: not even this localStorage write
-  pullBanner = null;
-  pullDiff = null;
-  localStorage.removeItem(vkey("pullBanner"));
-  renderStatus();
 }

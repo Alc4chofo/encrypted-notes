@@ -36,10 +36,22 @@ Copies from before the app was split into files (build 2026-11-03.4 and older) c
 - `index.html`: the page, and the list of files it loads, in order.
 - `config.js`: your repo. The only file you edit, and the only one an update leaves alone.
 - `css/`: the look, by area (`base`, `lock`, `sidebar`, `editor`, `dialogs`).
-- `js/`: the code, one file per part of the app: `core.js` holds the vault key and shared state, `sync.js` talks to GitHub behind the private-repo check, `merge.js` merges two vaults, `updates.js` offers app updates, `lock.js` runs the lock screen, `vaults.js` keeps each vault in its own folder, `i18n.js` holds the translations, and so on. Each file starts with a line saying what it does.
+- `js/`: the code, one file per part of the app: `core.js` holds the vault key and shared state, `sync.js` talks to GitHub behind the private-repo check, `merge.js` merges two vaults, `updates.js` offers app updates, `lock.js` runs the lock screen, `vaults.js` keeps each vault in its own folder, `i18n.js` holds the translations, and so on.
 - `js/version.js`: the build number, and the list of every app file, which is what an update installs.
 
 The scripts are plain scripts loaded in order, not JavaScript modules, because browsers refuse modules in a page opened from a file and the app has to run from a double click. Each one may use what the files before it define.
+
+### Reading the code
+
+Every script is laid out the same way, so you can open any of them cold:
+
+1. A header comment: what the file is for, its main functions, its auxiliary functions, and the cost of its heaviest work. Files that encrypt, hash or derive keys also say what that costs (to encrypt, to decrypt, to guess a password) and exactly when it happens.
+2. The constants and shared state.
+3. The main functions, the ones that do what the file is for, grouped under `// ---------- Section ----------` lines. Each has a comment saying what it does, then `Used by:` (the files that call it), `Uses:` (what it relies on) and `Complexity:`.
+4. The code that runs when the file loads, such as wiring buttons to those functions.
+5. The line `// =================== Auxiliary functions ===================`, then the small helpers, each with a shorter comment.
+
+A good place to start is the header of `js/core.js`: it walks through the whole life of your data, from the password to the key, the sealed vault, the attachments and the repo, and names the function that does each step. The stylesheets have a header too, listing their sections.
 
 ## Features
 

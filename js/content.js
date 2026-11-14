@@ -1,296 +1,429 @@
-// notes: Note bodies: sanitising, pages, body search and duplicating a note.
+/*
+ * content.js - note bodies: what may be in them, pages, searching them, and
+ * duplicating a note.
+ *
+ * The editor is a contenteditable <div>. A note body is either old plain text
+ * (bodyV !== 2, shown through textContent, so a literal "<img onerror>" stays
+ * text) or sanitised HTML (bodyV === 2) whose only markup is lines, formatting
+ * and inline attachment wrappers that carry a media id: never bytes, never a
+ * blob: or data: URL. Saving and loading run the same strict allowlist
+ * (lines.js and history.js), so a poisoned synced body cannot bring in
+ * script, onerror or style, and every stored body names its media by id only.
+ *
+ * A note has either one body (note.body) or pages (note.pages, a list of
+ * { id, name, body, bodyV, section }). Everything that reads content goes
+ * through noteBodies(), so both shapes work. A page belongs to one of three
+ * parts: title (always first), body (the middle) or final (always last).
+ *
+ * Main functions: validInlineMedia, bodyMediaIds, notePages, noteBodies,
+ * activeBody, noteMatches, bodySnippet, renderPageTabs, switchPage, movePage,
+ * setPageSection, sortPagesBySection, toPaged, makePagedAndShow, addPage,
+ * renamePage, deletePage, duplicateNote.
+ * Auxiliary functions: escapeHtml, isPaged, viewedNote, newPage, pageSection,
+ * sectionRank, hasSections, bodyInsertIndex, bodyPlainText, noteSearchText,
+ * clearPageDropMark, duplicateTitle.
+ *
+ * Complexity: searching a note is O(t) in its text, built once per change and
+ * cached; drawing the page tabs is O(p) in the pages; duplicating a note is
+ * O(s) in its size (a JSON copy).
+ */
 "use strict";
 
-// ---------- Rich editor: serialize / sanitize / hydrate ----------
-// The editor is a contenteditable <div>. A note body is EITHER legacy plain text
-// (bodyV !== 2, rendered via textContent so a literal "<img onerror>" stays text)
-// OR sanitized HTML (bodyV === 2) whose only markup is line breaks and atomic
-// inline-media wrappers carrying a media id - never bytes, never blob:/data: URLs.
-// Both save (getEditorBody) and load (setEditorBody) run the SAME strict allowlist,
-// so a poisoned synced body cannot inject script/onerror/style, and every stored
-// body references media by id only.
-let editorSeq = 0;          // hydration generation: a note switch cancels stale inline decrypts
-let editorBaseline = "";    // getEditorBody() at load / last save: the dirty-comparison anchor
-let editorPlainOrig = null; // for a still-legacy body, its ORIGINAL plain string (else null)
+// ---------- State ----------
 
-// Escape text so it re-parses to identical characters (and stays inert). \n is not
-// special in HTML text, so newlines survive verbatim through the round-trip.
-function escapeHtml(s) {
-  return String(s).replace(/[&<>]/g, c => (c === "&" ? "&amp;" : c === "<" ? "&lt;" : "&gt;"));
-}
+// Which note load is current: switching notes cancels inline decrypts still on their way.
+let editorSeq = 0;
 
+// getEditorBody() when the note was loaded or last saved: what "has it changed?" compares against.
+let editorBaseline = "";
+
+// For a body still in the old plain-text shape, its original string (null otherwise).
+let editorPlainOrig = null;
+
+// A media id is a UUID, and an inline attachment is one of these kinds.
 const INLINE_MID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-// A span is a real inline-media wrapper only with class 'inline-media', a UUID
-// data-mid, and data-kind in the fixed set below; anything else is dropped so a
-// poisoned body cannot smuggle markup back out through re-serialization.
 const INLINE_KINDS = new Set(["image", "video", "pdf", "text", "file"]);
+
+// Each note's searchable text, by note id: { mtime, text, lower }. It is
+// plaintext, so lockApp clears it.
+const searchTextCache = new Map();
+
+// The page of the open note being edited (this session only).
+let currentPage = 0;
+
+// The index of the page tab being dragged to a new place, or null.
+let draggingPage = null;
+
+// The three parts a page can belong to, in the order they print.
+const SECTIONS = ["title", "body", "final"];
+const SECTION_LABEL = { title: "Title", body: "Body", final: "Final" };
+
+// ---------- Note bodies and pages ----------
+
+/**
+ * Whether an element is a real inline attachment wrapper: a span with the
+ * class inline-media, a UUID in data-mid and a known data-kind. Returns
+ * { mid, kind }, or null for anything else, which the sanitiser then drops, so
+ * a poisoned body cannot smuggle markup out again when it is saved.
+ *
+ * Used by: this file (bodyMediaIds), lines.js (serializeBodyInto, wrapperOf),
+ * history.js (sanitizeBodyInto).
+ * Uses: INLINE_MID_RE and INLINE_KINDS.
+ * Complexity: O(1).
+ */
 function validInlineMedia(el) {
-  if (!el || el.nodeType !== 1 || el.tagName !== "SPAN") return null;
-  if (!el.classList.contains("inline-media")) return null;
+  if (!el || el.nodeType !== 1 || el.tagName !== "SPAN") {
+    return null;
+  }
+  if (!el.classList.contains("inline-media")) {
+    return null;
+  }
   const mid = el.getAttribute("data-mid") || "";
   const kind = el.getAttribute("data-kind") || "";
-  if (!INLINE_MID_RE.test(mid) || !INLINE_KINDS.has(kind)) return null;
+  if (!INLINE_MID_RE.test(mid) || !INLINE_KINDS.has(kind)) {
+    return null;
+  }
   return { mid, kind };
 }
 
-// Media ids referenced INLINE by a bodyV:2 body string (a live note body or a trash
-// snapshot). Parsed in an inert <template> (no resource fetch, no onerror) and read
-// back through validInlineMedia, so it sees exactly the ids the sanitizer would keep.
-// Inline references are otherwise invisible to mediaReferenced / mediaIdsFor, which
-// scan note.media only; without this an inline-only id would be wrongly purged or
-// never uploaded. Returns [] for legacy plain bodies.
+/**
+ * The media ids a bodyV 2 body places inline. The body is parsed in an inert
+ * <template> (nothing is fetched, no onerror runs) and read back through
+ * validInlineMedia, so it finds exactly the ids the sanitiser would keep.
+ * Without this, an attachment that lives only inline (not in note.media)
+ * would be wrongly purged, or never uploaded. Returns [] for a plain body.
+ *
+ * Used by: vault.js (mediaReferenced), media-sync.js (mediaIdsFor, syncMediaPhase).
+ * Uses: validInlineMedia.
+ * Complexity: O(n) in the body's length.
+ */
 function bodyMediaIds(body, bodyV) {
-  if (bodyV !== 2 || typeof body !== "string" || body.indexOf("inline-media") === -1) return [];
-  const tpl = document.createElement("template");
-  tpl.innerHTML = body;
+  if (bodyV !== 2 || typeof body !== "string" || body.indexOf("inline-media") === -1) {
+    return [];
+  }
+  const template = document.createElement("template");
+  template.innerHTML = body;
   const out = [];
-  tpl.content.querySelectorAll("span.inline-media").forEach(sp => {
-    const im = validInlineMedia(sp);
-    if (im) out.push(im.mid);
+  template.content.querySelectorAll("span.inline-media").forEach(span => {
+    const media = validInlineMedia(span);
+    if (media) {
+      out.push(media.mid);
+    }
   });
   return out;
 }
 
-// ---------- Pages ----------
-// A note is EITHER single-page (note.body, exactly the original shape) or paged
-// (note.pages = [{id,name,body,bodyV}], which then holds all the content).
-// Everything that reads content goes through noteBodies() so both shapes work,
-// and nothing that only knows the old shape is ever written to.
-const notePages = n => (n && Array.isArray(n.pages) && n.pages.length) ? n.pages : null;
-const isPaged = n => !!notePages(n);
-// Every content body in a note, in order. THE scanning primitive: media purges,
-// export and search must never look at note.body alone.
-function noteBodies(n) {
-  if (!n) return [];
-  const ps = notePages(n);
-  return ps ? ps.map(p => ({ body: p.body || "", bodyV: p.bodyV, name: p.name }))
-            : [{ body: n.body || "", bodyV: n.bodyV, name: n.title || "" }];
+/**
+ * A note's pages, or null when it has a single body.
+ *
+ * Used by: this file, attachments.js (addMedia), designs.js (exportDesign,
+ * presetFromNote), history.js (designedPages, reloadNoteInPlace,
+ * resetNoteLayout, undesignPages, and on load), lines.js (renderSheets),
+ * merge.js (applyMerge), notes.js (noteMenu), pagination.js
+ * (syncPagesFromDom), split.js (splitLabel).
+ * Uses: nothing.
+ * Complexity: O(1).
+ */
+function notePages(note) {
+  return (note && Array.isArray(note.pages) && note.pages.length) ? note.pages : null;
 }
 
-// ---------- Search inside note bodies ----------
-// The searchable text of a note is built from EVERY page (noteBodies), in memory
-// only, and cached per note until its mtime changes. The cache holds plaintext,
-// so lockApp clears it. Censored spans are left out on purpose: a search must
-// not surface, in a snippet, text the user chose to black out.
-const searchTextCache = new Map();   // note id -> { mtime, text }
-function bodyPlainText(b) {
-  // A plain (v1) body is already text, so it is used as it is.
-  if (b.bodyV !== 2) return b.body || "";
-  // A v2 body is sanitized (parsed inert: nothing loads or runs) and laid out in
-  // the same lines the page shows, so the words of two lines never fuse.
-  const holder = document.createElement("div");
-  holder.appendChild(bodyFragment(b.body, 2));
-  // Censored spans are removed before reading the text, so they never match and never show.
-  for (const el of holder.querySelectorAll("[data-censor]")) el.remove();
-  return plainLines(holder);
+/**
+ * Every body in a note, in order, as { body, bodyV, name }: one per page, or
+ * the single body. Anything that scans content (purging media, export,
+ * search) goes through this, never note.body alone.
+ *
+ * Used by: this file (noteSearchText, switchPage), vault.js (mediaReferenced),
+ * media-sync.js (mediaIdsFor), designs.js (applyPreset), pdf.js
+ * (buildNotePdf, exportNotePdf, sidecarAttachments), split.js (enterSplit).
+ * Uses: notePages.
+ * Complexity: O(p) in the pages.
+ */
+function noteBodies(note) {
+  if (!note) {
+    return [];
+  }
+  const pages = notePages(note);
+  return pages ? pages.map(page => ({ body: page.body || "", bodyV: page.bodyV, name: page.name }))
+            : [{ body: note.body || "", bodyV: note.bodyV, name: note.title || "" }];
 }
-function noteSearchText(id) {
-  const n = vault.notes[id];
-  // A cached entry built from the same mtime is still right, so it is reused.
-  const hit = searchTextCache.get(id);
-  if (hit && hit.mtime === n.mtime) return hit.text;
-  // Otherwise every page's text is joined with a newline, so words on two pages never fuse.
-  const text = noteBodies(n).map(bodyPlainText).join("\n");
-  // Stored lower-cased as well, since every search compares lower-case strings.
-  const entry = { mtime: n.mtime, text, lower: text.toLowerCase() };
-  searchTextCache.set(id, entry);
-  return text;
+
+/**
+ * What the editor reads and writes: the current page of a paged note, or the
+ * note itself. Saving and loading use it, so they need not know the shape.
+ *
+ * Used by: this file (addPage, deletePage), pagination.js (openNote,
+ * openTrash, saveCurrent), history.js (historyApply, reloadNoteInPlace).
+ * Uses: notePages, currentPage.
+ * Complexity: O(1).
+ */
+function activeBody(note) {
+  const pages = notePages(note);
+  return pages ? pages[Math.min(currentPage, pages.length - 1)] : note;
 }
-// True when the note's title or its body text contains the (lower-cased) query.
-function noteMatches(id, q) {
-  // So first the title, because that check is free.
-  if ((vault.notes[id].title || "").toLowerCase().includes(q)) return true;
-  // Then the body: noteSearchText fills the cache, and the cached lower-case copy is searched.
+
+/**
+ * Puts title pages first and final pages last, keeping the order within each
+ * part (the sort is stable), and returns the same list. Runs after anything
+ * that moves or adds a page.
+ *
+ * Used by: this file (movePage, setPageSection, addPage), designs.js (importDesignDoc).
+ * Uses: sectionRank.
+ * Complexity: O(p log p).
+ */
+function sortPagesBySection(pages) {
+  pages.sort((a, b) => sectionRank(a) - sectionRank(b));
+  return pages;
+}
+
+/**
+ * Turns a one-body note into a paged one, if it is not already, and returns
+ * its pages. Page 1 is the current body, so nothing is lost and the note reads
+ * the same until a second page is added. An old plain body stays plain.
+ *
+ * Used by: this file (makePagedAndShow, addPage), designs.js (designItems),
+ * history.js (on load).
+ * Uses: isPaged, notePages, newPage.
+ * Complexity: O(1).
+ */
+function toPaged(note) {
+  if (isPaged(note)) {
+    return notePages(note);
+  }
+  note.pages = [newPage("Page 1", note.body || "")];
+  if (note.bodyV !== 2) {
+    note.pages[0].bodyV = undefined;
+  }
+  return note.pages;
+}
+
+/**
+ * Makes a note paged and shows it as sheets at once (the note menu's "Use pages").
+ *
+ * Used by: notes.js (noteMenu).
+ * Uses: openNote, flushSave and renderStatus (pagination.js), toPaged,
+ * persistSafe (vault.js), renderSheets (lines.js), renderPageTabs, renderList (sidebar.js).
+ * Complexity: O(p) to draw the sheets.
+ */
+function makePagedAndShow(id) {
+  if (currentId !== id) {
+    openNote(id);
+  }
+  flushSave();
+  toPaged(vault.notes[id]);
+  vault.notes[id].mtime = Date.now();
+  currentPage = 0;
+  persistSafe();
+  renderSheets();
+  unsavedEdits = false;
+  renderPageTabs();
+  renderList();
+  renderStatus();
+}
+
+// ---------- Search ----------
+
+/**
+ * Whether a note's title or text contains the (lower-case) query. The title
+ * is checked first, since it costs nothing; the text comes from the cache.
+ *
+ * Used by: sidebar.js (renderListInner).
+ * Uses: noteSearchText.
+ * Complexity: O(t) in the note's text, O(1) to build it again while it is cached.
+ */
+function noteMatches(id, query) {
+  if ((vault.notes[id].title || "").toLowerCase().includes(query)) {
+    return true;
+  }
   noteSearchText(id);
-  return searchTextCache.get(id).lower.includes(q);
+  return searchTextCache.get(id).lower.includes(query);
 }
-// The snippet under a row whose match is in the body: some words before, the
-// match highlighted, some words after. Built from text nodes and a <mark>, never
-// from HTML, so note text can never become markup in the sidebar.
-function bodySnippet(id, q) {
+
+/**
+ * The line under a search result whose match is in the text: up to 28
+ * characters before, the match highlighted, up to 60 after, with an ellipsis
+ * only where the text is really cut. Built from text nodes and a <mark>,
+ * never from HTML, so note text can never become markup in the sidebar.
+ * Returns null when the match is not in the text (the row then shows its date).
+ *
+ * Used by: sidebar.js (noteRow).
+ * Uses: noteSearchText, makeElement (sidebar.js).
+ * Complexity: O(t) in the note's text.
+ */
+function bodySnippet(id, query) {
   const text = noteSearchText(id);
   const lower = searchTextCache.get(id).lower;
-  const at = lower.indexOf(q);
-  // No hit in the body means the caller shows the normal date line instead.
-  if (at < 0) return null;
-  // Up to 28 characters of context before the match and 60 after, whitespace collapsed to single spaces.
+  const at = lower.indexOf(query);
+  if (at < 0) {
+    return null;
+  }
   const start = Math.max(0, at - 28);
-  const end = Math.min(text.length, at + q.length + 60);
+  const end = Math.min(text.length, at + query.length + 60);
   const flat = s => s.replace(/\s+/g, " ");
-  const out = mk("div", "note-meta note-snippet");
-  // An ellipsis only where the snippet really cuts the text.
+  const out = makeElement("div", "note-meta note-snippet");
   out.append((start > 0 ? "…" : "") + flat(text.slice(start, at)));
-  out.appendChild(mk("mark", null, text.slice(at, at + q.length)));
-  out.append(flat(text.slice(at + q.length, end)) + (end < text.length ? "…" : ""));
+  out.appendChild(makeElement("mark", null, text.slice(at, at + query.length)));
+  out.append(flat(text.slice(at + query.length, end)) + (end < text.length ? "…" : ""));
   return out;
 }
-let currentPage = 0;   // session-only index into the open note's pages
-let draggingPage = null;   // index of the page tab being dragged to reorder
-function clearPageDropMark() {
-  for (const el of $("page-tabs").querySelectorAll(".page-tab")) el.classList.remove("drop-left", "drop-right");
-}
-// Reorder a page. `to` is the slot in the ORIGINAL array, so removing first
-// would shift it: compensate when moving right.
-function movePage(from, to) {
-  const n = viewedNote(), ps = notePages(n);
-  if (!ps || syncing || backupView || trashViewId || from === null || !ps[from]) return;
-  const dest = to > from ? to - 1 : to;
-  if (dest === from || dest < 0 || dest > ps.length - 1) return;
-  flushSave();
-  historyMark(currentId);
-  const [pg] = ps.splice(from, 1);
-  ps.splice(dest, 0, pg);
-  // Dragging reorders within a part; the parts themselves stay put.
-  sortPagesBySection(ps);
-  n.mtime = Date.now();
-  currentPage = dest;
-  persistSafe();
-  if (pagedView()) renderSheets();
-  renderPageTabs(); renderList(); renderStatus();
-  status(`Moved "${pg.name || "page"}" to position ${dest + 1}`);
-}
-// The object the editor reads and writes: a page for a paged note, the note
-// itself otherwise. One accessor so save/load can stay shape-agnostic.
-function activeBody(n) {
-  const ps = notePages(n);
-  return ps ? ps[Math.min(currentPage, ps.length - 1)] : n;
-}
-const newPage = (name, body, section) => ({ id: crypto.randomUUID(), name, body: body || "", bodyV: 2,
-  ...(section && section !== "body" ? { section } : {}) });
 
-// ---- Page sections (title / body / final) ----
-// A design preset marks pages as TITLE (always first), BODY (the middle, where
-// new pages land) or FINAL (always last). Applying a design copies those marks
-// onto the note, so only the notes you apply it to get the structure. A page
-// with no mark is body, which is what every ordinary note has.
-const SECTIONS = ["title", "body", "final"];
-const SECTION_LABEL = { title: "Title", body: "Body", final: "Final" };
-const pageSection = p => SECTIONS.includes(p && p.section) ? p.section : "body";
-const sectionRank = p => SECTIONS.indexOf(pageSection(p));
-// Title pages can never sit after body/final ones: re-sorted (stably, so the
-// order WITHIN a part is whatever you dragged it to) after every mutation.
-function sortPagesBySection(ps) {
-  ps.sort((a, b) => sectionRank(a) - sectionRank(b));
-  return ps;
-}
-const hasSections = n => (notePages(n) || []).some(p => pageSection(p) !== "body");
-// Where a new BODY page belongs: after the last body page, i.e. before the
-// first FINAL page. This is the slot the "+" button sits in.
-function bodyInsertIndex(ps) {
-  let i = ps.length;
-  for (let k = 0; k < ps.length; k++) if (pageSection(ps[k]) === "final") { i = k; break; }
-  return i;
-}
-function setPageSection(i, section) {
-  const n = viewedNote(), ps = notePages(n);
-  if (!ps || !ps[i] || syncing || backupView || trashViewId) return;
-  flushSave();
-  const pg = ps[i];
-  if (section === "body") delete pg.section; else pg.section = section;
-  sortPagesBySection(ps);
-  currentPage = ps.indexOf(pg);
-  n.mtime = Date.now();
-  persistSafe();
-  if (pagedView()) renderSheets();
-  renderPageTabs(); renderList(); renderStatus();
-  status(`Page moved to the ${SECTION_LABEL[section]} part`);
-}
+// ---------- Page tabs ----------
 
+/**
+ * Draws the page tabs above the editor (hidden for a one-body note). Left to
+ * right is the order the pages print in. A click opens a page, a
+ * double-click renames it, dragging moves it, and a right-click gives
+ * rename, add after, part (title, body, final) and delete. In a note with
+ * parts, a small label starts each part, and the "+" sits where a new body
+ * page would land: before the final pages. Nothing can be changed in the
+ * trash or in a backup.
+ *
+ * Used by: this file, lines.js (renderSheets), pagination.js (openNote,
+ * openTrash, repaginate, and on load), history.js (reloadNoteInPlace),
+ * merge.js (applyMerge).
+ * Uses: notePages, hasSections, bodyInsertIndex, pageSection, makeElement
+ * (sidebar.js), switchPage, renamePage, addPage, deletePage, movePage,
+ * setPageSection, clearPageDropMark, openMenu (menu.js).
+ * Complexity: O(p) in the pages.
+ */
 function renderPageTabs() {
   const bar = $("page-tabs");
-  const n = currentId && vault && vault.notes[currentId] ? vault.notes[currentId]
+  const note = currentId && vault && vault.notes[currentId] ? vault.notes[currentId]
     : (trashViewId && vault && vault.trash[trashViewId] ? vault.trash[trashViewId].data : null);
-  const ps = notePages(n);
-  if (!ps) { bar.style.display = "none"; bar.innerHTML = ""; return; }
-  if (currentPage >= ps.length) currentPage = ps.length - 1;
+  const pages = notePages(note);
+  if (!pages) {
+    bar.style.display = "none";
+    bar.innerHTML = "";
+    return;
+  }
+  if (currentPage >= pages.length) {
+    currentPage = pages.length - 1;
+  }
   bar.style.display = "flex";
   bar.innerHTML = "";
-  const sectioned = hasSections(n);
-  const addAt = bodyInsertIndex(ps);
+
+  const sectioned = hasSections(note);
+  const addAt = bodyInsertIndex(pages);
   const editable = !trashViewId && !backupView;
-  // The add button sits exactly where a new page would land: after the last
-  // body page, before the FINAL block.
-  const addBtn = () => {
-    const add = mk("button", "page-add", "+");
-    add.type = "button";
-    add.title = sectioned ? "Add a page to the Body part" : "Add a page";
-    add.disabled = syncing;
-    add.onclick = () => addPage();
-    return add;
+  const addButton = () => {
+    const button = makeElement("button", "page-add", "+");
+    button.type = "button";
+    button.title = sectioned ? "Add a page to the Body part" : "Add a page";
+    button.disabled = syncing;
+    button.onclick = () => addPage();
+    return button;
   };
-  let lastSec = null;
-  ps.forEach((p, i) => {
-    if (sectioned && i === addAt && editable) bar.appendChild(addBtn());
-    const sec = pageSection(p);
-    if (sectioned && sec !== lastSec) {
-      bar.appendChild(mk("span", "sec-mark sec-" + sec, SECTION_LABEL[sec]));
-      lastSec = sec;
+
+  let lastSection = null;
+  pages.forEach((page, i) => {
+    if (sectioned && i === addAt && editable) {
+      bar.appendChild(addButton());
     }
-    const t = mk("button", "page-tab sec-" + sec + (i === currentPage ? " active" : ""), p.name || "Page " + (i + 1));
-    t.type = "button";
-    t.title = (sectioned ? SECTION_LABEL[sec] + " part - " : "") + "Page " + (i + 1) + " of " + ps.length;
-    t.onclick = () => switchPage(i);
-    t.ondblclick = () => { if (!trashViewId && !backupView) renamePage(i); };
-    // Drag a tab to reorder the pages: left-to-right IS the document order, so
-    // the first tab prints first and the last prints last.
+    const section = pageSection(page);
+    if (sectioned && section !== lastSection) {
+      bar.appendChild(makeElement("span", "sec-mark sec-" + section, SECTION_LABEL[section]));
+      lastSection = section;
+    }
+
+    const tab = makeElement("button", "page-tab sec-" + section + (i === currentPage ? " active" : ""), page.name || "Page " + (i + 1));
+    tab.type = "button";
+    tab.title = (sectioned ? SECTION_LABEL[section] + " part - " : "") + "Page " + (i + 1) + " of " + pages.length;
+    tab.onclick = () => switchPage(i);
+    tab.ondblclick = () => {
+      if (!trashViewId && !backupView) {
+        renamePage(i);
+      }
+    };
+
     if (!trashViewId && !backupView) {
-      t.draggable = !syncing;
-      t.addEventListener("dragstart", e => {
+      tab.draggable = !syncing;
+      tab.addEventListener("dragstart", event => {
         draggingPage = i;
-        e.dataTransfer.effectAllowed = "move";
-        try { e.dataTransfer.setData("application/x-page-index", String(i)); } catch {}
-        t.classList.add("dragging");
+        event.dataTransfer.effectAllowed = "move";
+        try {
+          event.dataTransfer.setData("application/x-page-index", String(i));
+        } catch {}
+        tab.classList.add("dragging");
       });
-      t.addEventListener("dragend", () => { t.classList.remove("dragging"); draggingPage = null; clearPageDropMark(); });
-      t.addEventListener("dragover", e => {
-        if (draggingPage === null || draggingPage === i) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
-        const r = t.getBoundingClientRect();
+      tab.addEventListener("dragend", () => {
+        tab.classList.remove("dragging");
+        draggingPage = null;
         clearPageDropMark();
-        t.classList.add(e.clientX > r.left + r.width / 2 ? "drop-right" : "drop-left");
       });
-      t.addEventListener("dragleave", () => t.classList.remove("drop-left", "drop-right"));
-      t.addEventListener("drop", e => {
-        if (draggingPage === null) return;
-        e.preventDefault();
-        const r = t.getBoundingClientRect();
-        movePage(draggingPage, i + (e.clientX > r.left + r.width / 2 ? 1 : 0));
+      tab.addEventListener("dragover", event => {
+        if (draggingPage === null || draggingPage === i) {
+          return;
+        }
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        const box = tab.getBoundingClientRect();
+        clearPageDropMark();
+        tab.classList.add(event.clientX > box.left + box.width / 2 ? "drop-right" : "drop-left");
+      });
+      tab.addEventListener("dragleave", () => tab.classList.remove("drop-left", "drop-right"));
+      tab.addEventListener("drop", event => {
+        if (draggingPage === null) {
+          return;
+        }
+        event.preventDefault();
+        const box = tab.getBoundingClientRect();
+        movePage(draggingPage, i + (event.clientX > box.left + box.width / 2 ? 1 : 0));
         draggingPage = null;
         clearPageDropMark();
       });
     }
-    if (!trashViewId && !backupView) t.oncontextmenu = e => {
-      e.preventDefault();
-      openMenu(e.clientX, e.clientY, [
-        { label: "Rename page", disabled: syncing, onClick: () => renamePage(i) },
-        { label: "Add page after", disabled: syncing, onClick: () => addPage(i + 1) },
-        { sep: true },
-        { label: "Part", disabled: syncing, submenu: () => SECTIONS.map(s => ({
-          label: SECTION_LABEL[s] + (s === "title" ? " (always first)" : s === "final" ? " (always last)" : " (the middle)"),
-          checked: pageSection(ps[i]) === s,
-          disabled: syncing,
-          onClick: () => setPageSection(i, s),
-        })) },
-        { sep: true },
-        { label: "Delete page", danger: true, disabled: syncing || ps.length < 2, onClick: () => deletePage(i) },
-      ]);
-    };
-    bar.appendChild(t);
+
+    if (!trashViewId && !backupView) {
+      tab.oncontextmenu = event => {
+        event.preventDefault();
+        openMenu(event.clientX, event.clientY, [
+          { label: "Rename page", disabled: syncing, onClick: () => renamePage(i) },
+          { label: "Add page after", disabled: syncing, onClick: () => addPage(i + 1) },
+          { sep: true },
+          {
+            label: "Part",
+            disabled: syncing,
+            submenu: () => SECTIONS.map(part => ({
+              label: SECTION_LABEL[part] + (part === "title" ? " (always first)" : part === "final" ? " (always last)" : " (the middle)"),
+              checked: pageSection(pages[i]) === part,
+              disabled: syncing,
+              onClick: () => setPageSection(i, part),
+            })),
+          },
+          { sep: true },
+          { label: "Delete page", danger: true, disabled: syncing || pages.length < 2, onClick: () => deletePage(i) },
+        ]);
+      };
+    }
+    bar.appendChild(tab);
   });
-  // Unsectioned notes keep the plain trailing "+"; sectioned ones already got
-  // theirs in the body slot above (unless the body block is empty and last).
-  if (editable && (!sectioned || addAt >= ps.length)) bar.appendChild(addBtn());
+
+  // A note without parts has its "+" at the end; one with parts got it in the
+  // body slot above, unless the body part is empty and last.
+  if (editable && (!sectioned || addAt >= pages.length)) {
+    bar.appendChild(addButton());
+  }
 }
-// The note currently on screen, live or read-only from the trash.
-const viewedNote = () => trashViewId ? ((vault.trash[trashViewId] || {}).data || null)
-  : (currentId ? vault.notes[currentId] : null);
+
+/**
+ * Opens page i. On sheets every page is already on screen, so this only
+ * scrolls there. Otherwise the page being left is saved first, the editor
+ * loads page i, and in split view the reference pane follows, frozen at the
+ * saved state of this page.
+ *
+ * Used by: this file (a click on a tab).
+ * Uses: viewedNote, notePages, pagedView (lines.js), scrollToPage,
+ * markActiveSheet and flushSave (pagination.js), setEditorBody and
+ * getEditorBody (lines.js), isPaged, noteBodies, splitLabel and
+ * renderPrevPane (split.js), renderPageTabs, renderStatus (pagination.js).
+ * Complexity: O(n) in the page's body, to load it.
+ */
 function switchPage(i) {
-  const n = viewedNote();
-  const ps = notePages(n);
-  if (!ps || i < 0 || i >= ps.length) return;
-  // Sheet view: every page is already on screen, so a tab is just navigation -
-  // nothing is saved, swapped or reloaded.
+  const note = viewedNote();
+  const pages = notePages(note);
+  if (!pages || i < 0 || i >= pages.length) {
+    return;
+  }
   if (pagedView()) {
     currentPage = i;
     scrollToPage(i);
@@ -298,139 +431,397 @@ function switchPage(i) {
     renderPageTabs();
     return;
   }
-  if (i === currentPage) return;
-  if (!trashViewId) flushSave();   // commit the page being left before swapping bodies
+  if (i === currentPage) {
+    return;
+  }
+
+  if (!trashViewId) {
+    flushSave();
+  }
   currentPage = i;
-  const t = ps[i];
-  setEditorBody(t.body, { bodyV: t.bodyV });
+  const page = pages[i];
+  setEditorBody(page.body, { bodyV: page.bodyV });
   editorBaseline = getEditorBody();
-  if (!trashViewId) dirty = false;
-  // The reference pane follows the page you are on, re-frozen at this page's
-  // saved state.
+  if (!trashViewId) {
+    unsavedEdits = false;
+  }
   if (splitMode && currentId && vault.notes[currentId]) {
-    const nn = vault.notes[currentId];
-    splitRef = { paged: isPaged(nn), pages: noteBodies(nn).map(b => ({ ...b })), label: splitLabel(nn) };
+    const liveNote = vault.notes[currentId];
+    splitRef = {
+      paged: isPaged(liveNote),
+      pages: noteBodies(liveNote).map(body => ({ ...body })),
+      label: splitLabel(liveNote),
+    };
     renderPrevPane();
   }
   renderPageTabs();
   renderStatus();
 }
-// Single-page -> paged: page 1 IS the current body, so nothing is lost and the
-// note reads identically until a second page is added.
-function toPaged(n) {
-  if (isPaged(n)) return notePages(n);
-  n.pages = [newPage("Page 1", n.body || "")];
-  if (n.bodyV !== 2) n.pages[0].bodyV = undefined;   // keep a legacy body legacy
-  return n.pages;
-}
-// Turn the open note into a paged one and show the sheet view immediately.
-function makePagedAndShow(id) {
-  if (currentId !== id) openNote(id);
-  flushSave();
-  toPaged(vault.notes[id]);
-  vault.notes[id].mtime = Date.now();
-  currentPage = 0;
-  persistSafe();
-  renderSheets();
-  dirty = false;
-  renderPageTabs(); renderList(); renderStatus();
-}
-// One click: the page appears immediately, named "Page N". Rename is a
-// right-click (or double-click) on its tab afterwards.
-function addPage(at) {
-  if (syncing || backupView || !currentId || !vault.notes[currentId]) return;
-  flushSave();
-  historyMark(currentId);
-  const n = vault.notes[currentId];
-  const ps = toPaged(n);
-  // New pages are BODY pages and land in the body block - never after a FINAL
-  // page, which is the whole point of the parts.
-  const where = Math.max(0, Math.min(at === undefined ? bodyInsertIndex(ps) : at, ps.length));
-  ps.splice(where, 0, newPage("Page " + (ps.length + 1)));
-  sortPagesBySection(ps);
-  n.mtime = Date.now();
-  persistSafe();
-  currentPage = where;
-  if (pagedView() || isPaged(n)) {
-    renderSheets();
-    dirty = false;
-    renderPageTabs(); renderList(); renderStatus();
-    scrollToPage(where);
-    const el = $("sheets").querySelector('.sheet-body[data-page="' + where + '"]');
-    if (el) el.focus();
-  } else {
-    const t = activeBody(n);
-    setEditorBody(t.body, { bodyV: t.bodyV });
-    editorBaseline = getEditorBody();
-    dirty = false;
-    renderPageTabs(); renderList(); renderStatus();
+
+/**
+ * Moves a page from one place to another (dragging a tab). to is a slot in
+ * the list as it was before the move, so a move to the right lands one
+ * earlier once the page is taken out. Pages stay within their part. One undo step.
+ *
+ * Used by: this file (dropping a dragged tab).
+ * Uses: viewedNote, notePages, flushSave (pagination.js), historyMark
+ * (history.js), sortPagesBySection, persistSafe (vault.js), pagedView and
+ * renderSheets (lines.js), renderPageTabs, renderList (sidebar.js),
+ * renderStatus and status (pagination.js).
+ * Complexity: O(p) in the pages, plus drawing the sheets.
+ */
+function movePage(from, to) {
+  const note = viewedNote();
+  const pages = notePages(note);
+  if (!pages || syncing || backupView || trashViewId || from === null || !pages[from]) {
+    return;
   }
-}
-async function renamePage(i) {
-  if (syncing || backupView || !currentId) return;
-  const n = vault.notes[currentId], ps = notePages(n);
-  if (!ps || !ps[i]) return;
-  const name = await promptModal({ title: "Rename page", placeholder: "Page name",
-    value: ps[i].name, confirmLabel: "Rename" });
-  if (!name || syncing || !vault.notes[currentId]) return;
+  const destination = to > from ? to - 1 : to;
+  if (destination === from || destination < 0 || destination > pages.length - 1) {
+    return;
+  }
+  flushSave();
   historyMark(currentId);
-  ps[i].name = name;
-  n.mtime = Date.now();
+  const [page] = pages.splice(from, 1);
+  pages.splice(destination, 0, page);
+  sortPagesBySection(pages);
+  note.mtime = Date.now();
+  currentPage = destination;
   persistSafe();
-  // The sheet carries the name in its label, so repaint it too.
-  const lab = $("sheets").querySelector('.sheet[data-page="' + i + '"] .sheet-label .nm');
-  if (lab) lab.textContent = name;
-  renderPageTabs(); renderStatus();
-}
-async function deletePage(i) {
-  if (syncing || backupView || !currentId) return;
-  const n = vault.notes[currentId], ps = notePages(n);
-  if (!ps || ps.length < 2 || !ps[i]) return;
-  if (!await confirmModal({ title: `Delete "${ps[i].name}"?`,
-    body: "This page and everything on it is removed from the note. Ctrl+Z brings it back.",
-    confirmLabel: "Delete page", destructive: true })) return;
-  if (syncing || !vault.notes[currentId]) return;
-  historyMark(currentId);
-  ps.splice(i, 1);
-  // Collapsing back to one page keeps the note paged on purpose: dropping to the
-  // single-page shape here would silently discard the page's name.
-  if (currentPage >= ps.length) currentPage = ps.length - 1;
-  n.mtime = Date.now();
-  persistSafe();
-  if (pagedView()) renderSheets();
-  else { const t = activeBody(n); setEditorBody(t.body, { bodyV: t.bodyV }); editorBaseline = getEditorBody(); }
-  dirty = false;
-  renderPageTabs(); renderList(); renderStatus();
+  if (pagedView()) {
+    renderSheets();
+  }
+  renderPageTabs();
+  renderList();
+  renderStatus();
+  status(`Moved "${page.name || "page"}" to position ${destination + 1}`);
 }
 
-// ---------- Duplicate a note ----------
-// "Trip" -> "Trip duplicate" -> "Trip duplicate1" -> "Trip duplicate2"...
-// Duplicating a copy strips the existing suffix first, so duplicating
-// "Trip duplicate" yields "Trip duplicate1", never "Trip duplicate duplicate".
-function duplicateTitle(base) {
-  const stem = (base || "").replace(/\s*duplicate\s*\d*\s*$/i, "").trim() || "(untitled)";
-  const taken = new Set(Object.values(vault.notes).map(n => (n.title || "").trim()));
-  let name = stem + " duplicate";
-  for (let i = 1; taken.has(name); i++) name = stem + " duplicate" + i;
-  return name;
+/**
+ * Moves page i to a part (title, body or final), where it lands at the end
+ * of that part. Body is stored as no mark at all.
+ *
+ * Used by: this file (the tab's right-click menu, Part).
+ * Uses: viewedNote, notePages, flushSave (pagination.js), sortPagesBySection,
+ * persistSafe (vault.js), pagedView and renderSheets (lines.js),
+ * renderPageTabs, renderList (sidebar.js), renderStatus and status (pagination.js).
+ * Complexity: O(p log p), plus drawing the sheets.
+ */
+function setPageSection(i, section) {
+  const note = viewedNote();
+  const pages = notePages(note);
+  if (!pages || !pages[i] || syncing || backupView || trashViewId) {
+    return;
+  }
+  flushSave();
+  const page = pages[i];
+  if (section === "body") {
+    delete page.section;
+  } else {
+    page.section = section;
+  }
+  sortPagesBySection(pages);
+  currentPage = pages.indexOf(page);
+  note.mtime = Date.now();
+  persistSafe();
+  if (pagedView()) {
+    renderSheets();
+  }
+  renderPageTabs();
+  renderList();
+  renderStatus();
+  status(`Page moved to the ${SECTION_LABEL[section]} part`);
 }
+
+// ---------- Adding, renaming and deleting pages ----------
+
+/**
+ * Adds an empty body page named "Page N", at a given place or by default at
+ * the end of the body part (never after a final page), and opens it. A
+ * one-body note becomes paged first. Renaming is a right-click or a
+ * double-click on its tab afterwards. One undo step.
+ *
+ * Used by: this file (the "+" button, "Add page after"), notes.js (noteMenu).
+ * Uses: flushSave (pagination.js), historyMark (history.js), toPaged,
+ * bodyInsertIndex, newPage, sortPagesBySection, persistSafe (vault.js),
+ * pagedView, renderSheets, setEditorBody and getEditorBody (lines.js),
+ * isPaged, activeBody, renderPageTabs, renderList (sidebar.js), renderStatus
+ * and scrollToPage (pagination.js).
+ * Complexity: O(p log p), plus drawing the sheets.
+ */
+function addPage(at) {
+  if (syncing || backupView || !currentId || !vault.notes[currentId]) {
+    return;
+  }
+  flushSave();
+  historyMark(currentId);
+  const note = vault.notes[currentId];
+  const pages = toPaged(note);
+  const where = Math.max(0, Math.min(at === undefined ? bodyInsertIndex(pages) : at, pages.length));
+  pages.splice(where, 0, newPage("Page " + (pages.length + 1)));
+  sortPagesBySection(pages);
+  note.mtime = Date.now();
+  persistSafe();
+  currentPage = where;
+
+  if (pagedView() || isPaged(note)) {
+    renderSheets();
+    unsavedEdits = false;
+    renderPageTabs();
+    renderList();
+    renderStatus();
+    scrollToPage(where);
+    const sheetBody = $("sheets").querySelector('.sheet-body[data-page="' + where + '"]');
+    if (sheetBody) {
+      sheetBody.focus();
+    }
+  } else {
+    const page = activeBody(note);
+    setEditorBody(page.body, { bodyV: page.bodyV });
+    editorBaseline = getEditorBody();
+    unsavedEdits = false;
+    renderPageTabs();
+    renderList();
+    renderStatus();
+  }
+}
+
+/**
+ * Asks for a new name for page i and sets it, on its tab and on its sheet's
+ * label. One undo step.
+ *
+ * Used by: this file (a double-click on a tab, "Rename page").
+ * Uses: notePages, promptModal (modal.js), historyMark (history.js),
+ * persistSafe (vault.js), renderPageTabs, renderStatus (pagination.js).
+ * Complexity: O(1), plus drawing the tabs.
+ */
+async function renamePage(i) {
+  if (syncing || backupView || !currentId) {
+    return;
+  }
+  const note = vault.notes[currentId];
+  const pages = notePages(note);
+  if (!pages || !pages[i]) {
+    return;
+  }
+  const name = await promptModal({ title: "Rename page", placeholder: "Page name", value: pages[i].name, confirmLabel: "Rename" });
+  if (!name || syncing || !vault.notes[currentId]) {
+    return;
+  }
+  historyMark(currentId);
+  pages[i].name = name;
+  note.mtime = Date.now();
+  persistSafe();
+  const label = $("sheets").querySelector('.sheet[data-page="' + i + '"] .sheet-label .nm');
+  if (label) {
+    label.textContent = name;
+  }
+  renderPageTabs();
+  renderStatus();
+}
+
+/**
+ * Deletes page i after asking (never the last page). A note left with one
+ * page stays paged on purpose: going back to one body would silently lose
+ * the page's name. Ctrl+Z brings the page back.
+ *
+ * Used by: this file ("Delete page").
+ * Uses: notePages, confirmModal (modal.js), historyMark (history.js),
+ * persistSafe (vault.js), pagedView, renderSheets, setEditorBody and
+ * getEditorBody (lines.js), activeBody, renderPageTabs, renderList
+ * (sidebar.js), renderStatus (pagination.js).
+ * Complexity: O(p), plus drawing the sheets.
+ */
+async function deletePage(i) {
+  if (syncing || backupView || !currentId) {
+    return;
+  }
+  const note = vault.notes[currentId];
+  const pages = notePages(note);
+  if (!pages || pages.length < 2 || !pages[i]) {
+    return;
+  }
+  if (!await confirmModal({ title: `Delete "${pages[i].name}"?`,
+    body: "This page and everything on it is removed from the note. Ctrl+Z brings it back.",
+    confirmLabel: "Delete page", destructive: true })) {
+    return;
+  }
+  if (syncing || !vault.notes[currentId]) {
+    return;
+  }
+  historyMark(currentId);
+  pages.splice(i, 1);
+  if (currentPage >= pages.length) {
+    currentPage = pages.length - 1;
+  }
+  note.mtime = Date.now();
+  persistSafe();
+  if (pagedView()) {
+    renderSheets();
+  } else {
+    const page = activeBody(note);
+    setEditorBody(page.body, { bodyV: page.bodyV });
+    editorBaseline = getEditorBody();
+  }
+  unsavedEdits = false;
+  renderPageTabs();
+  renderList();
+  renderStatus();
+}
+
+// ---------- Duplicating a note ----------
+
+/**
+ * Copies a note (what is on screen, if it is the open one) as "<title>
+ * duplicate", at the top of its folder, and opens the copy. The copy is deep:
+ * pages, the media list and every field. Attachment ids are shared on
+ * purpose: mediaReferenced counts every note that names an id, so both notes
+ * point at the same encrypted bytes and neither can delete them alone.
+ *
+ * Used by: notes.js (noteMenu), designs.js (designItems).
+ * Uses: flushSave, openNote, renderStatus and status (pagination.js),
+ * duplicateTitle, topOrderOfGroup and renderList (sidebar.js), persistSafe (vault.js).
+ * Complexity: O(s) in the note's size, plus O(n) over the notes for the name.
+ */
 function duplicateNote(id) {
-  if (syncing || backupView || !vault.notes[id]) return;
-  if (id === currentId) flushSave();   // copy what is on screen, not a stale buffer
-  // Deep copy: pages, the media list and every field come along. Attachment IDS
-  // are shared on purpose - the ciphertext is refcounted by mediaReferenced(),
-  // so both notes point at the same bytes and neither can delete them alone.
+  if (syncing || backupView || !vault.notes[id]) {
+    return;
+  }
+  if (id === currentId) {
+    flushSave();
+  }
   const copy = JSON.parse(JSON.stringify(vault.notes[id]));
   copy.title = duplicateTitle(vault.notes[id].title);
   copy.mtime = Date.now();
   delete copy.order;
-  const fid = copy.folderId && vault.folders[copy.folderId] ? copy.folderId : null;
-  { const o = topOrderOfGroup(fid); if (o !== undefined) copy.order = o; }
-  const nid = crypto.randomUUID();
-  vault.notes[nid] = copy;
+  const folderId = copy.folderId && vault.folders[copy.folderId] ? copy.folderId : null;
+  // The copy goes to the top of its folder.
+  {
+    const order = topOrderOfGroup(folderId);
+    if (order !== undefined) {
+      copy.order = order;
+    }
+  }
+  const newId = crypto.randomUUID();
+  vault.notes[newId] = copy;
   persistSafe();
-  openNote(nid);
+  openNote(newId);
   renderList();
   renderStatus();
   status(`Duplicated as "${copy.title}"`);
+}
+
+// =================== Auxiliary functions ===================
+
+/**
+ * Escapes text so it parses back to the same characters and stays inert. A
+ * newline is not special in HTML text, so it survives as it is. Also used by
+ * lines.js. Complexity: O(n).
+ */
+function escapeHtml(s) {
+  return String(s).replace(/[&<>]/g, c => (c === "&" ? "&amp;" : c === "<" ? "&lt;" : "&gt;"));
+}
+
+/** Whether a note has pages. Also used by several other files. Complexity: O(1). */
+function isPaged(note) {
+  return !!notePages(note);
+}
+
+/** The note on screen, live or read-only from the trash, or null. Also used by lines.js. Complexity: O(1). */
+function viewedNote() {
+  return trashViewId ? ((vault.trash[trashViewId] || {}).data || null)
+    : (currentId ? vault.notes[currentId] : null);
+}
+
+/** A new page with a fresh id; a part other than body is recorded on it. Complexity: O(1). */
+function newPage(name, body, section) {
+  return { id: crypto.randomUUID(), name, body: body || "", bodyV: 2,
+    ...(section && section !== "body" ? { section } : {}) };
+}
+
+/** The part a page belongs to (body unless marked). Also used by other files. Complexity: O(1). */
+function pageSection(page) {
+  return SECTIONS.includes(page && page.section) ? page.section : "body";
+}
+
+/** A page's part as a number for sorting: title 0, body 1, final 2. Complexity: O(1). */
+function sectionRank(page) {
+  return SECTIONS.indexOf(pageSection(page));
+}
+
+/** Whether any page of a note is marked title or final. Also used by lines.js. Complexity: O(p). */
+function hasSections(note) {
+  return (notePages(note) || []).some(page => pageSection(page) !== "body");
+}
+
+/** Where a new body page goes: before the first final page (or at the end). Complexity: O(p). */
+function bodyInsertIndex(pages) {
+  let index = pages.length;
+  for (let k = 0; k < pages.length; k++) {
+    if (pageSection(pages[k]) === "final") {
+      index = k;
+      break;
+    }
+  }
+  return index;
+}
+
+/**
+ * The text of one body as the page shows it, for search. A plain body is
+ * already text. A v2 body is sanitised (parsed inert: nothing loads or runs)
+ * and read line by line, so words on two lines never fuse; censored text is
+ * removed first, so it never matches and never shows in a snippet.
+ * Complexity: O(n) in the body.
+ */
+function bodyPlainText(entry) {
+  if (entry.bodyV !== 2) {
+    return entry.body || "";
+  }
+  const holder = document.createElement("div");
+  holder.appendChild(bodyFragment(entry.body, 2));
+  for (const el of holder.querySelectorAll("[data-censor]")) {
+    el.remove();
+  }
+  return plainLines(holder);
+}
+
+/**
+ * A note's searchable text: every page, joined by newlines so words on two
+ * pages never fuse. Built once per change (by mtime) and cached with a
+ * lower-case copy, since every search compares lower case. Complexity: O(t)
+ * when built, O(1) when cached.
+ */
+function noteSearchText(id) {
+  const note = vault.notes[id];
+  const hit = searchTextCache.get(id);
+  if (hit && hit.mtime === note.mtime) {
+    return hit.text;
+  }
+  const text = noteBodies(note).map(bodyPlainText).join("\n");
+  const entry = { mtime: note.mtime, text, lower: text.toLowerCase() };
+  searchTextCache.set(id, entry);
+  return text;
+}
+
+/** Takes the drop marks off every page tab. Complexity: O(p). */
+function clearPageDropMark() {
+  for (const el of $("page-tabs").querySelectorAll(".page-tab")) {
+    el.classList.remove("drop-left", "drop-right");
+  }
+}
+
+/**
+ * A free name for a copy: "Trip duplicate", then "Trip duplicate1", "Trip
+ * duplicate2"... An existing suffix is taken off first, so copying "Trip
+ * duplicate" gives "Trip duplicate1", never "Trip duplicate duplicate".
+ * Complexity: O(n) over the notes.
+ */
+function duplicateTitle(base) {
+  const stem = (base || "").replace(/\s*duplicate\s*\d*\s*$/i, "").trim() || "(untitled)";
+  const taken = new Set(Object.values(vault.notes).map(note => (note.title || "").trim()));
+  let name = stem + " duplicate";
+  for (let i = 1; taken.has(name); i++) {
+    name = stem + " duplicate" + i;
+  }
+  return name;
 }

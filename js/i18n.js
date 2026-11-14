@@ -1,15 +1,31 @@
-// notes: The language the app speaks: English, German or Spanish.
+/*
+ * i18n.js - the language the app speaks: English, German or Spanish.
+ *
+ * The language is picked on the lock screen and kept per device. English is
+ * the app's own text; German and Spanish come from a dictionary from that
+ * English to each language (I18N, below), applied to whatever the app puts
+ * on screen. So no other code needs to know about languages: a new message
+ * only needs its line in the dictionary. Note content is never translated:
+ * the editor, the sheets and anything marked translate="no" (the names of
+ * notes, folders, pages, vaults and files) are skipped.
+ *
+ * Main functions: t, i18nTree, i18nText, i18nAttrs.
+ * Auxiliary functions: i18nSkip, i18nAttrSkip.
+ *
+ * Complexity: the lookup tables are built once at load, O(e) in dictionary
+ * entries. Translating a string is O(1) for an exact line and O(p) in the
+ * lines with {0} parts otherwise, then remembered. Translating the page is
+ * O(n) in its text nodes once, then only what the app adds or changes.
+ */
 "use strict";
 
-// Picked on the lock screen and kept per device. English is the app's own text;
-// German and Spanish are a dictionary from that English to each language (I18N,
-// below), applied to whatever the app puts on screen. So no other code needs to
-// know about languages: a new message only needs its line in the dictionary.
-// Note content is never translated: the editor, the sheets and anything marked
-// translate="no" (names of notes, folders, pages, vaults, files) are skipped.
+// ---------- The language ----------
+
 const LANGS = { en: "English", de: "Deutsch", es: "Español" };
 const LANG = LANGS[localStorage.getItem("lang")] ? localStorage.getItem("lang") : "en";
 document.documentElement.lang = LANG;
+
+// ---------- The dictionary ----------
 
 // English -> [Deutsch, Español]. {0}, {1}... stand for the parts that vary (a
 // name, a number, a time): they are found in the English and put back, in
@@ -588,96 +604,231 @@ const I18N = {
   "The app in the repo is not a complete copy ({0}), so it was not offered": ["Die App im Repo ist keine vollständige Kopie ({0}) und wurde daher nicht angeboten", "La app del repositorio no es una copia completa ({0}), así que no se ha ofrecido"],
 };
 
-// ---------- Applying it ----------
+// ---------- Lookup tables ----------
+
+// Which column of the dictionary this language reads (undefined for English).
 const I18N_COL = { de: 0, es: 1 }[LANG];
-const i18nExact = new Map(), i18nPatterns = [];
+
+// The exact lines, and the lines with {0} parts turned into patterns.
+const i18nExact = new Map();
+const i18nPatterns = [];
+
 if (I18N_COL !== undefined) {
-  for (const en in I18N) {
-    const tr = I18N[en] && I18N[en][I18N_COL];
-    if (!tr) continue;
-    if (!/\{\d\}/.test(en)) { i18nExact.set(en, tr); continue; }
-    // "Moved {0} to {1}" -> /^Moved (.+?) to (.+?)$/, remembering which {n} each group is.
+  for (const english in I18N) {
+    const translation = I18N[english] && I18N[english][I18N_COL];
+    if (!translation) {
+      continue;
+    }
+    if (!/\{\d\}/.test(english)) {
+      i18nExact.set(english, translation);
+      continue;
+    }
+    // "Moved {0} to {1}" becomes /^Moved (.+?) to (.+?)$/, remembering which {n} each group is.
     const order = [];
-    const src = en.replace(/[.*+?^$()|[\]\\]/g, "\\$&")
-      .replace(/\{(\d)\}/g, (m, n) => { order.push(+n); return "(.+?)"; });
-    i18nPatterns.push({ re: new RegExp("^" + src + "$", "s"), order, tr });
+    const source = english.replace(/[.*+?^$()|[\]\\]/g, "\\$&")
+      .replace(/\{(\d)\}/g, (match, n) => {
+        order.push(+n);
+        return "(.+?)";
+      });
+    i18nPatterns.push({ re: new RegExp("^" + source + "$", "s"), order, tr: translation });
   }
 }
+
+// Translations already worked out, so a string is looked up once (cleared past 5,000).
 const i18nMemo = new Map();
-// The translation of one piece of English, or the English itself. Spacing at
-// either end is kept, and runs of spaces inside (an HTML line break) count as one.
-function t(s, ...args) {
-  if (args.length) s = s.replace(/\{(\d)\}/g, (m, n) => args[n] !== undefined ? args[n] : m);
-  if (I18N_COL === undefined || !s || !/[A-Za-z]/.test(s)) return s;
-  if (i18nMemo.has(s)) return i18nMemo.get(s);
-  const lead = /^\s*/.exec(s)[0], trail = /\s*$/.exec(s)[0];
-  const key = s.trim().replace(/\s+/g, " ");
-  let out = i18nExact.get(key);
-  if (out === undefined) for (const p of i18nPatterns) {
-    const m = p.re.exec(key);
-    if (!m) continue;
-    out = p.tr.replace(/\{(\d)\}/g, (x, n) => {
-      const v = m[p.order.indexOf(+n) + 1];
-      return v === undefined ? x : t(v);   // always shorter than the whole, so this ends
-    });
-    break;
-  }
-  const res = out === undefined ? s : lead + out + trail;
-  if (i18nMemo.size > 5000) i18nMemo.clear();
-  i18nMemo.set(s, res);
-  return res;
-}
+
 // Text the app shows, and the attributes people read: tooltips, placeholders,
 // labels for screen readers.
 const I18N_ATTRS = ["title", "placeholder", "aria-label", "data-placeholder"];
-// Names people gave things stay as they are: note titles (but not "(untitled)"),
-// folder, page and file names, and the lightbox caption.
+
+// Names people gave things stay as they are: note titles (but not
+// "(untitled)"), folder, page and file names, and the lightbox caption.
 const I18N_SKIP = '[translate="no"], #editor, #sheets, #prev-body, script, style, textarea, ' +
   '.t:not(.untitled), .folder-name:not(.ui-label), .nm, .page-tab, .lb-cap';
-const i18nSkip = el => !el || !!el.closest(I18N_SKIP);
-// An element's own attributes count as the app's (the editor's placeholder, a
-// page tab's tooltip) unless it sits inside note content or is marked translate="no".
-const i18nAttrSkip = el => el.matches('[translate="no"]') || (!!el.parentElement && i18nSkip(el.parentElement));
-function i18nText(node) {
-  if (i18nSkip(node.parentElement)) return;
-  const v = t(node.data);
-  if (v !== node.data) node.data = v;
+
+// ---------- Translating ----------
+
+/**
+ * The translation of one piece of English, or the English itself when the
+ * dictionary has no line for it (and always in English). With extra
+ * arguments, {0}, {1}... in the text are filled in first. Spacing at either
+ * end is kept, and runs of spaces inside (an HTML line break) count as one.
+ *
+ * Used by: this file (everything on screen goes through it), help.js (the
+ * screenshots' descriptions), sidebar.js (the "Trash" and "(untitled)" parts
+ * of the Unsynced section's paths).
+ * Uses: nothing but the lookup tables; it calls itself for a {0} part.
+ * Complexity: O(1) for an exact line, O(p) over the pattern lines otherwise;
+ * the answer is remembered.
+ */
+function t(text, ...args) {
+  if (args.length) {
+    text = text.replace(/\{(\d)\}/g, (match, n) => args[n] !== undefined ? args[n] : match);
+  }
+  if (I18N_COL === undefined || !text || !/[A-Za-z]/.test(text)) {
+    return text;
+  }
+  if (i18nMemo.has(text)) {
+    return i18nMemo.get(text);
+  }
+
+  const lead = /^\s*/.exec(text)[0];
+  const trail = /\s*$/.exec(text)[0];
+  const key = text.trim().replace(/\s+/g, " ");
+
+  let out = i18nExact.get(key);
+  if (out === undefined) {
+    for (const pattern of i18nPatterns) {
+      const match = pattern.re.exec(key);
+      if (!match) {
+        continue;
+      }
+      out = pattern.tr.replace(/\{(\d)\}/g, (placeholder, n) => {
+        const part = match[pattern.order.indexOf(+n) + 1];
+        // A part is always shorter than the whole, so this recursion ends.
+        return part === undefined ? placeholder : t(part);
+      });
+      break;
+    }
+  }
+
+  const result = out === undefined ? text : lead + out + trail;
+  if (i18nMemo.size > 5000) {
+    i18nMemo.clear();
+  }
+  i18nMemo.set(text, result);
+  return result;
 }
-function i18nAttrs(el) {
-  for (const a of I18N_ATTRS) {
-    const v = el.getAttribute(a);
-    if (!v) continue;
-    const tv = t(v);
-    if (tv !== v) el.setAttribute(a, tv);
+
+/**
+ * Translates one text node in place, unless it sits inside note content or
+ * something marked translate="no".
+ *
+ * Used by: i18nTree and the page observer, in this file.
+ * Uses: i18nSkip, t.
+ * Complexity: that of t.
+ */
+function i18nText(node) {
+  if (i18nSkip(node.parentElement)) {
+    return;
+  }
+  const translated = t(node.data);
+  if (translated !== node.data) {
+    node.data = translated;
   }
 }
+
+/**
+ * Translates an element's readable attributes (title, placeholder,
+ * aria-label, data-placeholder) in place.
+ *
+ * Used by: i18nTree and the page observer, in this file.
+ * Uses: t.
+ * Complexity: O(1), four attributes.
+ */
+function i18nAttrs(el) {
+  for (const name of I18N_ATTRS) {
+    const value = el.getAttribute(name);
+    if (!value) {
+      continue;
+    }
+    const translated = t(value);
+    if (translated !== value) {
+      el.setAttribute(name, translated);
+    }
+  }
+}
+
+/**
+ * Translates everything under a node: its text and its elements' attributes,
+ * stepping over note content. An element that holds note content (the
+ * editor, say) still gets its own attributes translated, such as its
+ * placeholder, but nothing inside it.
+ *
+ * Used by: this file (the whole page at load, then every node the app adds).
+ * Uses: i18nText, i18nAttrs, i18nSkip, i18nAttrSkip, t.
+ * Complexity: O(n) in the nodes under root.
+ */
 function i18nTree(root) {
-  if (root.nodeType === 3) return i18nText(root);
-  if (root.nodeType !== 1) return;
-  if (!i18nAttrSkip(root)) i18nAttrs(root);
-  if (i18nSkip(root)) return;
-  const w = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
-    acceptNode: n => {
-      if (n.nodeType !== 1 || !i18nSkip(n)) return NodeFilter.FILTER_ACCEPT;
-      if (!i18nAttrSkip(n)) i18nAttrs(n);   // the editor's own placeholder, say, but nothing inside it
+  if (root.nodeType === 3) {
+    return i18nText(root);
+  }
+  if (root.nodeType !== 1) {
+    return;
+  }
+  if (!i18nAttrSkip(root)) {
+    i18nAttrs(root);
+  }
+  if (i18nSkip(root)) {
+    return;
+  }
+
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+    acceptNode: node => {
+      if (node.nodeType !== 1 || !i18nSkip(node)) {
+        return NodeFilter.FILTER_ACCEPT;
+      }
+      // The editor's own placeholder, say, but nothing inside it.
+      if (!i18nAttrSkip(node)) {
+        i18nAttrs(node);
+      }
       return NodeFilter.FILTER_REJECT;
     },
   });
-  for (let n = w.nextNode(); n; n = w.nextNode()) {
-    if (n.nodeType === 3) { const v = t(n.data); if (v !== n.data) n.data = v; }
-    else i18nAttrs(n);
+
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node.nodeType === 3) {
+      const translated = t(node.data);
+      if (translated !== node.data) {
+        node.data = translated;
+      }
+    } else {
+      i18nAttrs(node);
+    }
   }
 }
-// English needs nothing done. Otherwise the page is translated once now and
+
+// ---------- On load ----------
+
+// English needs nothing done. Otherwise the page is translated once now, and
 // then whatever the app adds or changes, as it happens.
 if (I18N_COL !== undefined) {
   i18nTree(document.body);
-  new MutationObserver(recs => {
-    for (const r of recs) {
-      if (r.type === "characterData") i18nText(r.target);
-      else if (r.type === "attributes") { if (!i18nAttrSkip(r.target)) i18nAttrs(r.target); }
-      else for (const n of r.addedNodes) i18nTree(n);
+  new MutationObserver(records => {
+    for (const record of records) {
+      if (record.type === "characterData") {
+        i18nText(record.target);
+      } else if (record.type === "attributes") {
+        if (!i18nAttrSkip(record.target)) {
+          i18nAttrs(record.target);
+        }
+      } else {
+        for (const node of record.addedNodes) {
+          i18nTree(node);
+        }
+      }
     }
-  }).observe(document.body, { subtree: true, childList: true, characterData: true,
-    attributes: true, attributeFilter: I18N_ATTRS });
+  }).observe(document.body, {
+    subtree: true,
+    childList: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: I18N_ATTRS,
+  });
+}
+
+// =================== Auxiliary functions ===================
+
+/** Whether an element is, or sits inside, something that must not be translated. Complexity: O(depth). */
+function i18nSkip(el) {
+  return !el || !!el.closest(I18N_SKIP);
+}
+
+/**
+ * Whether an element's own attributes must be left alone: it is marked
+ * translate="no", or it sits inside note content. An element that only holds
+ * note content (the editor) still has its attributes translated. Complexity: O(depth).
+ */
+function i18nAttrSkip(el) {
+  return el.matches('[translate="no"]') || (!!el.parentElement && i18nSkip(el.parentElement));
 }

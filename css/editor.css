@@ -1,359 +1,1393 @@
-/* notes: The writing area: toolbar, palette, tables, censored text, attachments, pages and the second screen. */
+/*
+ * editor.css - the writing area: the main column, the formatting toolbar,
+ * tables and links, the colour palette, censored text, the layout of
+ * pictures and files in a note, page tabs, paged notes (the A4 sheets) and
+ * the second screen.
+ *
+ * Sections: Main column, Formatting toolbar, Tables and links, Colour
+ * palette popup, Censored text, Image/file layout inside a note, Page tabs,
+ * Paged notes, Split ("second screen") edit mode, Editor.
+ */
+
 /* ---------- Main column ---------- */
-#main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--s1); }
+#main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--s1);
+}
+
 /* Title row: the note title is the page heading, set in the book serif with no
    box around it, aligned with the text column below. */
-.bar { display: flex; gap: 10px; padding: 20px var(--ed-pad-x) 10px; align-items: center; }
-#title { font: 600 23px/1.25 var(--serif); letter-spacing: -.005em; color: var(--t1); background: transparent;
-  border: 0; border-radius: 0; padding: 4px 0; min-width: 0; }
-#title:focus { box-shadow: none; }
-#title::placeholder { color: var(--t4); }
-.bar button { padding: 5px 12px; font-size: 12.5px; line-height: 1.2; white-space: nowrap; }
+.bar {
+  display: flex;
+  gap: 10px;
+  padding: 20px var(--ed-pad-x) 10px;
+  align-items: center;
+}
+
+#title {
+  font: 600 23px/1.25 var(--serif);
+  letter-spacing: -.005em;
+  color: var(--t1);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 4px 0;
+  min-width: 0;
+}
+
+#title:focus {
+  box-shadow: none;
+}
+
+#title::placeholder {
+  color: var(--t4);
+}
+
+.bar button {
+  padding: 5px 12px;
+  font-size: 12.5px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
 /* Save is quiet when everything is saved (disabled "Saved") and turns sage the moment there is something to save. */
-#save { background: transparent; color: var(--t3); }
-#save:not(:disabled) { background: var(--acc-dim); border-color: var(--acc-line); color: var(--acc); }
-#save:not(:disabled):hover { background: #2f3d2a; }
+#save {
+  background: transparent;
+  color: var(--t3);
+}
+
+#save:not(:disabled) {
+  background: var(--acc-dim);
+  border-color: var(--acc-line);
+  color: var(--acc);
+}
+
+#save:not(:disabled):hover {
+  background: #2f3d2a;
+}
+
 /* A read-only trash view has to LOOK read-only, not just refuse keystrokes. */
-#main.readonly #title, #main.readonly #editor { color: var(--t3); cursor: default; }
-#main.readonly #editor { background: var(--s0); }
+#main.readonly #title,
+#main.readonly #editor {
+  color: var(--t3);
+  cursor: default;
+}
+
+#main.readonly #editor {
+  background: var(--s0);
+}
+
 /* Banners above the editor: a tinted strip with a coloured edge, never a modal. */
-#pull-banner, #trash-banner { display: none; gap: 8px; align-items: center; margin: 0 var(--ed-pad-x) 8px; padding: 8px 10px 8px 12px;
-  border: 1px solid var(--warn-line); border-left: 3px solid var(--warn); border-radius: 8px; font-size: 13px; background: var(--warn-dim); color: var(--t1); }
-#pull-banner span, #trash-banner span { flex: 1; }
-#pull-banner button, #trash-banner button { padding: 3px 9px; font-size: 12px; }
+#pull-banner,
+#trash-banner {
+  display: none;
+  gap: 8px;
+  align-items: center;
+  margin: 0 var(--ed-pad-x) 8px;
+  padding: 8px 10px 8px 12px;
+  border: 1px solid var(--warn-line);
+  border-left: 3px solid var(--warn);
+  border-radius: 8px;
+  font-size: 13px;
+  background: var(--warn-dim);
+  color: var(--t1);
+}
+
+#pull-banner span,
+#trash-banner span {
+  flex: 1;
+}
+
+#pull-banner button,
+#trash-banner button {
+  padding: 3px 9px;
+  font-size: 12px;
+}
+
 /* Read-only backup view: amber banner, all mutating chrome hidden. */
-#backup-banner { display: none; align-items: center; gap: 8px; margin: 0 var(--ed-pad-x) 8px; padding: 8px 10px 8px 12px;
-  background: var(--warn-dim); border: 1px solid var(--warn-line); border-left: 3px solid var(--warn); border-radius: 8px; color: var(--warn); font-size: 13px; }
-#backup-banner span { flex: 1; }
-#backup-banner #backup-convert { border-color: var(--warn-line); color: var(--warn); background: transparent; }
-body.backup-view #save, body.backup-view #sync, body.backup-view #backup,
-body.backup-view #new-note, body.backup-view #new-folder, body.backup-view #backup-bar,
-body.backup-view #trash-restore, body.backup-view #trash-purge, body.backup-view #chips,
-/* The pull banner's Details button opens the detail panel, whose rows include
-   destructive repo/vault actions; the panel itself is chrome for the LIVE
-   vault and means nothing for a snapshot. */
-body.backup-view #pull-banner, body.backup-view #status-detail { display: none; }
+#backup-banner {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  margin: 0 var(--ed-pad-x) 8px;
+  padding: 8px 10px 8px 12px;
+  background: var(--warn-dim);
+  border: 1px solid var(--warn-line);
+  border-left: 3px solid var(--warn);
+  border-radius: 8px;
+  color: var(--warn);
+  font-size: 13px;
+}
+
+#backup-banner span {
+  flex: 1;
+}
+
+#backup-banner #backup-convert {
+  border-color: var(--warn-line);
+  color: var(--warn);
+  background: transparent;
+}
+
+body.backup-view #save,
+body.backup-view #sync,
+body.backup-view #backup,
+body.backup-view #new-note,
+body.backup-view #new-folder,
+body.backup-view #backup-bar,
+body.backup-view #trash-restore,
+body.backup-view #trash-purge,
+body.backup-view #chips,
+body.backup-view #pull-banner,
+body.backup-view #status-detail {
+  display: none;
+}
 
 /* ---------- Formatting toolbar ----------
    Borderless icon buttons on a hairline-separated strip, aligned with the text
    column. Pressed states (bold on, etc.) use the sage tint. */
-#fmt-bar { flex: none; display: flex; align-items: center; gap: 2px; flex-wrap: wrap;
-  padding: 6px 16px 6px calc(var(--ed-pad-x) - 8px); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--s1); }
-#fmt-bar button { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 28px;
-  padding: 0 7px; font-size: 13px; background: transparent; border: 1px solid transparent; border-radius: 6px; color: var(--t2); line-height: 1; }
-#fmt-bar button:hover { background: var(--s3); color: var(--t1); }
-#fmt-bar button.on { background: var(--acc-dim); border-color: transparent; color: var(--acc); }
-#fmt-bar button:disabled:hover { background: transparent; border-color: transparent; color: var(--t2); }
-#fmt-bar svg { width: 16px; height: 16px; flex: none; }
+#fmt-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+  padding: 6px 16px 6px calc(var(--ed-pad-x) - 8px);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--s1);
+}
+
+#fmt-bar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 28px;
+  padding: 0 7px;
+  font-size: 13px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--t2);
+  line-height: 1;
+}
+
+#fmt-bar button:hover {
+  background: var(--s3);
+  color: var(--t1);
+}
+
+#fmt-bar button.on {
+  background: var(--acc-dim);
+  border-color: transparent;
+  color: var(--acc);
+}
+
+#fmt-bar button:disabled:hover {
+  background: transparent;
+  border-color: transparent;
+  color: var(--t2);
+}
+
+#fmt-bar svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
 /* The B / I / U / S letters are set in the serif so they look like type samples, not labels. */
-#fmt-bar button[data-cmd="bold"], #fmt-bar button[data-cmd="italic"],
-#fmt-bar button[data-cmd="underline"], #fmt-bar button[data-cmd="strikeThrough"] { font: 15px/1 var(--serif); }
-#fmt-bar select { height: 28px; padding: 0 6px; font-size: 12px; background-color: var(--s1); border: 1px solid var(--line-2);
-  border-radius: 6px; color: var(--t2); max-width: 130px; }
-#fmt-bar select:hover { border-color: var(--line-3); color: var(--t1); }
-#fmt-bar .fmt-sep { width: 1px; height: 18px; background: var(--line-2); margin: 0 6px; }
+#fmt-bar button[data-cmd="bold"],
+#fmt-bar button[data-cmd="italic"],
+#fmt-bar button[data-cmd="underline"],
+#fmt-bar button[data-cmd="strikeThrough"] {
+  font: 15px/1 var(--serif);
+}
+
+#fmt-bar select {
+  height: 28px;
+  padding: 0 6px;
+  font-size: 12px;
+  background-color: var(--s1);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  color: var(--t2);
+  max-width: 130px;
+}
+
+#fmt-bar select:hover {
+  border-color: var(--line-3);
+  color: var(--t1);
+}
+
+#fmt-bar .fmt-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--line-2);
+  margin: 0 6px;
+}
+
 /* Related buttons stay together: a narrow window wraps the bar group by group,
    never leaving one button stranded on a line of its own. */
-#fmt-bar .fmt-group { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+#fmt-bar .fmt-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
 /* The toolbar starts where the text column starts (minus the first button's own padding) but may run past
    it to the right, so it stays on one line. The hint only shows where there is room for it; on narrower
    windows it just wrapped into clutter. */
-#fmt-bar .fmt-hint { font-size: 11px; color: var(--t4); margin-left: auto; }
-@media (max-width: 1500px) { #fmt-bar .fmt-hint { display: none; } }
-#main.readonly #fmt-bar { opacity: .4; pointer-events: none; }
+#fmt-bar .fmt-hint {
+  font-size: 11px;
+  color: var(--t4);
+  margin-left: auto;
+}
+
+@media (max-width: 1500px) {
+  #fmt-bar .fmt-hint {
+    display: none;
+  }
+}
+
+#main.readonly #fmt-bar {
+  opacity: .4;
+  pointer-events: none;
+}
+
 /* Colour/highlight buttons carry a bar showing the last colour used, under the glyph. */
-#fmt-color, #fmt-highlight { flex-direction: column; gap: 2px; padding-top: 3px; }
-#fmt-bar .swatch-bar { display: block; width: 14px; height: 3px; border-radius: 2px; background: #666; }
+#fmt-color,
+#fmt-highlight {
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 3px;
+}
+
+#fmt-bar .swatch-bar {
+  display: block;
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  background: #666;
+}
+
 /* Censor: a small black slab with spaced capitals, the look of a redaction stamp.
    On (typing is censored, or the selection is) it lights up: white type and a
    sage underline, so the state is never in doubt. */
-#fmt-censor { font-size: 10px; font-weight: 600; letter-spacing: .1em; background: #050505; color: var(--t3); border-color: var(--line-2); }
-#fmt-censor:hover { color: #fff; background: #000; border-color: var(--line-3); }
-#fmt-bar #fmt-censor.on { background: #000; color: #fff; border-color: var(--acc-line); box-shadow: inset 0 -2px 0 var(--acc); }
+#fmt-censor {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  background: #050505;
+  color: var(--t3);
+  border-color: var(--line-2);
+}
+
+#fmt-censor:hover {
+  color: #fff;
+  background: #000;
+  border-color: var(--line-3);
+}
+
+#fmt-bar #fmt-censor.on {
+  background: #000;
+  color: #fff;
+  border-color: var(--acc-line);
+  box-shadow: inset 0 -2px 0 var(--acc);
+}
 
 /* ---------- Tables and links, in the dark editor and on the white page sheets ---------- */
+
 /* table-layout:fixed keeps typing from stretching a column (it wraps and the
    row grows instead), but the table must NOT be stretched to the full text
    width: with width:100% the columns share a fixed total, so widening one
    necessarily shrank its neighbours. width:auto makes the table exactly as
    wide as its columns, and resizing one column moves only that column. */
-#editor table, .sheet-body table, #prev-body table { border-collapse: collapse; margin: 6px 0;
-  table-layout: fixed; width: auto; max-width: 100%; }
-#editor td, #editor th, .sheet-body td, .sheet-body th, #prev-body td, #prev-body th {
-  overflow-wrap: anywhere; word-break: break-word; white-space: pre-wrap; }
-#editor td, #editor th { border: 1px solid var(--line-3); padding: 4px 8px; min-width: 40px; vertical-align: top; }
-#editor th { background: var(--s3); font-weight: 600; }
-.sheet-body td, .sheet-body th, #prev-body td, #prev-body th {
-  border: 1px solid #999; padding: 4pt 6pt; min-width: 40px; vertical-align: top; }
-.sheet-body th, #prev-body th { background: #eee; font-weight: 700; }
-#editor a, .sheet-body a, #prev-body a { color: var(--link); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
-.sheet-body a { color: #1a4f8a; }
+#editor table,
+.sheet-body table,
+#prev-body table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  table-layout: fixed;
+  width: auto;
+  max-width: 100%;
+}
+
+#editor td,
+#editor th,
+.sheet-body td,
+.sheet-body th,
+#prev-body td,
+#prev-body th {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+#editor td,
+#editor th {
+  border: 1px solid var(--line-3);
+  padding: 4px 8px;
+  min-width: 40px;
+  vertical-align: top;
+}
+
+#editor th {
+  background: var(--s3);
+  font-weight: 600;
+}
+
+.sheet-body td,
+.sheet-body th,
+#prev-body td,
+#prev-body th {
+  border: 1px solid #999;
+  padding: 4pt 6pt;
+  min-width: 40px;
+  vertical-align: top;
+}
+
+.sheet-body th,
+#prev-body th {
+  background: #eee;
+  font-weight: 700;
+}
+
+#editor a,
+.sheet-body a,
+#prev-body a {
+  color: var(--link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.sheet-body a {
+  color: #1a4f8a;
+}
 
 /* ---------- Colour palette popup ---------- */
-.palette-pop { position: fixed; z-index: 80; padding: 12px; background: var(--s2);
-  border: 1px solid var(--line-2); border-radius: 10px; box-shadow: 0 16px 40px rgb(0 0 0 / .5); }
-.pal-head { font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--t3); margin: 2px 0 7px; }
-.pal-reset { display: block; width: 100%; margin-bottom: 8px; padding: 5px 8px; font-size: 12px;
-  background: var(--s3); border: 1px solid var(--line-2); border-radius: 6px; color: var(--t2); }
-.pal-reset:hover { background: var(--s4); color: var(--t1); }
-.pal-grid { display: grid; grid-template-columns: repeat(10, 18px); gap: 4px; }
-.pal-grid.custom { grid-template-columns: repeat(10, 18px); margin-bottom: 2px; }
-.pal-swatch { width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 1px solid #00000055;
-  cursor: pointer; }
-.pal-swatch:hover { outline: 2px solid var(--acc); outline-offset: 1px; }
-.pal-add { background: var(--s3); border: 1px dashed var(--line-3); color: var(--t3); font-size: 12px; line-height: 1; }
-.pal-add:hover { background: var(--s4); color: var(--t1); }
+.palette-pop {
+  position: fixed;
+  z-index: 80;
+  padding: 12px;
+  background: var(--s2);
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgb(0 0 0 / .5);
+}
+
+.pal-head {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--t3);
+  margin: 2px 0 7px;
+}
+
+.pal-reset {
+  display: block;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 5px 8px;
+  font-size: 12px;
+  background: var(--s3);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  color: var(--t2);
+}
+
+.pal-reset:hover {
+  background: var(--s4);
+  color: var(--t1);
+}
+
+.pal-grid {
+  display: grid;
+  grid-template-columns: repeat(10, 18px);
+  gap: 4px;
+}
+
+.pal-grid.custom {
+  grid-template-columns: repeat(10, 18px);
+  margin-bottom: 2px;
+}
+
+.pal-swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid #00000055;
+  cursor: pointer;
+}
+
+.pal-swatch:hover {
+  outline: 2px solid var(--acc);
+  outline-offset: 1px;
+}
+
+.pal-add {
+  background: var(--s3);
+  border: 1px dashed var(--line-3);
+  color: var(--t3);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.pal-add:hover {
+  background: var(--s4);
+  color: var(--t1);
+}
+
 /* The custom colour editor, in the same popup: the square (saturation across,
    brightness up), the hue strip, then before/after, the hex field and the
    eyedropper. The width is the palette grid's, so switching views does not jump. */
-.palette-pop.editing { width: 242px; }
-.palette-shield { position: fixed; inset: 0; z-index: 79; }   /* under the palette, over everything else */
-.cpk-sv { position: relative; height: 132px; border-radius: 6px; cursor: crosshair; touch-action: none;
-  box-shadow: inset 0 0 0 1px rgb(0 0 0 / .35); }
-.cpk-sv:focus-visible { outline: 2px solid var(--acc-line); outline-offset: 2px; }
-.cpk-knob { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border: 2px solid #fff; border-radius: 50%;
-  box-shadow: 0 0 0 1px rgb(0 0 0 / .55), inset 0 0 0 1px rgb(0 0 0 / .35); pointer-events: none; }
-.palette-pop input.cpk-hue { -webkit-appearance: none; appearance: none; display: block; width: 100%; height: 12px;
-  margin: 12px 0 0; padding: 0; border: 0; border-radius: 6px; cursor: pointer;
-  background: linear-gradient(to right, #f00, #ff0 16.67%, #0f0 33.33%, #0ff 50%, #00f 66.67%, #f0f 83.33%, #f00); }
-.palette-pop input.cpk-hue:focus { box-shadow: 0 0 0 3px rgb(163 196 147 / .2); }
-.cpk-hue::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: 50%;
-  background: transparent; border: 2px solid #fff; box-shadow: 0 0 0 1px rgb(0 0 0 / .55); }
-.cpk-hue::-moz-range-thumb { width: 10px; height: 10px; border-radius: 50%; background: transparent;
-  border: 2px solid #fff; box-shadow: 0 0 0 1px rgb(0 0 0 / .55); }
-.cpk-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
-.cpk-prev { flex: none; display: flex; width: 48px; height: 28px; border-radius: 6px; overflow: hidden;
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / .12); }
-.cpk-prev span { flex: 1; }
-.palette-pop input.cpk-hex { flex: 1; min-width: 0; height: 28px; padding: 0 8px; font: 12px var(--mono); }
-.palette-pop input.cpk-hex.bad { border-color: var(--bad-line); box-shadow: 0 0 0 3px rgb(228 115 95 / .14); }
-.cpk-drop { flex: none; width: 30px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--t2); }
-.cpk-drop svg { width: 15px; height: 15px; }
-.cpk-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
-.cpk-actions button { padding: 6px 12px; font-size: 12px; }
+.palette-pop.editing {
+  width: 242px;
+}
+
+/* under the palette, over everything else */
+.palette-shield {
+  position: fixed;
+  inset: 0;
+  z-index: 79;
+}
+
+.cpk-sv {
+  position: relative;
+  height: 132px;
+  border-radius: 6px;
+  cursor: crosshair;
+  touch-action: none;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / .35);
+}
+
+.cpk-sv:focus-visible {
+  outline: 2px solid var(--acc-line);
+  outline-offset: 2px;
+}
+
+.cpk-knob {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / .55), inset 0 0 0 1px rgb(0 0 0 / .35);
+  pointer-events: none;
+}
+
+.palette-pop input.cpk-hue {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 12px;
+  margin: 12px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  background: linear-gradient(to right, #f00, #ff0 16.67%, #0f0 33.33%, #0ff 50%, #00f 66.67%, #f0f 83.33%, #f00);
+}
+
+.palette-pop input.cpk-hue:focus {
+  box-shadow: 0 0 0 3px rgb(163 196 147 / .2);
+}
+
+.cpk-hue::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: transparent;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / .55);
+}
+
+.cpk-hue::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: transparent;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / .55);
+}
+
+.cpk-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.cpk-prev {
+  flex: none;
+  display: flex;
+  width: 48px;
+  height: 28px;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / .12);
+}
+
+.cpk-prev span {
+  flex: 1;
+}
+
+.palette-pop input.cpk-hex {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  font: 12px var(--mono);
+}
+
+.palette-pop input.cpk-hex.bad {
+  border-color: var(--bad-line);
+  box-shadow: 0 0 0 3px rgb(228 115 95 / .14);
+}
+
+.cpk-drop {
+  flex: none;
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--t2);
+}
+
+.cpk-drop svg {
+  width: 15px;
+  height: 15px;
+}
+
+.cpk-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.cpk-actions button {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
 /* "Stop editing?" sits over the editor, which stays visible but out of reach until it is answered. */
-.cpk-confirm { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center;
-  padding: 18px; border-radius: 10px; background: rgb(24 23 21 / .94); }
-.cpk-confirm p { margin: 0; font-size: 13px; line-height: 1.45; color: var(--t1); }
+.cpk-confirm {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 18px;
+  border-radius: 10px;
+  background: rgb(24 23 21 / .94);
+}
+
+.cpk-confirm p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--t1);
+}
 
 /* ---------- Censored text ---------- */
+
 /* Censored text: a solid bar in the app, revealed on hover so it stays
    editable. The bar covers whatever formatting sits under the mark (bold,
    a colour, a highlight all stay in the note, but none may show through it),
    hence !important. The EXPORT does not rely on this - it removes the text
    entirely. The faint edge keeps a bar visible on the dark editor. */
-[data-censor] { background-color: #000 !important; color: transparent !important; border-radius: 2px;
-  padding: 0 2px; box-decoration-break: clone; -webkit-box-decoration-break: clone;
-  box-shadow: 0 0 0 1px rgb(255 255 255 / .08); caret-color: #f2efe9; }
-[data-censor] * { color: transparent !important; background-color: transparent !important; }
-[data-censor]::selection, [data-censor] *::selection { background: #000; color: transparent; }
+[data-censor] {
+  background-color: #000 !important;
+  color: transparent !important;
+  border-radius: 2px;
+  padding: 0 2px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / .08);
+  caret-color: #f2efe9;
+}
+
+/* Formatting inside a mark (a colour, a highlight) must not show through the bar. */
+[data-censor] * {
+  color: transparent !important;
+  background-color: transparent !important;
+}
+
+[data-censor]::selection,
+[data-censor] *::selection {
+  background: #000;
+  color: transparent;
+}
+
 /* A picture inside a censored run is covered by the bar as well. */
-[data-censor] .inline-media { background-color: #000 !important; border-color: #000; }
-[data-censor] .inline-media img, [data-censor] .inline-media video { filter: brightness(0); }
+[data-censor] .inline-media {
+  background-color: #000 !important;
+  border-color: #000;
+}
+
+[data-censor] .inline-media img,
+[data-censor] .inline-media video {
+  filter: brightness(0);
+}
+
 /* The spell checker underlines a misspelt word, and a word that runs into a
    bar (nothing between them) was underlined across the bar too: a red
    squiggle on text with no colour of its own, and a hint at where the hidden
    word ends. Spelling and grammar marks are never drawn on censored text.
    (One rule per pseudo-element: a browser that lacks one drops only its rule.) */
-[data-censor]::spelling-error, [data-censor] *::spelling-error { text-decoration: none; }
-[data-censor]::grammar-error, [data-censor] *::grammar-error { text-decoration: none; }
+[data-censor]::spelling-error,
+[data-censor] *::spelling-error {
+  text-decoration: none;
+}
+
+[data-censor]::grammar-error,
+[data-censor] *::grammar-error {
+  text-decoration: none;
+}
+
 /* Ctrl+P on the app itself: transparent text still becomes real, extractable
    glyphs in the browser's PDF, and print styles may drop the black background
    entirely. The characters must not be painted at all. (The proper export
    paths destroy them; this covers printing the raw page.) */
-@media print { [data-censor] { visibility: hidden; } }
+@media print {
+  [data-censor] {
+    visibility: hidden;
+  }
+}
+
 /* Hover reads it, in a muted ink on a softer bar so it still reads as censored. */
-.sheet-body [data-censor]:hover, #editor [data-censor]:hover { color: #cfc8bc !important; background-color: #2a2725 !important; }
-.sheet-body [data-censor]:hover *, #editor [data-censor]:hover * { color: inherit !important; }
-.sheet-body [data-censor]:hover .inline-media img, #editor [data-censor]:hover .inline-media img,
-.sheet-body [data-censor]:hover .inline-media video, #editor [data-censor]:hover .inline-media video { filter: none; }
+.sheet-body [data-censor]:hover,
+#editor [data-censor]:hover {
+  color: #cfc8bc !important;
+  background-color: #2a2725 !important;
+}
+
+/* While it is read, the formatting inside it takes the same muted ink. */
+.sheet-body [data-censor]:hover *,
+#editor [data-censor]:hover * {
+  color: inherit !important;
+}
+
+.sheet-body [data-censor]:hover .inline-media img,
+#editor [data-censor]:hover .inline-media img,
+.sheet-body [data-censor]:hover .inline-media video,
+#editor [data-censor]:hover .inline-media video {
+  filter: none;
+}
+
 /* Bullets follow the text alignment: with the marker outside the box it always
    hangs at the left margin no matter how the line is aligned. */
-#editor ul, #editor ol, .sheet-body ul, .sheet-body ol { list-style-position: inside; padding-left: 0; margin: 4px 0 4px 12px; }
+#editor ul,
+#editor ol,
+.sheet-body ul,
+.sheet-body ol {
+  list-style-position: inside;
+  padding-left: 0;
+  margin: 4px 0 4px 12px;
+}
 
 /* ---------- Image/file layout inside a note ---------- */
+
 /* Selection + resize handles */
-.inline-media.selected { outline: 2px solid var(--link); outline-offset: 1px; }
-.media-handle { position: absolute; width: 9px; height: 9px; background: #fff; border: 1px solid #4a86c8;
-  border-radius: 2px; z-index: 3; }
-.media-handle.h-nw { top: -5px; left: -5px; cursor: nwse-resize; }
-.media-handle.h-ne { top: -5px; right: -5px; cursor: nesw-resize; }
-.media-handle.h-sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
-.media-handle.h-se { bottom: -5px; right: -5px; cursor: nwse-resize; }
+.inline-media.selected {
+  outline: 2px solid var(--link);
+  outline-offset: 1px;
+}
+
+/* The resize handles sit above the picture they resize. */
+.media-handle {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  background: #fff;
+  border: 1px solid #4a86c8;
+  border-radius: 2px;
+  z-index: 3;
+}
+
+.media-handle.h-nw {
+  top: -5px;
+  left: -5px;
+  cursor: nwse-resize;
+}
+
+.media-handle.h-ne {
+  top: -5px;
+  right: -5px;
+  cursor: nesw-resize;
+}
+
+.media-handle.h-sw {
+  bottom: -5px;
+  left: -5px;
+  cursor: nesw-resize;
+}
+
+.media-handle.h-se {
+  bottom: -5px;
+  right: -5px;
+  cursor: nwse-resize;
+}
+
 /* Centre guide shown while dragging an image */
-.drag-guide { position: fixed; width: 1px; background: #4a86c8; opacity: .45; z-index: 60; pointer-events: none; }
-.drag-guide.snap { background: var(--warn); opacity: 1; width: 2px; box-shadow: 0 0 6px rgb(227 169 92 / .6); }
-.inline-media.align-center { display: block; margin-left: auto; margin-right: auto; }
-.inline-media.align-right { display: block; margin-left: auto; margin-right: 0; }
-.inline-media.align-left { display: block; margin-right: auto; margin-left: 0; }
+.drag-guide {
+  position: fixed;
+  width: 1px;
+  background: #4a86c8;
+  opacity: .45;
+  z-index: 60;
+  pointer-events: none;
+}
+
+.drag-guide.snap {
+  background: var(--warn);
+  opacity: 1;
+  width: 2px;
+  box-shadow: 0 0 6px rgb(227 169 92 / .6);
+}
+
+.inline-media.align-center {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.inline-media.align-right {
+  display: block;
+  margin-left: auto;
+  margin-right: 0;
+}
+
+.inline-media.align-left {
+  display: block;
+  margin-right: auto;
+  margin-left: 0;
+}
 
 /* ---------- Page tabs ---------- */
+
 /* Only rendered for a multi-page note, so a single-page note looks exactly as it always did. */
-#page-tabs { display: none; gap: 4px; padding: 8px var(--ed-pad-x) 0; flex-wrap: wrap; flex: none; }
-.page-tab { padding: 4px 11px; font-size: 12px; background: var(--s2); border: 1px solid var(--line-2);
-  border-radius: 7px 7px 0 0; color: var(--t3); max-width: 180px; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap; }
-.page-tab:hover { background: var(--s3); color: var(--t2); }
-.page-tab.active { background: var(--s4); border-color: var(--line-3); color: var(--t1); }
-.page-tab.dragging { opacity: .4; }
+#page-tabs {
+  display: none;
+  gap: 4px;
+  padding: 8px var(--ed-pad-x) 0;
+  flex-wrap: wrap;
+  flex: none;
+}
+
+.page-tab {
+  padding: 4px 11px;
+  font-size: 12px;
+  background: var(--s2);
+  border: 1px solid var(--line-2);
+  border-radius: 7px 7px 0 0;
+  color: var(--t3);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page-tab:hover {
+  background: var(--s3);
+  color: var(--t2);
+}
+
+.page-tab.active {
+  background: var(--s4);
+  border-color: var(--line-3);
+  color: var(--t1);
+}
+
+.page-tab.dragging {
+  opacity: .4;
+}
+
 /* Parts: title and final are visually distinct from the body they bracket. */
-.sec-mark { align-self: flex-end; font-size: 9px; letter-spacing: .1em; text-transform: uppercase;
-  padding: 0 4px 4px; color: var(--t4); }
-.sec-mark.sec-title { color: #7aa7d0; } .sec-mark.sec-final { color: #c08bd0; }
-.page-tab.sec-title { border-color: #33506b; }
-.page-tab.sec-title.active { background: #22303d; border-color: #4b7ba6; color: #cfe4f5; }
-.page-tab.sec-final { border-color: #5a3d66; }
-.page-tab.sec-final.active { background: #322540; border-color: #8b5fa3; color: #ecd9f5; }
-.sheet.sec-title .sheet-label { background: #16202a; border-bottom-color: #26384a; }
-.sheet.sec-final .sheet-label { background: #201828; border-bottom-color: #3a2a45; }
-.sec-chip { font-size: 9px; letter-spacing: .09em; text-transform: uppercase; padding: 1px 5px;
-  border-radius: 3px; background: var(--s3); color: var(--t3); }
-.sec-chip.sec-title { background: #24384c; color: #a6cbe8; }
-.sec-chip.sec-final { background: #35264a; color: #d3b3e8; }
-.page-tab.drop-left { box-shadow: inset 2px 0 0 var(--warn); }
-.page-tab.drop-right { box-shadow: inset -2px 0 0 var(--warn); }
-.page-add { padding: 4px 10px; font-size: 12px; background: transparent; border: 1px dashed var(--line-3);
-  border-radius: 7px; color: var(--t3); }
-.page-add:hover { background: var(--s3); color: var(--t2); }
+.sec-mark {
+  align-self: flex-end;
+  font-size: 9px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  padding: 0 4px 4px;
+  color: var(--t4);
+}
+
+.sec-mark.sec-title {
+  color: #7aa7d0;
+}
+
+.sec-mark.sec-final {
+  color: #c08bd0;
+}
+
+.page-tab.sec-title {
+  border-color: #33506b;
+}
+
+.page-tab.sec-title.active {
+  background: #22303d;
+  border-color: #4b7ba6;
+  color: #cfe4f5;
+}
+
+.page-tab.sec-final {
+  border-color: #5a3d66;
+}
+
+.page-tab.sec-final.active {
+  background: #322540;
+  border-color: #8b5fa3;
+  color: #ecd9f5;
+}
+
+.sheet.sec-title .sheet-label {
+  background: #16202a;
+  border-bottom-color: #26384a;
+}
+
+.sheet.sec-final .sheet-label {
+  background: #201828;
+  border-bottom-color: #3a2a45;
+}
+
+.sec-chip {
+  font-size: 9px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--s3);
+  color: var(--t3);
+}
+
+.sec-chip.sec-title {
+  background: #24384c;
+  color: #a6cbe8;
+}
+
+.sec-chip.sec-final {
+  background: #35264a;
+  color: #d3b3e8;
+}
+
+.page-tab.drop-left {
+  box-shadow: inset 2px 0 0 var(--warn);
+}
+
+.page-tab.drop-right {
+  box-shadow: inset -2px 0 0 var(--warn);
+}
+
+.page-add {
+  padding: 4px 10px;
+  font-size: 12px;
+  background: transparent;
+  border: 1px dashed var(--line-3);
+  border-radius: 7px;
+  color: var(--t3);
+}
+
+.page-add:hover {
+  background: var(--s3);
+  color: var(--t2);
+}
 
 /* ---------- Paged notes ---------- */
+
 /* Paged notes: a scrolling stack of real A4 sheets. The measurements here are
    the SAME ones the PDF stylesheet uses (210mm wide, 18mm/16mm margins, 12pt
    serif), so what is on screen is what comes out of the export. */
-#sheets { display: none; flex: 1; overflow: auto; padding: 20px 0 48px; background: var(--s0); min-width: 0; }
-body.paged-view #editor { display: none; }
-body.paged-view #sheets { display: block; }
+#sheets {
+  display: none;
+  flex: 1;
+  overflow: auto;
+  padding: 20px 0 48px;
+  background: var(--s0);
+  min-width: 0;
+}
+
+body.paged-view #editor {
+  display: none;
+}
+
+body.paged-view #sheets {
+  display: block;
+}
+
 /* ALWAYS a true A4 sheet, never narrowed to fit the window: laying it out at
    any other width paginates a document that is not the one being exported.
    A narrow window (the second screen especially) only SCALES it - see
    fitSheets, which sets --sheet-k and pulls back the space the scale frees. */
-.sheet { width: 210mm; margin: 0 auto 20px; background: #fff; color: #111;
-  box-shadow: 0 2px 14px rgb(0 0 0 / .55); border-radius: 2px; overflow: hidden;
-  transform: scale(var(--sheet-k, 1)); transform-origin: top left; }
-.sheet.active { box-shadow: 0 0 0 2px var(--acc-line), 0 2px 14px rgb(0 0 0 / .55); }
-.sheet-label { padding: 4px 10px; font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
-  color: var(--t3); background: var(--s2); border-bottom: 1px solid var(--line); display: flex; gap: 8px; }
-.sheet-label .n { margin-left: auto; color: var(--t4); font-variant-numeric: tabular-nums; }
+.sheet {
+  width: 210mm;
+  margin: 0 auto 20px;
+  background: #fff;
+  color: #111;
+  box-shadow: 0 2px 14px rgb(0 0 0 / .55);
+  border-radius: 2px;
+  overflow: hidden;
+  transform: scale(var(--sheet-k, 1));
+  transform-origin: top left;
+}
+
+.sheet.active {
+  box-shadow: 0 0 0 2px var(--acc-line), 0 2px 14px rgb(0 0 0 / .55);
+}
+
+.sheet-label {
+  padding: 4px 10px;
+  font-size: 10px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--t3);
+  background: var(--s2);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 8px;
+}
+
+.sheet-label .n {
+  margin-left: auto;
+  color: var(--t4);
+  font-variant-numeric: tabular-nums;
+}
+
 /* 297mm, NOT calc(297mm - 36mm): box-sizing is border-box globally, so
    min-height already includes the padding. Subtracting it again gave the
    sheet 225mm of content where the PDF writer allows 261mm, so every page
    broke ~14% early and pinned items landed 16mm off in the export. */
+
 /* Times first, because the PDF writer draws in base-14 Times: a different
    serif wraps at different words, so the sheet and the export would disagree
    about how many lines fit on a page. */
-.sheet-body { min-height: 297mm; padding: 18mm 16mm; outline: none;
+.sheet-body {
+  min-height: 297mm;
+  padding: 18mm 16mm;
+  outline: none;
   font: 12pt/1.55 "Times New Roman", Times, ui-serif, serif;
-  white-space: pre-wrap; overflow-wrap: break-word; }
-.sheet-body:focus { background: #fffdf7; }
-.sheet-body img { max-width: 100%; }
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.sheet-body:focus {
+  background: #fffdf7;
+}
+
+.sheet-body img {
+  max-width: 100%;
+}
+
 /* A file or video reference prints as a card, and two fit across the text
    column - a full-width card each wasted half the page. Half width on both
    sides keeps the sheet and the export in step whatever the filename is. */
+
 /* The gutter is PADDING inside a border-box half, not a margin: with margins,
    two halves plus their margins came to more than the column and the second
    card wrapped, giving one card per row again. */
-.sheet-body .inline-media:not([data-kind="image"]) { display: inline-block; vertical-align: top;
-  width: auto; max-width: 100%; margin: 3px 8px 3px 0; box-sizing: border-box; }
+.sheet-body .inline-media:not([data-kind="image"]) {
+  display: inline-block;
+  vertical-align: top;
+  width: auto;
+  max-width: 100%;
+  margin: 3px 8px 3px 0;
+  box-sizing: border-box;
+}
+
 /* Exactly 32px (= 24pt) tall with a 6px (= 4.5pt) gap, which is what the PDF
    writer draws. Round numbers on both sides is what keeps the number of cards
    per page identical on screen and in the export. */
-.sheet-body .inline-media:not([data-kind="image"]) .inline-ph { width: 100%; height: 32px;
-  justify-content: flex-start; border-left: 2px solid #8a8a8a; background: #f5f5f5; }
-.sheet-body .inline-media { border-color: #ccc; background: #f4f4f4; }
-.sheet-body .inline-ph { color: #555; }
+.sheet-body .inline-media:not([data-kind="image"]) .inline-ph {
+  width: 100%;
+  height: 32px;
+  justify-content: flex-start;
+  border-left: 2px solid #8a8a8a;
+  background: #f5f5f5;
+}
+
+.sheet-body .inline-media {
+  border-color: #ccc;
+  background: #f4f4f4;
+}
+
+.sheet-body .inline-ph {
+  color: #555;
+}
 
 /* ---------- Split ("second screen") edit mode: reference on the left, live edit right ---------- */
-#edit-wrap { flex: 1; display: flex; min-height: 0; }
-#edit-wrap #editor { flex: 1; min-width: 0; }
+#edit-wrap {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+#edit-wrap #editor {
+  flex: 1;
+  min-width: 0;
+}
+
 /* Half the width each, so the centred-column padding would leave almost no text: use a flat gutter instead. */
-body.split-edit { --ed-pad-x: 24px; }
-#prev-pane { display: none; flex: 1; min-width: 0; flex-direction: column;
-  border-right: 1px solid var(--line); background: var(--s0); }
-body.split-edit #prev-pane { display: flex; }
-#prev-head { flex: none; padding: 7px 16px; font-size: 10px; font-weight: 600; letter-spacing: .12em;
-  text-transform: uppercase; color: var(--acc); border-bottom: 1px solid var(--line); background: var(--s0); }
+body.split-edit {
+  --ed-pad-x: 24px;
+}
+
+#prev-pane {
+  display: none;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  border-right: 1px solid var(--line);
+  background: var(--s0);
+}
+
+body.split-edit #prev-pane {
+  display: flex;
+}
+
+#prev-head {
+  flex: none;
+  padding: 7px 16px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--acc);
+  border-bottom: 1px solid var(--line);
+  background: var(--s0);
+}
+
 /* min-height:0 is what makes this actually scroll: as a flex child it would
    otherwise grow to its content and the pane would clip instead of scrolling. */
-#prev-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px; font-size: 15px; line-height: 1.55;
-  color: var(--t3); white-space: pre-wrap; word-wrap: break-word; user-select: text; }
-#prev-body img { max-width: 100%; border-radius: 4px; }
+#prev-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--t3);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  user-select: text;
+}
+
+#prev-body img {
+  max-width: 100%;
+  border-radius: 4px;
+}
+
 /* Reference sheets: the same page format as the editor, dimmed and inert. */
-#prev-body .prev-sheet { width: 100%; margin: 0 0 14px; opacity: .85; }
-#prev-body .prev-sheet .sheet-body { min-height: 0; padding: 10mm 9mm; font-size: 10pt; }
+#prev-body .prev-sheet {
+  width: 100%;
+  margin: 0 0 14px;
+  opacity: .85;
+}
+
+#prev-body .prev-sheet .sheet-body {
+  min-height: 0;
+  padding: 10mm 9mm;
+  font-size: 10pt;
+}
+
 /* The split controls sit at the far right of the status bar. */
-#split-controls { margin-left: auto; display: flex; gap: 6px; flex: none; }
-#split-controls button { padding: 4px 11px; font-size: 12px; }
-#split-btn { --icon: var(--i-split); display: inline-flex; align-items: center; gap: 6px; background: transparent; border-color: var(--acc-line); color: var(--acc); }
-#split-btn:hover, #split-save:hover { background: var(--acc-dim); color: #bcd9ad; }
-#split-btn:disabled:hover { background: transparent; border-color: var(--acc-line); color: var(--acc); }
-#split-save { border-color: var(--acc-line); color: var(--acc); background: transparent; }
-body.split-edit #split-btn { background: var(--acc-dim); color: #bcd9ad; border-color: #5f8054; }
+#split-controls {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+
+#split-controls button {
+  padding: 4px 11px;
+  font-size: 12px;
+}
+
+#split-btn {
+  --icon: var(--i-split);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border-color: var(--acc-line);
+  color: var(--acc);
+}
+
+#split-btn:hover,
+#split-save:hover {
+  background: var(--acc-dim);
+  color: #bcd9ad;
+}
+
+#split-btn:disabled:hover {
+  background: transparent;
+  border-color: var(--acc-line);
+  color: var(--acc);
+}
+
+#split-save {
+  border-color: var(--acc-line);
+  color: var(--acc);
+  background: transparent;
+}
+
+body.split-edit #split-btn {
+  background: var(--acc-dim);
+  color: #bcd9ad;
+  border-color: #5f8054;
+}
+
 /* Only meaningful inside the second screen, where they can be undone. */
-#split-save, #split-format, #split-design, #split-cancel { display: none; }
-body.split-edit #split-save, body.split-edit #split-format, body.split-edit #split-design,
-body.split-edit #split-cancel { display: inline-block; }
+#split-save,
+#split-format,
+#split-design,
+#split-cancel {
+  display: none;
+}
+
+body.split-edit #split-save,
+body.split-edit #split-format,
+body.split-edit #split-design,
+body.split-edit #split-cancel {
+  display: inline-block;
+}
+
 /* Red like the trash controls: this one throws work away. */
-#split-cancel { border-color: var(--bad-line); color: var(--bad); background: transparent; }
-#split-cancel:hover { background: var(--bad-dim); color: #f08b78; border-color: var(--bad-line); }
+#split-cancel {
+  border-color: var(--bad-line);
+  color: var(--bad);
+  background: transparent;
+}
+
+#split-cancel:hover {
+  background: var(--bad-dim);
+  color: #f08b78;
+  border-color: var(--bad-line);
+}
 
 /* ---------- Editor ---------- */
+
 /* Contenteditable, not a <textarea>: pre-wrap preserves the migrated newline
    fidelity a textarea gave for free, break-word keeps a long token from widening
    #main, and an explicit overflow-y restores the textarea's implicit scroll.
    position:relative anchors the empty-state placeholder. The side padding
    (--ed-pad-x) centres a readable ~760px column on wide windows. */
-#editor { flex: 1; border: 0; border-radius: 0; outline: none; padding: 26px var(--ed-pad-x) 96px;
-  font: 400 14.5px/1.7 var(--mono); color: #dcd6cc; background: var(--s1); white-space: pre-wrap; overflow-wrap: break-word;
-  overflow-y: auto; min-height: 0; position: relative; }
+#editor {
+  flex: 1;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  padding: 26px var(--ed-pad-x) 96px;
+  font: 400 14.5px/1.7 var(--mono);
+  color: #dcd6cc;
+  background: var(--s1);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  overflow-y: auto;
+  min-height: 0;
+  position: relative;
+}
+
 /* The placeholder attribute does nothing on a <div>; drive it from a data attr
    and an empty flag toggled in JS (:empty is unreliable - the browser leaves a
    stray <br>). Absolutely placed so it never takes layout space or blocks the
    caret; top/left must match the editor padding above. */
-#editor[data-empty="true"]::before { content: attr(data-placeholder); position: absolute;
-  top: 26px; left: var(--ed-pad-x); right: var(--ed-pad-x); color: var(--t4); pointer-events: none; white-space: pre-wrap; }
+#editor[data-empty="true"]::before {
+  content: attr(data-placeholder);
+  position: absolute;
+  top: 26px;
+  left: var(--ed-pad-x);
+  right: var(--ed-pad-x);
+  color: var(--t4);
+  pointer-events: none;
+  white-space: pre-wrap;
+}
+
 /* Freely placed media OR tables: pinned to their own spot on the page, out of
    the text flow, so they stay exactly where they were dropped. */
-.inline-media.floating, table.floating { position: absolute; z-index: 2; margin: 0; }
-table.floating { background: var(--s2); }
-.sheet-body table.floating { background: #fff; }
-.sheet-body, #editor { position: relative; }
+.inline-media.floating,
+table.floating {
+  position: absolute;
+  z-index: 2;
+  margin: 0;
+}
+
+table.floating {
+  background: var(--s2);
+}
+
+.sheet-body table.floating {
+  background: #fff;
+}
+
+.sheet-body,
+#editor {
+  position: relative;
+}
+
 /* Word-style move grip: appears at a table's top-left, drags the whole table.
    Lives on <body>, never inside the note, so it is never saved. */
-.table-grip { position: fixed; z-index: 70; width: 18px; height: 18px; cursor: move;
-  display: flex; align-items: center; justify-content: center; font-size: 11px; line-height: 1;
-  color: var(--t1); background: var(--s4); border: 1px solid var(--line-3); border-radius: 5px;
-  box-shadow: 0 1px 4px rgb(0 0 0 / .5); user-select: none; }
-.table-grip:hover { background: var(--acc-dim); border-color: var(--acc-line); color: #fff; }
+.table-grip {
+  position: fixed;
+  z-index: 70;
+  width: 18px;
+  height: 18px;
+  cursor: move;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--t1);
+  background: var(--s4);
+  border: 1px solid var(--line-3);
+  border-radius: 5px;
+  box-shadow: 0 1px 4px rgb(0 0 0 / .5);
+  user-select: none;
+}
+
+.table-grip:hover {
+  background: var(--acc-dim);
+  border-color: var(--acc-line);
+  color: #fff;
+}
+
 /* Per-column and per-row size buttons, also body-level so they never save. */
-.size-handle { position: fixed; z-index: 70; width: 18px; height: 18px; padding: 0;
-  display: flex; align-items: center; justify-content: center; font-size: 10px; line-height: 1;
-  color: var(--t2); background: var(--s3); border: 1px solid var(--line-3); border-radius: 5px; }
-.size-handle:hover { background: #35506b; border-color: #5b8cc0; color: #fff; }
-.size-handle.col { cursor: ew-resize; }
-.size-handle.row { cursor: ns-resize; }
+.size-handle {
+  position: fixed;
+  z-index: 70;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--t2);
+  background: var(--s3);
+  border: 1px solid var(--line-3);
+  border-radius: 5px;
+}
+
+.size-handle:hover {
+  background: #35506b;
+  border-color: #5b8cc0;
+  color: #fff;
+}
+
+.size-handle.col {
+  cursor: ew-resize;
+}
+
+.size-handle.row {
+  cursor: ns-resize;
+}
+
 /* Children never start their own drag: the wrapper owns the gesture. */
-.inline-media img, .inline-media video, .inline-media .inline-ph { -webkit-user-drag: none; user-drag: none; }
+.inline-media img,
+.inline-media video,
+.inline-media .inline-ph {
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+
 /* Inline media: an atomic, non-editable wrapper carrying only data-mid/data-kind.
    The 1px border and the 320x240 image cap below are geometry the PDF writer
    mirrors (mediaBox), so only their colours may change here. */
-.inline-media { position: relative; display: inline-block; vertical-align: bottom; max-width: 100%;
-  border: 1px solid var(--line-2); border-radius: 8px; overflow: hidden; background: var(--s2);
-  user-select: none; transition: border-color .12s, opacity .12s; }
-.inline-media:hover { border-color: var(--line-3); }
-.inline-media[draggable="true"] { cursor: grab; }
-.inline-media.dragging { opacity: .4; }
-#main.readonly .inline-media[draggable="true"] { cursor: default; }
-.inline-media img, .inline-media video { display: block; max-width: 320px; max-height: 240px;
-  width: auto; height: auto; }
-.inline-media img[data-zoom] { cursor: zoom-in; }
+.inline-media {
+  position: relative;
+  display: inline-block;
+  vertical-align: bottom;
+  max-width: 100%;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--s2);
+  user-select: none;
+  transition: border-color .12s, opacity .12s;
+}
+
+.inline-media:hover {
+  border-color: var(--line-3);
+}
+
+.inline-media[draggable="true"] {
+  cursor: grab;
+}
+
+.inline-media.dragging {
+  opacity: .4;
+}
+
+#main.readonly .inline-media[draggable="true"] {
+  cursor: default;
+}
+
+.inline-media img,
+.inline-media video {
+  display: block;
+  max-width: 320px;
+  max-height: 240px;
+  width: auto;
+  height: auto;
+}
+
+.inline-media img[data-zoom] {
+  cursor: zoom-in;
+}
+
 /* When the wrapper is pre-sized (dimensions known), the child fills the reserved
    box so the image paints in place with no reflow. */
-.inline-media[style*="width"] img, .inline-media[style*="width"] video,
-.inline-media[style*="width"] .inline-ph { width: 100%; height: 100%; max-width: none; max-height: none; }
-.inline-media[style*="width"] img, .inline-media[style*="width"] video { object-fit: cover; }
+.inline-media[style*="width"] img,
+.inline-media[style*="width"] video,
+.inline-media[style*="width"] .inline-ph {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+}
+
+.inline-media[style*="width"] img,
+.inline-media[style*="width"] video {
+  object-fit: cover;
+}
+
 /* View-only overlays inside a wrapper (decrypting / missing / corrupt / video poster);
    they never touch data-mid/data-kind, so the reference still round-trips on save. */
-.inline-ph { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 10px;
-  font-family: var(--ui); font-size: 12px; color: var(--t3); cursor: pointer; box-sizing: border-box; }
-.inline-ph.warn, .inline-ph.warn .inline-glyph { color: var(--warn); }
-.inline-glyph { font-size: 14px; line-height: 1; color: var(--t2); }
+.inline-ph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  font-family: var(--ui);
+  font-size: 12px;
+  color: var(--t3);
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.inline-ph.warn,
+.inline-ph.warn .inline-glyph {
+  color: var(--warn);
+}
+
+.inline-glyph {
+  font-size: 14px;
+  line-height: 1;
+  color: var(--t2);
+}

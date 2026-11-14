@@ -1,88 +1,151 @@
-// notes: The Settings dialog, auto-lock and locking.
+/*
+ * settings.js - the Settings dialog, auto-lock, and locking the app.
+ *
+ * Locking is where every decrypted thing leaves memory: the vault, the keys,
+ * the master password, the undo history, every decrypted attachment URL and
+ * every panel that showed plaintext. It encrypts nothing by itself: the
+ * sealed vault is already stored after every save, so unlocking again brings
+ * everything back. Unsaved edits are saved first (asked on a manual Lock,
+ * done silently by auto-lock); that save is one seal of the vault.
+ *
+ * Main functions: openSettings, closeSettings, checkIdle, autoLock, lockApp.
+ * Auxiliary functions: none.
+ *
+ * Complexity: everything here is O(1) apart from what it calls: lockApp's
+ * save is O(n) in the vault's size (one seal, about 20 ms for 500 KB) and
+ * its teardown is O(u) in the decrypted attachment URLs it revokes.
+ */
 "use strict";
 
-// ---------- Settings dialog ----------
-// The Settings dialog rides on the shared modal machinery (modalOpenCount and
-// modalCancel), so Escape closes it and Ctrl+S / Ctrl+L stay quiet while it is
+// ---------- State ----------
+
+// The open Settings dialog's backdrop, or null.
+let settingsBack = null;
+
+// ---------- The Settings dialog ----------
+// It rides on the shared dialog machinery (modalOpenCount and modalCancel in
+// modal.js), so Escape closes it and Ctrl+S and Ctrl+L stay quiet while it is
 // open, exactly as for every other dialog.
-let settingsBack = null;   // the open dialog's backdrop, or null
+
+/**
+ * Opens the Settings dialog: auto-lock time and the two backup reminders
+ * (each saved the moment it changes), what the lock screen found to show
+ * behind it, and the app's build with "Check now" for an update. Only one at
+ * a time, and only while unlocked.
+ *
+ * Used by: this file (the Settings button).
+ * Uses: makeElement (sidebar.js), saveSettings, formatMinutes, formatDays,
+ * renderBackupBar, appFolderInfo (backups.js), lockBgFile and stillMotion
+ * (lock.js), manualAppUpdate (updates.js), closeSettings.
+ * Complexity: O(1).
+ */
 function openSettings() {
-  // Only one at a time, and only while unlocked.
-  if (settingsBack || !vault) return;
-  const back = mk("div", "modal-back");
-  const card = mk("div", "modal settings");
+  if (settingsBack || !vault) {
+    return;
+  }
+
+  const back = makeElement("div", "modal-back");
+  const card = makeElement("div", "modal settings");
   card.setAttribute("role", "dialog");
   card.setAttribute("aria-modal", "true");
-  card.appendChild(mk("h3", null, "Settings"));
-  // One row per setting: name and explanation on the left, the choice on the right.
-  // key is the settings field it edits; every change is saved at once, then after() applies it.
-  const addRow = (key, name, help, choices, fmt, after) => {
-    const row = mk("div", "set-row");
-    const words = mk("div", "set-words");
-    const label = mk("label", "set-name", name);
+  card.appendChild(makeElement("h3", null, "Settings"));
+
+  // One row per setting: name and explanation on the left, the choice on the
+  // right. key is the settings field it edits; every change is saved at once,
+  // then after() applies it.
+  const addRow = (key, name, help, choices, format, after) => {
+    const row = makeElement("div", "set-row");
+    const words = makeElement("div", "set-words");
+    const label = makeElement("label", "set-name", name);
     label.htmlFor = "set-" + key;
     words.appendChild(label);
-    words.appendChild(mk("div", "set-help", help));
+    words.appendChild(makeElement("div", "set-help", help));
     row.appendChild(words);
-    const sel = mk("select");
-    sel.id = "set-" + key;
-    for (const v of choices) {
-      const o = mk("option", null, fmt(v));
-      o.value = String(v);
-      sel.appendChild(o);
+
+    const select = makeElement("select");
+    select.id = "set-" + key;
+    for (const value of choices) {
+      const option = makeElement("option", null, format(value));
+      option.value = String(value);
+      select.appendChild(option);
     }
-    sel.value = String(settings[key]);
-    sel.onchange = () => { settings[key] = Number(sel.value); saveSettings(); after(); };
-    row.appendChild(sel);
+    select.value = String(settings[key]);
+    select.onchange = () => {
+      settings[key] = Number(select.value);
+      saveSettings();
+      after();
+    };
+    row.appendChild(select);
     card.appendChild(row);
-    return sel;
+    return select;
   };
-  // A new lock time restarts the idle clock from now, so it never locks the instant it is changed.
-  const first = addRow("autoLockMin", "Auto-lock", "Lock the vault after this long with no typing, clicking or scrolling. Unsaved edits are saved first.",
-    AUTOLOCK_CHOICES, fmtMinutes, () => { lastActivity = Date.now(); });
-  // A new reminder limit recolours the backup pills straight away; the question itself comes at the next unlock.
+
+  // A new lock time restarts the idle clock from now, so it never locks the instant it changes.
+  const first = addRow("autoLockMin", "Auto-lock",
+    "Lock the vault after this long with no typing, clicking or scrolling. Unsaved edits are saved first.",
+    AUTOLOCK_CHOICES, formatMinutes, () => {
+      lastActivity = Date.now();
+    });
+  // A new reminder limit recolours the backup pills at once; the question itself comes at the next unlock.
   addRow("weeklyDays", "Weekly backup reminder", "When you unlock, ask to update the weekly backup once it is this old.",
-    BACKUP_DAY_CHOICES.weekly, fmtDays, renderBackupBar);
+    BACKUP_DAY_CHOICES.weekly, formatDays, renderBackupBar);
   addRow("monthlyDays", "Monthly backup reminder", "When you unlock, ask to update the monthly backup once it is this old.",
-    BACKUP_DAY_CHOICES.monthly, fmtDays, renderBackupBar);
-  // Not a setting: what the lock screen found to show behind it (lock.js), so a
-  // video with the wrong name or in the wrong folder says so instead of failing silently.
-  const bg = mk("div", "set-row");
-  const bgWords = mk("div", "set-words");
-  bgWords.appendChild(mk("div", "set-name", "Lock screen background"));
-  const bgFile = lockBgFile(), app = appFolderInfo();
-  bgWords.appendChild(mk("div", "set-help", !bgFile
+    BACKUP_DAY_CHOICES.monthly, formatDays, renderBackupBar);
+
+  // Not a setting: what the lock screen found to show behind it (lock.js), so
+  // a video with the wrong name or in the wrong folder says so instead of
+  // failing silently.
+  const background = makeElement("div", "set-row");
+  const backgroundWords = makeElement("div", "set-words");
+  backgroundWords.appendChild(makeElement("div", "set-name", "Lock screen background"));
+  const backgroundFile = lockBgFile();
+  const app = appFolderInfo();
+  backgroundWords.appendChild(makeElement("div", "set-help", !backgroundFile
     ? `None found. Put a video named lock-background.webm or lock-background.mp4 next to ${app ? app.file : "index.html"}` +
       (app ? `, in ${app.display}` : "") + ", then reload."
     : stillMotion.matches
-      ? `${bgFile}, shown still: your system asks for less motion (on Windows: Settings > Accessibility > Visual effects > Animation effects).`
-      : `${bgFile}, from the app's folder. It plays, muted, while the lock screen shows.`));
-  bg.appendChild(bgWords);
-  card.appendChild(bg);
-  // Not a setting: which build these files are, and the update check Sync runs (updates.js).
-  const ver = mk("div", "set-row");
-  const verWords = mk("div", "set-words");
-  verWords.appendChild(mk("div", "set-name", "App version"));
-  verWords.appendChild(mk("div", "set-help", `Build ${APP_BUILD}. Sync asks before installing a newer build of the app from the repo. ` +
+      ? `${backgroundFile}, shown still: your system asks for less motion (on Windows: Settings > Accessibility > Visual effects > Animation effects).`
+      : `${backgroundFile}, from the app's folder. It plays, muted, while the lock screen shows.`));
+  background.appendChild(backgroundWords);
+  card.appendChild(background);
+
+  // Not a setting either: which build these files are, and the update check
+  // Sync runs (updates.js).
+  const version = makeElement("div", "set-row");
+  const versionWords = makeElement("div", "set-words");
+  versionWords.appendChild(makeElement("div", "set-name", "App version"));
+  versionWords.appendChild(makeElement("div", "set-help",
+    `Build ${APP_BUILD}. Sync asks before installing a newer build of the app from the repo. ` +
     "Check now also offers one you said no to."));
-  ver.appendChild(verWords);
-  const check = mk("button", null, "Check now");
+  version.appendChild(versionWords);
+  const check = makeElement("button", null, "Check now");
   check.type = "button";
   check.disabled = syncing || !!backupView || REPO_UNSET || appUpdateBusy;
-  if (REPO_UNSET) check.title = "No repo set: edit owner and repo in config.js";
-  check.onclick = () => { closeSettings(); manualAppUpdate(); };
-  ver.appendChild(check);
-  card.appendChild(ver);
-  card.appendChild(mk("p", "set-note", "Settings are saved on this device only."));
-  const actions = mk("div", "modal-actions");
-  const done = mk("button", "primary", "Done");
+  if (REPO_UNSET) {
+    check.title = "No repo set: edit owner and repo in config.js";
+  }
+  check.onclick = () => {
+    closeSettings();
+    manualAppUpdate();
+  };
+  version.appendChild(check);
+  card.appendChild(version);
+
+  card.appendChild(makeElement("p", "set-note", "Settings are saved on this device only."));
+  const actions = makeElement("div", "modal-actions");
+  const done = makeElement("button", "primary", "Done");
   done.type = "button";
   done.onclick = closeSettings;
   actions.appendChild(done);
   card.appendChild(actions);
   back.appendChild(card);
+
   // A click on the dim backdrop (not inside the card) closes it, like the other dialogs.
-  back.addEventListener("mousedown", e => { if (e.target === back) closeSettings(); });
+  back.addEventListener("mousedown", event => {
+    if (event.target === back) {
+      closeSettings();
+    }
+  });
   document.body.appendChild(back);
   settingsBack = back;
   modalOpenCount++;
@@ -90,119 +153,213 @@ function openSettings() {
   requestAnimationFrame(() => back.classList.add("show"));
   first.focus();
 }
+
+/**
+ * Closes the Settings dialog with the same fade as every dialog (it stays
+ * mounted 140 ms with clicks passing through). Escape and Done can both
+ * arrive, so nothing open means nothing to do.
+ *
+ * Used by: this file (Done, the backdrop, Escape through modalCancel, "Check
+ * now", Lock).
+ * Uses: nothing.
+ * Complexity: O(1).
+ */
 function closeSettings() {
-  // Nothing open means nothing to do (Escape and Done can both arrive).
-  if (!settingsBack) return;
+  if (!settingsBack) {
+    return;
+  }
   const back = settingsBack;
   settingsBack = null;
   modalOpenCount--;
-  if (modalCancel === closeSettings) modalCancel = null;
-  // Same fade-out as buildModal: stays mounted 140ms with clicks passing through.
+  if (modalCancel === closeSettings) {
+    modalCancel = null;
+  }
   back.classList.remove("show");
   back.classList.add("closing");
   setTimeout(() => back.remove(), 140);
 }
-$("settings-btn").onclick = openSettings;
 
 // ---------- Auto-lock ----------
-// Any input counts as activity. Instead of a timer per event, a check every 15s
-// compares the clock with the last activity: that survives background-tab timer
-// throttling and a laptop waking from sleep (the first check after waking locks
-// at once if the limit passed while it slept).
-let lastActivity = Date.now();
-for (const ev of ["pointerdown", "pointermove", "keydown", "wheel", "touchstart"])
-  document.addEventListener(ev, () => { lastActivity = Date.now(); }, { capture: true, passive: true });
+// Any input counts as activity. Instead of a timer per event, a check every
+// 15 s compares the clock with the last activity: that survives the timer
+// slowdown of background tabs and a laptop waking from sleep (the first check
+// after waking locks at once if the limit passed while it slept).
+
+/**
+ * Locks the app when it has been idle longer than the chosen time. Nothing
+ * happens while locked, or when auto-lock is off (0 minutes).
+ *
+ * Used by: this file (every 15 s, and whenever the tab becomes visible again).
+ * Uses: autoLock.
+ * Complexity: O(1).
+ */
 function checkIdle() {
-  // So first: nothing to lock while locked, and 0 means the user turned auto-lock off.
-  if (!vault || !settings.autoLockMin) return;
-  // Still inside the allowed idle time: wait for the next check.
-  if (Date.now() - lastActivity < settings.autoLockMin * 60000) return;
+  if (!vault || !settings.autoLockMin) {
+    return;
+  }
+  if (Date.now() - lastActivity < settings.autoLockMin * 60000) {
+    return;
+  }
   autoLock();
 }
-// Started once every script has loaded, since locking uses the lock screen's code
-// (lock.js). Coming back to the tab runs the check straight away instead of up to 15s later.
-document.addEventListener("DOMContentLoaded", () => {
-  setInterval(checkIdle, 15000);
-  document.addEventListener("visibilitychange", checkIdle);
-});
+
+/**
+ * Locks because of inactivity. A running sync is never interrupted (the next
+ * check, 15 s later, tries again). An open dialog is answered "Cancel" first,
+ * so nothing waits over the lock screen, and unsaved edits are saved, the
+ * same as answering "Save and lock". Then the lock screen says why it locked.
+ *
+ * Used by: checkIdle in this file.
+ * Uses: flushSave (pagination.js), lockApp, formatMinutes (backups.js).
+ * Complexity: that of lockApp: one seal when there were unsaved edits.
+ */
 async function autoLock() {
-  // A running sync is never interrupted; the next check, 15s later, tries again.
-  if (syncing) return;
-  // An open dialog is cancelled first (its flow treats that as "Cancel"), so nothing waits over the lock screen.
-  if (modalCancel) modalCancel();
-  // Unsaved edits are saved first, the same as answering "Save and lock" to the manual lock prompt.
-  if (dirty) flushSave();
-  // force: the save above already answered the prompt lockApp would otherwise wait on.
+  if (syncing) {
+    return;
+  }
+  if (modalCancel) {
+    modalCancel();
+  }
+  if (unsavedEdits) {
+    flushSave();
+  }
+  // force: the save above already answered the question lockApp would otherwise ask.
   await lockApp(true);
   // Only if it really locked: say why, so an unexpected lock screen explains itself.
   if (!vault) {
     $("lock-msg").style.color = "var(--t3)";
-    $("lock-msg").textContent = `Locked after ${fmtMinutes(settings.autoLockMin)} without activity.`;
+    $("lock-msg").textContent = `Locked after ${formatMinutes(settings.autoLockMin)} without activity.`;
   }
 }
 
-// force === true is auto-lock: it has already saved, so the unsaved-changes prompt is skipped. A strict
-// === true check, because the Lock button calls this with its click event as the first argument.
-// Locking. Drops every decrypted artefact: the vault object, the derived keys, the
-// master password and every live blob: URL. The ciphertext in localStorage and
-// IndexedDB is untouched, so unlocking again restores everything.
+// ---------- Locking ----------
+
+/**
+ * Locks the app: drops every decrypted thing from memory and shows the lock
+ * screen. The ciphertext in localStorage, the vault's folder and IndexedDB is
+ * untouched, so unlocking again restores everything. It encrypts nothing by
+ * itself: if the open note has unsaved edits it asks first, and "Save and
+ * lock" is one ordinary save (one seal of the vault).
+ *
+ * What goes: the vault, the vault key, its salt and round count, the
+ * attachment key ring, the master password, the undo history (whole-note
+ * snapshots), the body-search index (plain text of every note), censored text
+ * kept for pasting back, every decrypted attachment URL, the sheets, the
+ * second screen's reference pane, the detail panel (titles, and any token
+ * typed into it), and the form fields. Every decryption still running is
+ * made to abort instead of painting over the lock screen.
+ *
+ * force === true skips the question (auto-lock has saved already). It is a
+ * strict check because the Lock button passes its click event as the first
+ * argument.
+ *
+ * Used by: this file (the Lock button, auto-lock), events.js (Ctrl+L),
+ * backups.js (leaving a backup view).
+ * Uses: confirmModal (modal.js), flushSave, clearEditor and status
+ * (pagination.js), closeMenu (menu.js), closePanel (panel.js), closeLightbox
+ * (attachments.js), revokeAllMediaUrls (vault.js), closePalette (toolbar.js),
+ * closeSettings, exitSplit (split.js), refreshLockBackupRow (backups.js),
+ * renderHistoryButtons (history.js), syncLockBg and setLockMode (lock.js).
+ * Complexity: O(u) in the decrypted attachment URLs it revokes, plus one seal
+ * (O(n), about 20 ms for 500 KB) when it saves first.
+ */
 async function lockApp(force) {
-  if (syncing) return;
-  if (force !== true && dirty && !await confirmModal({
+  if (syncing) {
+    return;
+  }
+  if (force !== true && unsavedEdits && !await confirmModal({
     title: "Lock with unsaved changes?",
     body: "The note you are editing has unsaved changes. Save before locking, or lock and lose them?",
     confirmLabel: "Save and lock",
-  }).then(ok => { if (ok) flushSave(); return ok; })) return;
-  closeMenu(); closePanel(); closeLightbox(); revokeAllMediaUrls();
-  closePalette(true);     // a colour being edited is not worth a question at lock time
-  appClip = appDrag = null;   // censored text copied or dragged in the app, kept for pasting back
-  closeSettings();        // a dialog must not stay up over the lock screen
-  searchTextCache.clear();   // the body-search index is plaintext of every note
-  exitSplit(true);        // the reference pane holds plaintext from the open note
+  }).then(ok => {
+    if (ok) {
+      flushSave();
+    }
+    return ok;
+  })) {
+    return;
+  }
+
+  closeMenu();
+  closePanel();
+  closeLightbox();
+  revokeAllMediaUrls();
+  // A colour being edited is not worth a question at lock time.
+  closePalette(true);
+  // Censored text copied or dragged in the app, kept for pasting back.
+  appClip = appDrag = null;
+  // A dialog must not stay up over the lock screen.
+  closeSettings();
+  // The body-search index is the plain text of every note.
+  searchTextCache.clear();
+  // The reference pane holds plain text from the open note.
+  exitSplit(true);
   currentPage = 0;
-  $("page-tabs").innerHTML = ""; $("page-tabs").style.display = "none";
-  $("sheets").innerHTML = "";                      // sheets hold decrypted page content
+  $("page-tabs").innerHTML = "";
+  $("page-tabs").style.display = "none";
+  // The sheets hold decrypted page content.
+  $("sheets").innerHTML = "";
   document.body.classList.remove("paged-view");
-  // Every async decrypt in flight is keyed to one of these generations; bumping
-  // both makes each pending continuation abort instead of painting plaintext
-  // (a lightbox, a thumbnail, a fresh blob: URL) over the lock screen after the
-  // revoke sweep has already run. The `!vault` checks in those paths are the
-  // belt to this braces.
-  attachSeq++; editorSeq++;
-  // Leaving a backup view restores the normal chrome and the lock-screen row.
+
+  // Every decryption in flight is tied to one of these generations. Bumping
+  // both makes each pending one abort instead of painting plain content (a
+  // lightbox, a thumbnail, a fresh blob: URL) over the lock screen after the
+  // revoke sweep above. The `!vault` checks in those paths are the second
+  // line of defence.
+  attachSeq++;
+  editorSeq++;
+
+  // Leaving a backup view restores the normal chrome and the lock screen's backup row.
   backupView = null;
   pendingBackupKind = null;
   document.body.classList.remove("backup-view");
   $("backup-banner").style.display = "none";
   refreshLockBackupRow();
-  vault = null; key = null; salt = null; iterUsed = ITER;
-  mediaKey = null; mediaKeyRing = [];
-  masterPw = null;
-  // The undo stacks are whole-note snapshots - up to 30 plaintext copies of
-  // every note edited this session. They must not outlive the vault they
-  // belong to.
+
+  vault = null;
+  vaultKey = null;
+  vaultSalt = null;
+  vaultKeyIterations = PBKDF2_ITERATIONS;
+  mediaKey = null;
+  mediaKeyRing = [];
+  masterPassword = null;
+
+  // The undo stacks are whole-note snapshots: up to 30 plain copies of every
+  // note edited this session. They must not outlive the vault they belong to.
   histories.clear();
-  histTypingMarked = false;
+  historyTypingMarked = false;
   structureDirty = false;
   renderHistoryButtons();
-  currentId = null; trashViewId = null; dirty = false;
-  deletedTitles = {}; pullDiff = null;
-  $("title").value = ""; clearEditor(); $("search").value = ""; searchQuery = "";
-  $("notelist").innerHTML = ""; $("trash-list").innerHTML = ""; $("attachments").innerHTML = "";
-  // The detail panel is rendered DOM, not a live view: closePanel only drops a
-  // CSS class, so without this wipe every note title, folder name and merge-diff
-  // title it listed - and any GitHub token typed into its auth-recovery field -
-  // stayed readable in the document behind the lock screen.
+
+  currentId = null;
+  trashViewId = null;
+  unsavedEdits = false;
+  deletedTitles = {};
+  pullDiff = null;
+  $("title").value = "";
+  clearEditor();
+  $("search").value = "";
+  searchQuery = "";
+  $("notelist").innerHTML = "";
+  $("trash-list").innerHTML = "";
+  $("attachments").innerHTML = "";
+
+  // The detail panel is drawn once, not a live view: closePanel only drops a
+  // CSS class, so without this every note title, folder name and merge title
+  // it listed, and any GitHub token typed into its field, stayed readable in
+  // the page behind the lock screen.
   $("status-detail").innerHTML = "";
-  // A sticky status can hold an attachment filename ("Decrypting invoice.pdf...").
+  // A lasting status can hold an attachment's name ("Decrypting invoice.pdf...").
   status("");
-  // Session-only, but it survived the lock and kept the panel's destructive
-  // "Overwrite remote" row renderable against whatever vault is loaded next.
+  // For this session only, but it outlived the lock and kept the panel's
+  // destructive "Overwrite remote" row ready for whatever vault opened next.
   lastSyncError = null;
+
   $("app").style.display = "none";
   $("lock").style.display = "flex";
   syncLockBg();
-  setLockMode();          // a vault exists now: never the first-run form again
+  // A vault exists now: never the first-run form again.
+  setLockMode();
   $("lock-msg").textContent = "";
   $("password").value = "";
   $("password2").value = "";
@@ -211,4 +368,28 @@ async function lockApp(force) {
   $("pw-meter").style.display = "none";
   $("password").focus();
 }
+
+// ---------- On load ----------
+
+$("settings-btn").onclick = openSettings;
+
+// When you last typed, clicked, scrolled or touched anything.
+let lastActivity = Date.now();
+
+for (const eventName of ["pointerdown", "pointermove", "keydown", "wheel", "touchstart"]) {
+  document.addEventListener(eventName, () => {
+    lastActivity = Date.now();
+  }, { capture: true, passive: true });
+}
+
+// Started once every script has loaded, since locking uses the lock screen's
+// code (lock.js). Coming back to the tab checks at once instead of up to 15 s later.
+document.addEventListener("DOMContentLoaded", () => {
+  setInterval(checkIdle, 15000);
+  document.addEventListener("visibilitychange", checkIdle);
+});
+
 $("lock-btn").onclick = lockApp;
+
+// =================== Auxiliary functions ===================
+// None: every function above carries out one of this file's purposes.

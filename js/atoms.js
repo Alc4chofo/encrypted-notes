@@ -1,150 +1,386 @@
-// notes: Atoms: the characters and attachments a format sits on.
+/*
+ * atoms.js - atoms: the characters and inline attachments a format sits on.
+ *
+ * Formatting and censoring work on what you see, not on the HTML: a run of
+ * text is a row of characters, and an inline attachment counts as one
+ * character. These functions find, count and split those atoms, so censor.js
+ * can apply or remove a format over exactly the characters you selected,
+ * whatever elements they sit in. Placeholder text inside an attachment
+ * ("Decrypting...") belongs to the attachment, not to the note.
+ *
+ * Main functions: atomsOf, neighbourAtoms, textOffset, pointAtOffset,
+ * samePlace, splitRangeEnds, atomsIn, atomsTouched, isolate, tidyInline,
+ * selectAtoms, unwrapEl, inMedia.
+ * Auxiliary functions: atomLen, childIndex, atomStart, pointBefore.
+ *
+ * Complexity: each function walks the atoms of one line or editor surface,
+ * O(a) in their number; comparing a point with each atom makes some
+ * O(a * depth).
+ */
 "use strict";
 
-// ---------- Atoms: the characters a format sits on ----------
-// Text and inline attachments, in document order. Placeholder text inside an
-// attachment ("Decrypting...") is part of the attachment, not of the note.
-const inMedia = n => { for (let p = n.parentNode; p; p = p.parentNode) if (isMediaEl(p)) return true; return false; };
+// Inline elements a format can live in (links are left alone).
+const INLINE_FORMAT_EL = /^(B|I|U|S|STRIKE|STRONG|EM|FONT|SPAN|SUB|SUP)$/;
+
+// ---------- Finding atoms ----------
+
+/**
+ * Whether a node sits inside an inline attachment.
+ *
+ * Used by: this file, censor.js (scrubCensorLook).
+ * Uses: isMediaEl (lines.js).
+ * Complexity: O(depth).
+ */
+function inMedia(node) {
+  for (let parent = node.parentNode; parent; parent = parent.parentNode) {
+    if (isMediaEl(parent)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Every atom under a root, in document order: non-empty text nodes and
+ * inline attachments (not pictures floating beside the text, and not
+ * selection markers).
+ *
+ * Used by: this file, censor.js (dropEmptyMarks), tables.js (insertTable).
+ * Uses: isSelMarker, isMediaEl and isFloatEl (lines.js).
+ * Complexity: O(n) in the nodes under root.
+ */
 function atomsOf(root) {
   const out = [];
-  (function walk(n) {
-    for (const c of n.childNodes) {
-      if (c.nodeType === 3) { if (c.data) out.push(c); }
-      else if (c.nodeType === 1 && !isSelMarker(c)) { if (isMediaEl(c)) { if (!isFloatEl(c)) out.push(c); } else walk(c); }
+  (function walk(node) {
+    for (const child of node.childNodes) {
+      if (child.nodeType === 3) {
+        if (child.data) {
+          out.push(child);
+        }
+      } else if (child.nodeType === 1 && !isSelMarker(child)) {
+        if (isMediaEl(child)) {
+          if (!isFloatEl(child)) {
+            out.push(child);
+          }
+        } else {
+          walk(child);
+        }
+      }
     }
   })(root);
   return out;
 }
-const atomLen = a => a.nodeType === 3 ? a.data.length : 1;
-const childIndex = n => Array.prototype.indexOf.call(n.parentNode.childNodes, n);
-const atomStart = a => a.nodeType === 3 ? [a, 0] : [a.parentNode, childIndex(a)];
-// Is the boundary point (n1,o1) before the point (n2,o2)?
-function pointBefore(n1, o1, n2, o2) {
-  const r = document.createRange();
-  r.setStart(n2, o2);
-  return r.comparePoint(n1, o1) < 0;
-}
-// The atoms on either side of a caret inside root.
-function neighbourAtoms(node, off, root) {
-  if (node.nodeType === 3 && node.data && off > 0 && off < node.data.length && !inMedia(node)) return { before: node, after: node };
-  let before = null, after = null;
-  for (const a of atomsOf(root)) {
-    const [n, o] = atomStart(a);
-    if (a === node ? off > 0 : pointBefore(n, o, node, off)) before = a;
-    else { after = a; break; }
+
+/**
+ * The atoms on either side of a caret: { before, after }. Inside a text node
+ * both are that text node.
+ *
+ * Used by: censor.js (caretCensored).
+ * Uses: inMedia, atomsOf, atomStart, pointBefore.
+ * Complexity: O(a * depth).
+ */
+function neighbourAtoms(node, offset, root) {
+  if (node.nodeType === 3 && node.data && offset > 0 && offset < node.data.length && !inMedia(node)) {
+    return { before: node, after: node };
+  }
+  let before = null;
+  let after = null;
+  for (const atom of atomsOf(root)) {
+    const [atomNode, atomOffset] = atomStart(atom);
+    if (atom === node ? offset > 0 : pointBefore(atomNode, atomOffset, node, offset)) {
+      before = atom;
+    } else {
+      after = atom;
+      break;
+    }
   }
   return { before, after };
 }
-// Characters from the start of root to a point (an attachment counts as one).
-function textOffset(root, node, off) {
-  let k = 0;
-  for (const a of atomsOf(root)) {
-    if (a === node) return k + off;
-    const [n, o] = atomStart(a);
-    if (!pointBefore(n, o, node, off)) break;
-    k += atomLen(a);
+
+/**
+ * How many characters lie from the start of root to a point (an attachment
+ * counts as one).
+ *
+ * Used by: censor.js (insertSegments, insertPlanAt).
+ * Uses: atomsOf, atomStart, pointBefore, atomLen.
+ * Complexity: O(a * depth).
+ */
+function textOffset(root, node, offset) {
+  let count = 0;
+  for (const atom of atomsOf(root)) {
+    if (atom === node) {
+      return count + offset;
+    }
+    const [atomNode, atomOffset] = atomStart(atom);
+    if (!pointBefore(atomNode, atomOffset, node, offset)) {
+      break;
+    }
+    count += atomLen(atom);
   }
-  return k;
+  return count;
 }
-// The point that many characters into root (the end of a text it lands at the
-// end of, so a range starting there takes in nothing before it).
-function pointAtOffset(root, k) {
+
+/**
+ * The point that many characters into root. It lands at the end of a text
+ * rather than the start of the next, so a range starting there takes in
+ * nothing before it.
+ *
+ * Used by: censor.js (carryOutInsert).
+ * Uses: atomsOf, atomStart, childIndex.
+ * Complexity: O(a).
+ */
+function pointAtOffset(root, count) {
   let last = null;
-  for (const a of atomsOf(root)) {
-    if (a.nodeType === 3) { if (k <= a.data.length) return [a, k]; k -= a.data.length; }
-    else { if (k <= 0) return atomStart(a); k -= 1; }
-    last = a;
+  for (const atom of atomsOf(root)) {
+    if (atom.nodeType === 3) {
+      if (count <= atom.data.length) {
+        return [atom, count];
+      }
+      count -= atom.data.length;
+    } else {
+      if (count <= 0) {
+        return atomStart(atom);
+      }
+      count -= 1;
+    }
+    last = atom;
   }
-  if (last) return last.nodeType === 3 ? [last, last.data.length] : [last.parentNode, childIndex(last) + 1];
+  if (last) {
+    return last.nodeType === 3 ? [last, last.data.length] : [last.parentNode, childIndex(last) + 1];
+  }
   return [root, root.childNodes.length];
 }
-// Same caret place: nothing typed or attached lies between the two points.
-function samePlace(n1, o1, n2, o2) {
-  const r = document.createRange();
-  if (pointBefore(n2, o2, n1, o1)) { r.setStart(n2, o2); r.setEnd(n1, o1); }
-  else { r.setStart(n1, o1); r.setEnd(n2, o2); }
-  return r.toString() === "" && !r.cloneContents().querySelector(".inline-media");
-}
-// Splits the text at the ends of a range, so every text node is either wholly
-// inside it or wholly outside; returns the equivalent range.
-function splitRangeEnds(r) {
-  let sc = r.startContainer, so = r.startOffset, ec = r.endContainer, eo = r.endOffset;
-  if (ec.nodeType === 3 && eo > 0 && eo < ec.data.length) ec.splitText(eo);
-  if (sc.nodeType === 3 && so > 0 && so < sc.data.length) {
-    const right = sc.splitText(so);
-    if (ec === sc) { ec = right; eo -= so; }
-    sc = right; so = 0;
+
+/**
+ * Whether two points are the same caret place: nothing typed or attached lies
+ * between them.
+ *
+ * Used by: censor.js (pendingCensorAt).
+ * Uses: pointBefore.
+ * Complexity: O(k) in the content between them.
+ */
+function samePlace(nodeA, offsetA, nodeB, offsetB) {
+  const range = document.createRange();
+  if (pointBefore(nodeB, offsetB, nodeA, offsetA)) {
+    range.setStart(nodeB, offsetB);
+    range.setEnd(nodeA, offsetA);
+  } else {
+    range.setStart(nodeA, offsetA);
+    range.setEnd(nodeB, offsetB);
   }
+  return range.toString() === "" && !range.cloneContents().querySelector(".inline-media");
+}
+
+// ---------- Working on a range ----------
+
+/**
+ * Splits the text at both ends of a range, so every text node is either
+ * wholly inside it or wholly outside, and returns the same range on the
+ * split nodes.
+ *
+ * Used by: censor.js (setCensorRange, clearFormatting).
+ * Uses: nothing.
+ * Complexity: O(1).
+ */
+function splitRangeEnds(range) {
+  let startNode = range.startContainer;
+  let startOffset = range.startOffset;
+  let endNode = range.endContainer;
+  let endOffset = range.endOffset;
+
+  if (endNode.nodeType === 3 && endOffset > 0 && endOffset < endNode.data.length) {
+    endNode.splitText(endOffset);
+  }
+  if (startNode.nodeType === 3 && startOffset > 0 && startOffset < startNode.data.length) {
+    const right = startNode.splitText(startOffset);
+    if (endNode === startNode) {
+      endNode = right;
+      endOffset -= startOffset;
+    }
+    startNode = right;
+    startOffset = 0;
+  }
+
   const out = document.createRange();
-  out.setStart(sc, so);
-  out.setEnd(ec, eo);
+  out.setStart(startNode, startOffset);
+  out.setEnd(endNode, endOffset);
   return out;
 }
-// The atoms lying wholly inside a range.
-function atomsIn(r, surf) {
-  const c = r.commonAncestorContainer;
-  const root = c.nodeType === 1 ? c : c.parentNode;
-  return atomsOf(root.contains(surf) ? surf : root).filter(a => {
-    const [n, o] = atomStart(a);
-    return !pointBefore(n, o, r.startContainer, r.startOffset) &&
-      !pointBefore(r.endContainer, r.endOffset, ...(a.nodeType === 3 ? [a, a.data.length] : [a.parentNode, childIndex(a) + 1]));
+
+/**
+ * The atoms lying wholly inside a range.
+ *
+ * Used by: censor.js (setCensorRange, clearFormatting).
+ * Uses: atomsOf, atomStart, pointBefore, childIndex.
+ * Complexity: O(a * depth).
+ */
+function atomsIn(range, surface) {
+  const common = range.commonAncestorContainer;
+  const root = common.nodeType === 1 ? common : common.parentNode;
+  return atomsOf(root.contains(surface) ? surface : root).filter(atom => {
+    const [atomNode, atomOffset] = atomStart(atom);
+    return !pointBefore(atomNode, atomOffset, range.startContainer, range.startOffset) &&
+      !pointBefore(range.endContainer, range.endOffset,
+        ...(atom.nodeType === 3 ? [atom, atom.data.length] : [atom.parentNode, childIndex(atom) + 1]));
   });
 }
-// The atoms a range touches with at least one character, without splitting anything.
-function atomsTouched(r, surf) {
-  const c = r.commonAncestorContainer;
-  const root = c.nodeType === 1 ? c : c.parentNode;
-  return atomsOf(root.contains(surf) ? surf : root).filter(a => {
-    if (!r.intersectsNode(a)) return false;
-    if (a.nodeType !== 3) return true;
-    if (a === r.startContainer && r.startOffset >= a.data.length) return false;
-    if (a === r.endContainer && r.endOffset === 0) return false;
+
+/**
+ * The atoms a range touches with at least one character, without splitting anything.
+ *
+ * Used by: censor.js (insertPlanAt, and the copy handler).
+ * Uses: atomsOf.
+ * Complexity: O(a).
+ */
+function atomsTouched(range, surface) {
+  const common = range.commonAncestorContainer;
+  const root = common.nodeType === 1 ? common : common.parentNode;
+  return atomsOf(root.contains(surface) ? surface : root).filter(atom => {
+    if (!range.intersectsNode(atom)) {
+      return false;
+    }
+    if (atom.nodeType !== 3) {
+      return true;
+    }
+    if (atom === range.startContainer && range.startOffset >= atom.data.length) {
+      return false;
+    }
+    if (atom === range.endContainer && range.endOffset === 0) {
+      return false;
+    }
     return true;
   });
 }
+
+/**
+ * Replaces an element with its own children.
+ *
+ * Used by: censor.js (setCensorRange, clearFormatting, dropEmptyMarks, scrubCensorLook).
+ * Uses: nothing.
+ * Complexity: O(c) in its children.
+ */
 function unwrapEl(el) {
-  while (el.firstChild) el.parentNode.insertBefore(el.firstChild, el);
+  while (el.firstChild) {
+    el.parentNode.insertBefore(el.firstChild, el);
+  }
   el.remove();
 }
-// Cuts an inline element in three around the atoms first..last (both inside
-// it) and returns the middle part, which holds exactly them. The parts before
-// and after keep the element's formatting.
+
+/**
+ * Cuts an inline element in three around the atoms first..last (both inside
+ * it) and returns the middle part, which holds exactly them. The parts
+ * before and after keep the element's formatting.
+ *
+ * Used by: censor.js (setCensorRange, clearFormatting).
+ * Uses: nothing.
+ * Complexity: O(c) in the element's content.
+ */
 function isolate(el, first, last) {
   const tail = document.createRange();
   tail.setStartAfter(last);
   tail.setEnd(el, el.childNodes.length);
-  if (!tail.collapsed) { const t = el.cloneNode(false); t.appendChild(tail.extractContents()); el.after(t); }
+  if (!tail.collapsed) {
+    const after = el.cloneNode(false);
+    after.appendChild(tail.extractContents());
+    el.after(after);
+  }
+
   const head = document.createRange();
   head.setStart(el, 0);
   head.setEndBefore(first);
-  if (!head.collapsed) { const h = el.cloneNode(false); h.appendChild(head.extractContents()); el.before(h); }
+  if (!head.collapsed) {
+    const before = el.cloneNode(false);
+    before.appendChild(head.extractContents());
+    el.before(before);
+  }
   return el;
 }
-const INLINE_FORMAT_EL = /^(B|I|U|S|STRIKE|STRONG|EM|FONT|SPAN|SUB|SUP)$/;
-// Inline wrappers a split left empty go, and censor marks that ended up side by
-// side become one.
+
+/**
+ * Tidies what a split left behind: inline wrappers left empty go, and censor
+ * marks that ended up side by side become one.
+ *
+ * Used by: censor.js (setCensorRange, clearFormatting).
+ * Uses: isMediaEl, isSelMarker and isBareMark (lines.js), inMedia.
+ * Complexity: O(e) in the inline elements under root.
+ */
 function tidyInline(root) {
   for (const el of [...root.querySelectorAll("b,i,u,s,strike,strong,em,font,span,sub,sup,a")].reverse()) {
-    if (isMediaEl(el) || isSelMarker(el) || inMedia(el)) continue;
-    if (!el.firstChild || (el.textContent === "" && !el.querySelector("br,.inline-media,[data-sel]"))) el.remove();
+    if (isMediaEl(el) || isSelMarker(el) || inMedia(el)) {
+      continue;
+    }
+    if (!el.firstChild || (el.textContent === "" && !el.querySelector("br,.inline-media,[data-sel]"))) {
+      el.remove();
+    }
   }
-  for (const sp of [...root.querySelectorAll('span[data-censor="1"]')]) {
-    if (!sp.isConnected || !isBareMark(sp)) continue;
+
+  for (const mark of [...root.querySelectorAll('span[data-censor="1"]')]) {
+    if (!mark.isConnected || !isBareMark(mark)) {
+      continue;
+    }
     for (;;) {
-      let n = sp.nextSibling;
-      while (n && n.nodeType === 3 && !n.data) { const x = n.nextSibling; n.remove(); n = x; }
-      if (!isBareMark(n)) break;
-      while (n.firstChild) sp.appendChild(n.firstChild);
-      n.remove();
+      let next = mark.nextSibling;
+      while (next && next.nodeType === 3 && !next.data) {
+        const after = next.nextSibling;
+        next.remove();
+        next = after;
+      }
+      if (!isBareMark(next)) {
+        break;
+      }
+      while (next.firstChild) {
+        mark.appendChild(next.firstChild);
+      }
+      next.remove();
     }
   }
 }
+
+/**
+ * Selects the atoms first..last and returns that range.
+ *
+ * Used by: censor.js (toggleCensor, clearFormatting).
+ * Uses: nothing.
+ * Complexity: O(1).
+ */
 function selectAtoms(first, last) {
-  const r = document.createRange();
-  if (first.nodeType === 3) r.setStart(first, 0); else r.setStartBefore(first);
-  if (last.nodeType === 3) r.setEnd(last, last.data.length); else r.setEndAfter(last);
-  const sel = window.getSelection();
-  sel.removeAllRanges();
-  sel.addRange(r);
-  return r;
+  const range = document.createRange();
+  if (first.nodeType === 3) {
+    range.setStart(first, 0);
+  } else {
+    range.setStartBefore(first);
+  }
+  if (last.nodeType === 3) {
+    range.setEnd(last, last.data.length);
+  } else {
+    range.setEndAfter(last);
+  }
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  return range;
+}
+
+// =================== Auxiliary functions ===================
+
+/** An atom's length: a text node's characters, or 1 for an attachment. Complexity: O(1). */
+function atomLen(atom) {
+  return atom.nodeType === 3 ? atom.data.length : 1;
+}
+
+/** A node's index among its parent's children. Complexity: O(c). */
+function childIndex(node) {
+  return Array.prototype.indexOf.call(node.parentNode.childNodes, node);
+}
+
+/** The point where an atom starts: [text, 0], or [parent, index] for an attachment. Complexity: O(c). */
+function atomStart(atom) {
+  return atom.nodeType === 3 ? [atom, 0] : [atom.parentNode, childIndex(atom)];
+}
+
+/** Whether the point (nodeA, offsetA) comes before the point (nodeB, offsetB). Complexity: O(depth). */
+function pointBefore(nodeA, offsetA, nodeB, offsetB) {
+  const range = document.createRange();
+  range.setStart(nodeB, offsetB);
+  return range.comparePoint(nodeA, offsetA) < 0;
 }

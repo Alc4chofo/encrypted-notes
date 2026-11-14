@@ -1,668 +1,1070 @@
-// notes: Attachments: adding them, the strip and the lightbox.
+/*
+ * attachments.js - attachments: adding them (paste and drop), the strip of
+ * tiles under the note, the lightbox, and plain-text paste and drop.
+ *
+ * Plain attachment bytes only ever exist for a moment in memory and behind
+ * the blob: addresses kept in mediaUrls (vault.js); IndexedDB and the
+ * repository only ever see encrypted bytes.
+ *
+ * Encryption. A new attachment is encrypted in addMedia, as soon as it is
+ * pasted or dropped, by encryptMedia (vault.js): AES-256-GCM under the
+ * vault's attachment key (random, not made from the password), with a fresh
+ * random 12-byte IV and "media:<id>" as associated data, so encrypted bytes
+ * cannot be swapped between attachments without the check failing. That
+ * takes about 3.7 ms per MB (a 10 MB file in 37 ms, Chrome 156). It is
+ * decrypted (decryptMedia, about 3 ms per MB) only when shown: a picture's
+ * thumbnail when the strip is drawn, one at a time in a queue, and any other
+ * kind when it is clicked or downloaded. Guessing the key means trying up to
+ * 2^256 keys, which is out of reach.
+ *
+ * Size. A file may be up to MEDIA_MAX (200 MB), the most that is sensible to
+ * encrypt in memory at once. Above MEDIA_CHUNK (20 MB) it is stored in the
+ * repository as 20 MB parts (media/<id>.p0, .p1, ...) with a small manifest
+ * at media/<id>, because GitHub rejects large API pushes (base64 makes a
+ * request about 1.37 times the size) and caps a file at 100 MB.
+ *
+ * Main functions: mediaCtx, ingestFiles, ensureNoteForMedia,
+ * stripImageMetadata, addMedia, insertPlainText, renderAttachments,
+ * queueThumb, makeTile, openAttachment, loadMedia, downloadAttachment,
+ * downloadPlain, attachmentMenu, removeAttachment, openLightbox, closeLightbox.
+ * Auxiliary functions: formatSize, ingestFrozen, ingestBlocked, probeDims,
+ * dragHasFiles, setDragHighlight.
+ *
+ * Complexity: adding a file is O(size) (scrub, encrypt, store); drawing the
+ * strip is O(m) in the attachments, plus one decrypt per picture, O(size).
+ */
 "use strict";
 
-// ---------- Attachments: ingest (paste / drag-drop) ----------
-// Plaintext media bytes only ever exist transiently in memory and behind the
-// blob: URLs tracked in mediaUrls; IndexedDB and the repo see ciphertext only.
-// Per file. base64 inflates the PUT body ~1.37x, so 25MB of bytes is a ~34MB
-// JSON request. 40MB (a ~54MB body) sits right at the contents API's
-// request-size limit and could not be verified against the live API without
-// writing to the real repo, so the cap ships at the safe value; raise this one
-// constant back to 40MB after a single real 40MB PUT succeeds.
-// Attachments above MEDIA_CHUNK are split into MEDIA_CHUNK-sized repo files
-// (media/<id>.p0, .p1, ...) with a tiny manifest at media/<id>, because GitHub
-// rejects large API pushes (base64 request bodies) and hard-caps repo files at
-// 100MB. MEDIA_MAX is only a sanity ceiling for whole-buffer encrypt in memory.
+// ---------- State ----------
+
+// The largest attachment, and the size of the parts a large one is stored in.
 const MEDIA_MAX = 200 * 1024 * 1024;
 const MEDIA_CHUNK = 20 * 1024 * 1024;
-const CHUNK_MAGIC = "notes-chunks-v1:";   // ciphertext starts with a random IV: no real record can collide
 
-function fmtSize(b) {
-  if (!(b >= 0)) return "";
-  if (b < 1024) return b + " B";
-  if (b < 1048576) return Math.round(b / 1024) + " KB";
-  const mb = b / 1048576;
-  return (mb < 10 ? mb.toFixed(1) : Math.round(mb)) + " MB";
-}
+// What a parts manifest starts with. Encrypted bytes start with a random IV,
+// so no real record can look like one.
+const CHUNK_MAGIC = "notes-chunks-v1:";
 
-// Whose media the strip is showing: the live note, or a trash snapshot
-// (read-only - download allowed, no remove, no ingest).
+// The picture types whose metadata is removed before they are encrypted.
+const SCRUBBABLE = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp"]);
+
+// ---------- Adding attachments ----------
+
+/**
+ * Whose attachments are being shown: { note, readOnly } for the open note,
+ * or for a note in the trash (read-only: download allowed, nothing removed
+ * or added); null when the vault is locked or nothing is open.
+ *
+ * Used by: this file (renderAttachments), lines.js (hydrateInlineMedia,
+ * hydrateOneInline), history.js (inlineDims).
+ * Uses: nothing.
+ * Complexity: O(1).
+ */
 function mediaCtx() {
-  if (!vault) return null;
-  if (trashViewId && vault.trash[trashViewId]) return { note: vault.trash[trashViewId].data || {}, readOnly: true };
-  if (currentId && vault.notes[currentId]) return { note: vault.notes[currentId], readOnly: false };
+  if (!vault) {
+    return null;
+  }
+  if (trashViewId && vault.trash[trashViewId]) {
+    return { note: vault.trash[trashViewId].data || {}, readOnly: true };
+  }
+  if (currentId && vault.notes[currentId]) {
+    return { note: vault.notes[currentId], readOnly: false };
+  }
   return null;
 }
 
-// Locked, frozen mid-sync, or read-only trash view: ingest is inert. Any open
-// overlay (modal, menu, lightbox) also swallows it, so pasting an image over a
-// confirm dialog cannot silently attach a file.
-function ingestFrozen() { return !vault || syncing || !!trashViewId || !!backupView; }
-function ingestBlocked() { return ingestFrozen() || uiLayerOpen(); }
-
-// opts.inline: insert an inline wrapper at opts.range (a caret captured BEFORE any
-// await); each file lands after the previous one. Unfocused / outside-editor ingest
-// passes no opts and stays strip-only, exactly as before.
-async function ingestFiles(fileList, opts) {
-  opts = opts || {};
+/**
+ * Adds pasted or dropped files, one after another (two 40 MB encrypts at
+ * once would double the memory). With options.inline, each goes in the text
+ * at options.range (a caret taken before any await), the next one after the
+ * last; otherwise it goes in the strip only.
+ *
+ * Used by: this file (paste and drop, on load).
+ * Uses: ingestBlocked, ingestFrozen, addMedia.
+ * Complexity: O(size) of all the files.
+ */
+async function ingestFiles(fileList, options) {
+  options = options || {};
   const files = [...(fileList || [])];
-  if (!files.length || ingestBlocked()) return;
-  const ok = files;   // every type attaches; rendering is gated per kind instead
-  const inline = !!opts.inline && !trashViewId;
-  let range = inline ? (opts.range || null) : null;
-  // Sequential on purpose: two 40MB encrypts in parallel would spike memory.
-  for (const f of ok) {
-    if (ingestFrozen()) return;
-    const mid = await addMedia(f, inline ? { insertInline: true, range } : null);
-    // Advance the caret past the wrapper we just placed so the next file follows it.
+  if (!files.length || ingestBlocked()) {
+    return;
+  }
+  // Every type is accepted; what is shown is decided per kind instead.
+  const accepted = files;
+  const inline = !!options.inline && !trashViewId;
+  let range = inline ? (options.range || null) : null;
+  for (const file of accepted) {
+    if (ingestFrozen()) {
+      return;
+    }
+    const mid = await addMedia(file, inline ? { insertInline: true, range } : null);
+    // The caret moves past the wrapper just placed, so the next file follows it.
     if (inline && mid) {
-      const w = $("edit-wrap").querySelector('span.inline-media[data-mid="' + mid + '"]');
-      if (w && w.isConnected) { range = document.createRange(); range.setStartAfter(w); range.collapse(true); }
-      else range = null;
+      const wrapper = $("edit-wrap").querySelector('span.inline-media[data-mid="' + mid + '"]');
+      if (wrapper && wrapper.isConnected) {
+        range = document.createRange();
+        range.setStartAfter(wrapper);
+        range.collapse(true);
+      } else {
+        range = null;
+      }
     }
   }
 }
 
-// Media with no note selected would own nothing and be lost: adopt it into a
-// fresh note, the same pattern the type-with-no-selection handler uses.
+/**
+ * The open note's id, or a new empty note's when none is open: an
+ * attachment with no note would belong to nothing and be lost. The new note
+ * goes at the top of the loose notes (if they are in a hand-made order) and
+ * opens. A search in progress is cleared, so the note can be seen.
+ *
+ * Used by: this file (addMedia).
+ * Uses: newLooseOrder (sidebar.js), persistSafe (vault.js), openNote (pagination.js).
+ * Complexity: O(n) over the loose notes, for the order.
+ */
 function ensureNoteForMedia() {
-  if (currentId && vault.notes[currentId]) return currentId;
-  if (searchQuery) { searchQuery = ""; $("search").value = ""; }
+  if (currentId && vault.notes[currentId]) {
+    return currentId;
+  }
+  if (searchQuery) {
+    searchQuery = "";
+    $("search").value = "";
+  }
   const id = crypto.randomUUID();
   vault.notes[id] = { title: "", body: "", color: null, folderId: null, mtime: Date.now(), media: [] };
-  // If the loose list is already manually ordered, seat the new note at the TOP
-  // (matching today's newest-first); otherwise leave it un-ordered so an un-dragged
-  // vault keeps the group fully-legacy and behaves exactly as before.
-  { const o = newLooseOrder(); if (o !== undefined) vault.notes[id].order = o; }
+  // Left without an order when the loose notes have none, so a vault never
+  // reordered by hand keeps its plain newest-first order.
+  {
+    const order = newLooseOrder();
+    if (order !== undefined) {
+      vault.notes[id].order = order;
+    }
+  }
   persistSafe();
   openNote(id);
   return id;
 }
 
-// Metadata scrub on ingest. A phone photo carries EXIF: GPS coordinates, the
-// camera serial, the exact timestamp - all of it inside the bytes we would
-// otherwise encrypt and sync verbatim, and all of it would land in an exported
-// PDF too. Re-drawing through a canvas keeps only the pixels; every metadata
-// block is dropped because the encoder writes a fresh file.
-// Cost: a re-encode. PNG/WebP are lossless here; JPEG is re-encoded at 0.95, so
-// the file is pixel-identical in practice but not byte-identical to the source.
-// Non-images are untouched (a docx keeps its own metadata - stripping that
-// would mean parsing the format).
-const SCRUBBABLE = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp"]);
+/**
+ * A copy of a picture with its metadata removed. A phone photo carries EXIF:
+ * GPS coordinates, the camera's serial number, the exact time, all inside
+ * the bytes that would otherwise be encrypted, synced and put into an
+ * exported PDF as they are. Drawing it again through a canvas keeps only the
+ * pixels, since the encoder writes a fresh file. PNG and WebP stay lossless;
+ * JPEG is encoded again at 0.95, the same to the eye though not byte for
+ * byte. Other files are left as they are (a .docx keeps its own metadata:
+ * removing it would mean parsing the format). A failure returns the
+ * original, so a file is never lost to it.
+ *
+ * Used by: this file (addMedia, before encrypting).
+ * Uses: baseMimeType (vault.js), SCRUBBABLE.
+ * Complexity: O(w * h) in the picture's pixels.
+ */
 async function stripImageMetadata(file) {
-  if (!SCRUBBABLE.has(mimeBase(file.type))) return file;
+  if (!SCRUBBABLE.has(baseMimeType(file.type))) {
+    return file;
+  }
   try {
-    const bmp = await createImageBitmap(file);
+    const bitmap = await createImageBitmap(file);
     const canvas = document.createElement("canvas");
-    canvas.width = bmp.width; canvas.height = bmp.height;
-    canvas.getContext("2d").drawImage(bmp, 0, 0);
-    bmp.close && bmp.close();
-    const type = mimeBase(file.type) === "image/png" ? "image/png"
-      : mimeBase(file.type) === "image/webp" ? "image/webp" : "image/jpeg";
-    const blob = await new Promise(res => canvas.toBlob(res, type, 0.95));
-    canvas.width = canvas.height = 0;                 // drop the backing store
-    if (!blob || !blob.size) return file;             // never lose the file to a scrub failure
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    canvas.getContext("2d").drawImage(bitmap, 0, 0);
+    bitmap.close && bitmap.close();
+    const type = baseMimeType(file.type) === "image/png" ? "image/png"
+      : baseMimeType(file.type) === "image/webp" ? "image/webp" : "image/jpeg";
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, type, 0.95));
+    // Lets go of the canvas's pixel memory.
+    canvas.width = canvas.height = 0;
+    if (!blob || !blob.size) {
+      return file;
+    }
     return new File([blob], file.name, { type });
-  } catch { return file; }
+  } catch {
+    return file;
+  }
 }
 
-// Returns the media id on success (so the caller can locate the inserted wrapper),
-// or undefined. opts.insertInline places an atomic inline wrapper at opts.range.
-async function addMedia(file, opts) {
-  opts = opts || {};
-  if (ingestFrozen() || !isAllowedMediaType(file.type)) return;
+/**
+ * Adds one file to the open note (or a new one) and returns its media id, or
+ * nothing when it was not added. In order:
+ *   1. The note being typed is saved first, and an undo step is marked, so
+ *      Ctrl+Z takes the attachment out again.
+ *   2. With options.insertInline, a wrapper showing a placeholder goes in at
+ *      options.range now, before the encrypt, so the place is kept even if
+ *      the user moves on meanwhile (its reference needs no bytes yet).
+ *   3. A picture's metadata is removed (stripImageMetadata), before
+ *      encrypting: the stored bytes must never hold EXIF, and the note's
+ *      entry must describe the bytes really kept.
+ *   4. The bytes are encrypted with AES-256-GCM (encryptMedia, about 3.7 ms
+ *      per MB) and stored in IndexedDB and in the vault's own media folder.
+ *      If that fails, the placeholder comes out again, so the note never
+ *      names bytes that were not stored.
+ *   5. The entry joins note.media and the note is saved straight away (a
+ *      wrapper put in by script fires no input event), then the wrapper is
+ *      shown with its real picture.
+ *
+ * Used by: this file (ingestFiles).
+ * Uses: ingestFrozen, formatSize, alertModal (modal.js), flushSave, status
+ * and renderStatus (pagination.js), ensureNoteForMedia, historyMark
+ * (history.js), probeDims, buildInlineWrapper, applyInlineSize,
+ * insertInlineWrapper, updateEditorEmpty, getEditorBody, surfaceOfNode,
+ * sheetsSnapshot and hydrateOneInline (lines.js), kindForMime,
+ * isAllowedMediaType, encryptMedia, idbPut and persistLocal (vault.js),
+ * saveMediaFile (vaults.js), stripImageMetadata, notePages (content.js),
+ * renderList (sidebar.js), renderAttachments.
+ * Complexity: O(size) of the file.
+ */
+async function addMedia(file, options) {
+  options = options || {};
+  if (ingestFrozen() || !isAllowedMediaType(file.type)) {
+    return;
+  }
   if (file.size > MEDIA_MAX) {
     await alertModal({
       title: "File too large",
-      body: `"${file.name || "attachment"}" is ${fmtSize(file.size)}. Attachments are capped at ` +
-        `${fmtSize(MEDIA_MAX)} (larger uploads are split into ${fmtSize(MEDIA_CHUNK)} chunks for GitHub, ` +
+      body: `"${file.name || "attachment"}" is ${formatSize(file.size)}. Attachments are capped at ` +
+        `${formatSize(MEDIA_MAX)} (larger uploads are split into ${formatSize(MEDIA_CHUNK)} chunks for GitHub, ` +
         `but the whole file must still fit in memory to encrypt).`,
     });
     return;
   }
-  // Commit the editor buffer first: this write bumps the same note's mtime and
-  // persists it, so a pending keystroke must already be in the vault.
+
   flushSave();
   const id = ensureNoteForMedia();
-  if (!id || !vault.notes[id]) return;
-  historyMark(id);              // undo takes the attachment back out
+  if (!id || !vault.notes[id]) {
+    return;
+  }
+  historyMark(id);
   const mid = crypto.randomUUID();
   const name = file.name || "attachment";
-  const dims = await probeDims(file);   // best-effort; reserves inline space, resolves null on failure
-  if (ingestFrozen() || !vault || !vault.notes[id]) { status(""); return; }   // state may have changed during probe
-  // Insert the wrapper (showing a placeholder) NOW, before the async encrypt, so the
-  // caret position at paste/drop time is captured even if the user navigates during
-  // the encrypt. It serializes from data-mid/data-kind alone, so no bytes are needed
-  // yet. insertInlineWrapper falls back to the editor end if ensureNoteForMedia just
-  // reseated the editor (new note), invalidating the captured range.
+  // Best effort: it reserves the picture's space, and is null when it fails.
+  const dimensions = await probeDims(file);
+  // Things may have changed while the size was read.
+  if (ingestFrozen() || !vault || !vault.notes[id]) {
+    status("");
+    return;
+  }
+
   let wrapper = null;
-  if (opts.insertInline && !trashViewId && currentId === id) {
+  if (options.insertInline && !trashViewId && currentId === id) {
     wrapper = buildInlineWrapper(mid, kindForMime(file.type));
-    if (dims) applyInlineSize(wrapper, dims.w, dims.h);
-    insertInlineWrapper(wrapper, opts.range);
+    if (dimensions) {
+      applyInlineSize(wrapper, dimensions.w, dimensions.h);
+    }
+    insertInlineWrapper(wrapper, options.range);
   }
   status(`Encrypting ${name}...`, false, true);
-  // Scrub BEFORE encrypting: the stored ciphertext must never contain EXIF, and
-  // the metadata entry must describe the bytes we actually kept.
   let stored = file;
-  try { stored = await stripImageMetadata(file); } catch {}
+  try {
+    stored = await stripImageMetadata(file);
+  } catch {}
   try {
     const sealed = await encryptMedia(mid, await stored.arrayBuffer());
     await idbPut(mid, sealed);
-    saveMediaFile(mid, sealed);   // the vault's own media folder, when access is granted
-  } catch (e) {
-    status("Could not attach " + name + ": " + e.message, true);
-    // Roll the placeholder back out so the body never references bytes that failed
-    // to store; re-serialize if it was already in the DOM.
+    saveMediaFile(mid, sealed);
+  } catch (error) {
+    status("Could not attach " + name + ": " + error.message, true);
     if (wrapper && wrapper.isConnected) {
       wrapper.remove();
       updateEditorEmpty();
       if (currentId === id && vault.notes[id]) {
-        const nn = vault.notes[id];
-        nn.body = getEditorBody(); nn.bodyV = 2; editorPlainOrig = null; editorBaseline = nn.body;
+        const current = vault.notes[id];
+        current.body = getEditorBody();
+        current.bodyV = 2;
+        editorPlainOrig = null;
+        editorBaseline = current.body;
         persistLocal().catch(() => {});
       }
     }
     return;
   }
-  if (!vault || !vault.notes[id]) { status(""); return; }   // locked or trashed while encrypting
-  const n = vault.notes[id];
-  if (!Array.isArray(n.media)) n.media = [];
-  n.media.push({ id: mid, mime: stored.type || file.type, name, size: stored.size, ...(dims || {}) });
-  // Persist the body too: a programmatic DOM insert fires no 'input', so without this
-  // a lock/switch before the debounce would keep the file (in the strip) but lose its
-  // inline placement. Bytes are already in IDB, so the reference is never dangling.
+
+  // Locked, or the note was trashed, while encrypting.
+  if (!vault || !vault.notes[id]) {
+    status("");
+    return;
+  }
+  const note = vault.notes[id];
+  if (!Array.isArray(note.media)) {
+    note.media = [];
+  }
+  note.media.push({ id: mid, mime: stored.type || file.type, name, size: stored.size, ...(dimensions || {}) });
   if (wrapper && wrapper.isConnected && currentId === id) {
-    // Paged note: the wrapper lives in a sheet, so commit THAT page and
-    // re-baseline across all sheets; single-page keeps the original path.
-    const surf = surfaceOfNode(wrapper);
-    const ps = notePages(n);
-    if (ps && surf && surf.dataset.page !== undefined && ps[+surf.dataset.page]) {
-      const pg = ps[+surf.dataset.page];
-      pg.body = getEditorBody(surf);
-      pg.bodyV = 2;
+    // On sheets the wrapper is in one page: that page is saved, and the
+    // baseline covers every sheet.
+    const surface = surfaceOfNode(wrapper);
+    const pages = notePages(note);
+    if (pages && surface && surface.dataset.page !== undefined && pages[+surface.dataset.page]) {
+      const page = pages[+surface.dataset.page];
+      page.body = getEditorBody(surface);
+      page.bodyV = 2;
       editorPlainOrig = null;
       editorBaseline = sheetsSnapshot();
     } else {
-      n.body = getEditorBody();
-      n.bodyV = 2;
+      note.body = getEditorBody();
+      note.bodyV = 2;
       editorPlainOrig = null;
-      editorBaseline = n.body;
+      editorBaseline = note.body;
     }
   }
-  n.mtime = Date.now();
-  // Written straight through (not via the `dirty` editor-buffer flag, which
-  // only tracks title/body) so the note lands in the autosave/unsynced path.
-  persistLocal().catch(e => status("Save failed: " + e.message, true));
+  note.mtime = Date.now();
+  // Saved straight through, not through the unsaved-edits flag (which only
+  // covers the title and the text), so the note counts as changed and unsynced.
+  persistLocal().catch(error => status("Save failed: " + error.message, true));
   renderList();
   renderStatus();
-  if (currentId === id) renderAttachments();
-  // Repaint the placeholder into the real image / video poster now the bytes exist.
-  if (wrapper && wrapper.isConnected && currentId === id) hydrateOneInline(wrapper);
+  if (currentId === id) {
+    renderAttachments();
+  }
+  if (wrapper && wrapper.isConnected && currentId === id) {
+    hydrateOneInline(wrapper);
+  }
   status("Attached " + name);
   return mid;
 }
 
-// Intrinsic pixel size of an image/video file, for reserving inline space. Uses
-// a transient plaintext object URL (the same bytes the user just supplied),
-// revoked immediately and never persisted. Best-effort: resolves null on any
-// failure so ingest never blocks on it.
-function probeDims(file) {
-  return new Promise(resolve => {
-    const k = kindForMime(file.type);
-    if (k !== "image" && k !== "video") return resolve(null);   // only pixels have a size to reserve
-    const url = URL.createObjectURL(file);
-    const done = d => { URL.revokeObjectURL(url); resolve(d); };
-    const t = setTimeout(() => done(null), 5000);
-    if (file.type.toLowerCase().startsWith("video/")) {
-      const v = document.createElement("video");
-      v.preload = "metadata";
-      v.onloadedmetadata = () => { clearTimeout(t); done(v.videoWidth ? { w: v.videoWidth, h: v.videoHeight } : null); };
-      v.onerror = () => { clearTimeout(t); done(null); };
-      v.src = url;
-    } else {
-      const img = new Image();
-      img.onload = () => { clearTimeout(t); done(img.naturalWidth ? { w: img.naturalWidth, h: img.naturalHeight } : null); };
-      img.onerror = () => { clearTimeout(t); done(null); };
-      img.src = url;
-    }
-  });
+/**
+ * Puts pasted or dropped text in as plain text, one line per line, with the
+ * censor state of the caret, exactly like typing.
+ *
+ * Used by: this file (paste and drop, on load).
+ * Uses: surfaceOfNode and ensureLines (lines.js), insertPlanAt,
+ * carryOutInsert and scrubCensorLook (censor.js), syncFormatState (toolbar.js).
+ * Complexity: O(n) in the text.
+ */
+function insertPlainText(text) {
+  const selection = window.getSelection();
+  if (!selection || !selection.rangeCount) {
+    return;
+  }
+  const surface = surfaceOfNode(selection.getRangeAt(0).startContainer);
+  if (!surface) {
+    return;
+  }
+  const plan = insertPlanAt(selection.getRangeAt(0), surface);
+  inPlainPaste = true;
+  try {
+    document.execCommand("insertText", false, String(text).replace(/\r\n?/g, "\n"));
+  } finally {
+    inPlainPaste = false;
+  }
+  if (plan) {
+    carryOutInsert(plan);
+  }
+  ensureLines(surface);
+  scrubCensorLook(surface);
+  syncFormatState();
 }
 
-const dragHasFiles = e => !!e.dataTransfer && [...e.dataTransfer.types].includes("Files");
+// ---------- On load: pasting ----------
 
-document.addEventListener("paste", e => {
-  if (ingestBlocked()) return;
-  const files = e.clipboardData && e.clipboardData.files;
-  const hasMedia = files && files.length && [...files].some(f => isAllowedMediaType(f.type));
+// A pasted file is attached, never put in as text: at the caret when the
+// editor has the focus (and in the strip), otherwise in the strip only.
+// Pasted text always goes in as plain text: pasted HTML (formatting, <img
+// onerror>, data: addresses, tables) must never enter the page; the
+// sanitiser on saving is a second line of defence. Censored text copied in
+// this app comes back censored, not as blocks.
+document.addEventListener("paste", event => {
+  if (ingestBlocked()) {
+    return;
+  }
+  const files = event.clipboardData && event.clipboardData.files;
+  const hasMedia = files && files.length && [...files].some(file => isAllowedMediaType(file.type));
   if (hasMedia) {
-    e.preventDefault();   // never let a file paste land in the editor as text
-    // Editor focused -> insert inline at the caret AND keep the strip entry; else
-    // (unfocused) attach to the strip only, as before.
-    const inline = !trashViewId && editorHasFocus(e.target);
+    event.preventDefault();
+    const inline = !trashViewId && editorHasFocus(event.target);
     ingestFiles(files, inline ? { inline: true, range: currentEditorRange() } : null);
     return;
   }
-  // Force plain text into the contenteditable: arbitrary pasted HTML (formatting,
-  // <img onerror>, data: URLs, tables) must NEVER enter the live DOM. Save-side
-  // sanitize is defense in depth; this stops rich HTML at the source.
-  if (!trashViewId && editorHasFocus(e.target)) {
-    e.preventDefault();
-    const text = e.clipboardData ? e.clipboardData.getData("text/plain") : "";
-    // Censored text copied in this app comes back censored, not as blocks.
-    if (text && appClip && sameClipText(text, appClip.plain)) insertSegments(appClip.segs);
-    else if (text) insertPlainText(text);
+  if (!trashViewId && editorHasFocus(event.target)) {
+    event.preventDefault();
+    const text = event.clipboardData ? event.clipboardData.getData("text/plain") : "";
+    if (text && appClip && sameClipText(text, appClip.plain)) {
+      insertSegments(appClip.segs);
+    } else if (text) {
+      insertPlainText(text);
+    }
   }
 });
-// Pasted or dropped text goes in as plain text, one line per line, and takes the
-// censor state of the caret exactly like typing does.
-function insertPlainText(text) {
-  const sel = window.getSelection();
-  if (!sel || !sel.rangeCount) return;
-  const surf = surfaceOfNode(sel.getRangeAt(0).startContainer);
-  if (!surf) return;
-  const plan = insertPlanAt(sel.getRangeAt(0), surf);
-  inPlainPaste = true;
-  try { document.execCommand("insertText", false, String(text).replace(/\r\n?/g, "\n")); }
-  finally { inPlainPaste = false; }
-  if (plan) carryOutInsert(plan);
-  ensureLines(surf);
-  scrubCensorLook(surf);
-  syncFmtState();
-}
 
-// Drop target is the whole main column (editor, strip, banners).
+// ---------- On load: dropping files ----------
+
+// How deep inside #main a file drag is (dragenter and dragleave fire for
+// every child element).
 let dragDepth = 0;
-function setDragHighlight(on) { $("main").classList.toggle("drag-over", on); }
-$("main").addEventListener("dragenter", e => {
-  if (!dragHasFiles(e)) return;
-  e.preventDefault();
+
+// The whole main column (editor, strip, banners) takes dropped files. On the
+// editor they go in where they are dropped; elsewhere in the strip only.
+$("main").addEventListener("dragenter", event => {
+  if (!dragHasFiles(event)) {
+    return;
+  }
+  event.preventDefault();
   dragDepth++;
-  if (!ingestBlocked()) setDragHighlight(true);
+  if (!ingestBlocked()) {
+    setDragHighlight(true);
+  }
 });
-$("main").addEventListener("dragover", e => {
-  if (!dragHasFiles(e)) return;
-  e.preventDefault();
-  e.dataTransfer.dropEffect = ingestBlocked() ? "none" : "copy";
+$("main").addEventListener("dragover", event => {
+  if (!dragHasFiles(event)) {
+    return;
+  }
+  event.preventDefault();
+  event.dataTransfer.dropEffect = ingestBlocked() ? "none" : "copy";
 });
-$("main").addEventListener("dragleave", e => {
-  if (!dragHasFiles(e)) return;
-  if (--dragDepth <= 0) { dragDepth = 0; setDragHighlight(false); }
+$("main").addEventListener("dragleave", event => {
+  if (!dragHasFiles(event)) {
+    return;
+  }
+  if (--dragDepth <= 0) {
+    dragDepth = 0;
+    setDragHighlight(false);
+  }
 });
-$("main").addEventListener("drop", e => {
-  if (!dragHasFiles(e)) return;
-  e.preventDefault();
+$("main").addEventListener("drop", event => {
+  if (!dragHasFiles(event)) {
+    return;
+  }
+  event.preventDefault();
   dragDepth = 0;
   setDragHighlight(false);
-  if (ingestBlocked()) return;
-  // Dropped onto the editor -> inline insert at the drop point; elsewhere in #main
-  // (strip, banners) -> strip-only, as before.
-  let opts = null;
-  if (!trashViewId && $("editor").contains(e.target)) {
-    const r = caretRangeAt(e.clientX, e.clientY);
-    opts = { inline: true, range: (r && $("editor").contains(r.commonAncestorContainer)) ? r : null };
+  if (ingestBlocked()) {
+    return;
   }
-  ingestFiles(e.dataTransfer.files, opts);
+  let options = null;
+  if (!trashViewId && $("editor").contains(event.target)) {
+    const range = caretRangeAt(event.clientX, event.clientY);
+    options = { inline: true, range: (range && $("editor").contains(range.commonAncestorContainer)) ? range : null };
+  }
+  ingestFiles(event.dataTransfer.files, options);
 });
-// Outside the drop zone the browser would navigate away from the app (and the
-// unsaved buffer) to display the file: swallow it and say where to drop.
-document.addEventListener("dragover", e => { if (dragHasFiles(e)) e.preventDefault(); });
-document.addEventListener("drop", e => {
-  if (!dragHasFiles(e)) return;
-  e.preventDefault();
-  if (!$("main").contains(e.target) && !ingestFrozen())
+
+// Outside the main column the browser would leave the app (and anything
+// unsaved) to show the file: that is stopped, and the status line says where to drop.
+document.addEventListener("dragover", event => {
+  if (dragHasFiles(event)) {
+    event.preventDefault();
+  }
+});
+document.addEventListener("drop", event => {
+  if (!dragHasFiles(event)) {
+    return;
+  }
+  event.preventDefault();
+  if (!$("main").contains(event.target) && !ingestFrozen()) {
     status("Drop images or videos on the editor to attach them");
+  }
 });
-// A non-file drag (text/HTML from another page or window) dropped INTO the editor
-// would otherwise inject live HTML: force it to plain text at the drop point.
-// File drags fall through to the #main handlers above (strip attach). A sidebar
-// note-row drag carries neither Files nor text/plain, so it is a no-op here.
-// Start of an inline-media reposition: record the exact node and stamp a PRIVATE
-// MIME (never 'Files' / 'text/plain'), so the file handlers and the text-drop path
-// all ignore it and the node can never leak out as content.
-// Bound to the whole editing area, not just #editor: with a paged note the
-// wrappers live inside .sheet-body, so a listener on #editor never saw the drag
-// and the browser fell back to its own copy behaviour - which is what made a
-// dragged image reappear as a duplicate instead of moving.
-$("edit-wrap").addEventListener("dragstart", e => {
-  const w = (e.target && e.target.nodeType === 1) ? e.target.closest("span.inline-media") : null;
-  if (!wrapperOf(w)) {
-    // Dragging selected text, from the note or the reference pane: like a copy,
-    // it never carries censored characters out (and comes back censored when
-    // dropped into a note).
+
+// ---------- On load: dragging inside the editor ----------
+
+// Dragging starts. For an inline attachment: its node is remembered, with
+// where it was grabbed, and the drag carries only a private type (never Files
+// or text/plain), so no other handler takes it and the node can never leak
+// out as content. The listener is on the whole editing area, since on sheets
+// the wrappers are inside .sheet-body. For selected text: like a copy, the
+// drag never carries censored characters out, and they come back censored
+// when dropped into a note.
+$("edit-wrap").addEventListener("dragstart", event => {
+  const wrapper = (event.target && event.target.nodeType === 1) ? event.target.closest("span.inline-media") : null;
+  if (!wrapperOf(wrapper)) {
     appDrag = null;
-    const c = e.dataTransfer ? censoredSelection() : null;
-    if (c) {
-      const plain = censoredCopy(c) || "";
-      try { e.dataTransfer.clearData(); e.dataTransfer.setData("text/plain", plain); } catch {}
-      appDrag = { plain, segs: copySegments(c) };
+    const censored = event.dataTransfer ? censoredSelection() : null;
+    if (censored) {
+      const plain = censoredCopy(censored) || "";
+      try {
+        event.dataTransfer.clearData();
+        event.dataTransfer.setData("text/plain", plain);
+      } catch {}
+      appDrag = { plain, segs: copySegments(censored) };
     }
     return;
   }
-  if (!surfaceOfNode(w)) return;   // the read-only reference pane
-  if (ingestBlocked()) { e.preventDefault(); return; }
-  // The handles must not travel with the node (they are not part of the
-  // content, and removing them mid-drag would mutate the drag source).
-  if (selectedMedia === w) clearMediaSelection();
-  // Remember where inside the image the user grabbed it, so it does not jump
-  // under the cursor when it lands.
-  { const r = w.getBoundingClientRect(); dragGrab = { dx: e.clientX - r.left, dy: e.clientY - r.top }; }
-  draggingInlineNode = w;
-  e.dataTransfer.effectAllowed = "move";
-  try { e.dataTransfer.setData("application/x-inline-media", w.getAttribute("data-mid") || "1"); } catch {}
-  w.classList.add("dragging");
-});
-$("edit-wrap").addEventListener("dragend", () => {
-  appDrag = null;
-  if (draggingInlineNode) draggingInlineNode.classList.remove("dragging");
-  draggingInlineNode = null;
-  hideDragGuide();
-  // Swallow the click the browser synthesises at the end of a drag, or the note
-  // would immediately re-select the image and pop the handles back up.
-  justDraggedMedia = true;
-  setTimeout(() => { justDraggedMedia = false; }, 0);
-});
-$("edit-wrap").addEventListener("dragover", e => {
-  if (draggingInlineNode) {
-    if (ingestBlocked()) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    // Native caret previews the landing spot; no custom indicator, no layout shift.
-    const r = caretRangeAt(e.clientX, e.clientY);
-    const sel = window.getSelection();
-    if (r && sel && surfaceOfNode(r.commonAncestorContainer)) { sel.removeAllRanges(); sel.addRange(r); }
-    const surf = (r && surfaceOfNode(r.commonAncestorContainer)) || activeSurface();
-    if (surf) showDragGuide(surf, e.clientX);
+  // The read-only reference pane.
+  if (!surfaceOfNode(wrapper)) {
     return;
   }
-  if (dragHasFiles(e) || ingestBlocked()) return;
-  e.preventDefault();   // required for the drop event to fire so we can sanitize it
+  if (ingestBlocked()) {
+    event.preventDefault();
+    return;
+  }
+  // The handles are not part of the content and must not travel with it.
+  if (selectedMedia === wrapper) {
+    clearMediaSelection();
+  }
+  // Where in the picture it was grabbed, so it lands under the pointer.
+  {
+    const box = wrapper.getBoundingClientRect();
+    dragGrab = { dx: event.clientX - box.left, dy: event.clientY - box.top };
+  }
+  draggingInlineNode = wrapper;
+  event.dataTransfer.effectAllowed = "move";
+  try {
+    event.dataTransfer.setData("application/x-inline-media", wrapper.getAttribute("data-mid") || "1");
+  } catch {}
+  wrapper.classList.add("dragging");
 });
-$("edit-wrap").addEventListener("drop", e => {
-  if (draggingInlineNode) {   // internal reposition: same node moved, no content in/out
-    e.preventDefault();
-    e.stopPropagation();      // never let #main treat this as an ingest
+
+// Dragging ends. The click the browser makes at the end of a drag is
+// swallowed, or the picture would be selected again at once.
+$("edit-wrap").addEventListener("dragend", () => {
+  appDrag = null;
+  if (draggingInlineNode) {
+    draggingInlineNode.classList.remove("dragging");
+  }
+  draggingInlineNode = null;
+  hideDragGuide();
+  justDraggedMedia = true;
+  setTimeout(() => {
+    justDraggedMedia = false;
+  }, 0);
+});
+
+// While an attachment is dragged, the browser's own caret shows where it
+// would land, and the guide shows the middle of the page.
+$("edit-wrap").addEventListener("dragover", event => {
+  if (draggingInlineNode) {
+    if (ingestBlocked()) {
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    const range = caretRangeAt(event.clientX, event.clientY);
+    const selection = window.getSelection();
+    if (range && selection && surfaceOfNode(range.commonAncestorContainer)) {
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+    const surface = (range && surfaceOfNode(range.commonAncestorContainer)) || activeSurface();
+    if (surface) {
+      showDragGuide(surface, event.clientX);
+    }
+    return;
+  }
+  if (dragHasFiles(event) || ingestBlocked()) {
+    return;
+  }
+  // Needed for the drop event to fire, so the drop can be made plain text.
+  event.preventDefault();
+});
+
+// A drop. An attachment being moved is pinned exactly where it is dropped
+// (centred on the page when it snapped to the middle): the same node, so
+// nothing new comes in or goes out. Files are left to #main's handler. Text
+// from another page or window goes in as plain text at the drop point, never
+// as live HTML.
+$("edit-wrap").addEventListener("drop", event => {
+  if (draggingInlineNode) {
+    event.preventDefault();
+    event.stopPropagation();
     if (!ingestBlocked()) {
       const node = draggingInlineNode;
-      // Where the pointer is, not which line it is over: the image is pinned at
-      // the exact drop point rather than being threaded back into the text.
-      const surf = surfaceAtPoint(e.clientX, e.clientY) || activeSurface();
-      const snap = surf ? showDragGuide(surf, e.clientX) : false;
+      const surface = surfaceAtPoint(event.clientX, event.clientY) || activeSurface();
+      const snap = surface ? showDragGuide(surface, event.clientX) : false;
       let grab = dragGrab;
-      if (snap && surf) {
-        // Snapped to the middle: centre it horizontally on the page.
-        const box = surf.getBoundingClientRect(), r = node.getBoundingClientRect();
-        grab = { dx: (e.clientX - (box.left + box.width / 2 - r.width / 2)), dy: grab ? grab.dy : r.height / 2 };
+      if (snap && surface) {
+        const page = surface.getBoundingClientRect();
+        const box = node.getBoundingClientRect();
+        grab = {
+          dx: (event.clientX - (page.left + page.width / 2 - box.width / 2)),
+          dy: grab ? grab.dy : box.height / 2,
+        };
       }
-      if (placeFloating(node, surf, e.clientX, e.clientY, grab)) markDirtyFromFormatting();
+      if (placeFloating(node, surface, event.clientX, event.clientY, grab)) {
+        markDirtyFromFormatting();
+      }
     }
     hideDragGuide();
     dragGrab = null;
-    return;   // dragend clears draggingInlineNode + .dragging
+    // dragend clears draggingInlineNode.
+    return;
   }
-  if (dragHasFiles(e)) return;   // files: let #main's drop handler ingest them
-  e.preventDefault();
-  if (ingestBlocked()) return;
-  const text = e.dataTransfer ? e.dataTransfer.getData("text/plain") : "";
-  if (!text) return;
-  const r = caretRangeAt(e.clientX, e.clientY);
-  const target = r && surfaceOfNode(r.commonAncestorContainer);
-  if (!target) return;
+  if (dragHasFiles(event)) {
+    return;
+  }
+  event.preventDefault();
+  if (ingestBlocked()) {
+    return;
+  }
+  const text = event.dataTransfer ? event.dataTransfer.getData("text/plain") : "";
+  if (!text) {
+    return;
+  }
+  const range = caretRangeAt(event.clientX, event.clientY);
+  const target = range && surfaceOfNode(range.commonAncestorContainer);
+  if (!target) {
+    return;
+  }
   target.focus();
-  const sel = window.getSelection();
-  if (sel) { sel.removeAllRanges(); sel.addRange(r); }
-  if (appDrag && sameClipText(text, appDrag.plain)) insertSegments(appDrag.segs);
-  else insertPlainText(text);
+  const selection = window.getSelection();
+  if (selection) {
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+  if (appDrag && sameClipText(text, appDrag.plain)) {
+    insertSegments(appDrag.segs);
+  } else {
+    insertPlainText(text);
+  }
 });
 
-// ---------- Attachments: strip ----------
-let attachSeq = 0;                      // render generation: stale decrypts must not paint
-let decryptChain = Promise.resolve();   // FIFO, strictly one decrypt at a time
+// ---------- The strip: state ----------
 
-function renderAttachments() {
-  const strip = $("attachments");
-  const gen = ++attachSeq;              // invalidates every in-flight decrypt
-  strip.innerHTML = "";
-  const ctx = mediaCtx();
-  const media = ctx && Array.isArray(ctx.note.media) ? ctx.note.media : [];
-  if (!media.length) { strip.style.display = "none"; return; }
-  strip.style.display = "flex";
-  const tiles = media.map(m => {
-    const t = makeTile(m, ctx.readOnly);
-    strip.appendChild(t.el);
-    return t;
-  });
-  // One key-only IDB read for the whole strip: no bytes are materialized, so
-  // even video tiles learn they are missing without touching their payload.
-  idbKeys().then(keys => {
-    if (gen !== attachSeq) return;
-    const have = new Set(keys);
-    for (const t of tiles) {
-      if (!isAllowedMediaType(t.meta.mime)) { t.setState("blocked"); continue; }
-      if (!have.has(t.meta.id)) { t.setState("missing"); continue; }
-      // Only images decrypt for a thumbnail (lazily, through the FIFO queue);
-      // every other kind is a static tile that decrypts on click.
-      const k = kindForMime(t.meta.mime);
-      if (k === "image") queueThumb(gen, t);
-      else t.setState(k);
-    }
-  }).catch(() => { if (gen === attachSeq) for (const t of tiles) t.setState("missing"); });
-}
+// Which drawing of the strip is current: a decrypt from an older one must not paint.
+let attachSeq = 0;
 
-function queueThumb(gen, tile) {
-  // Reuse a URL an inline occurrence (or a prior render) already decrypted, so a
-  // note shown with both a strip tile and inline copies decrypts each id once.
-  const cached = mediaUrls.get(tile.meta.id);
-  if (cached) { tile.setImage(cached); return; }
-  decryptChain = decryptChain.then(async () => {
-    if (gen !== attachSeq || !vault) return;
-    try {
-      const rec = await idbGet(tile.meta.id);
-      if (gen !== attachSeq || !vault) return;
-      if (!rec) { tile.setState("missing"); return; }
-      if (mediaUrls.get(tile.meta.id)) { tile.setImage(mediaUrls.get(tile.meta.id)); return; }
-      const plain = await decryptMedia(tile.meta.id, rec.bytes);
-      // !vault: otherwise this re-populates mediaUrls with a live plaintext blob:
-      // URL after lockApp's revoke sweep, and it then outlives the lock.
-      if (gen !== attachSeq || !vault) return;
-      tile.setImage(getOrCreateMediaUrl(tile.meta.id, tile.meta.mime, plain));
-    } catch {
-      // Corrupted IDB record or tampered remote file: same fixed-size tile,
-      // never an exception thrown out of the render path.
-      if (gen === attachSeq) tile.setState("corrupt");
-    }
-  }).catch(() => {});
-}
+// The decrypt queue: strictly one decrypt at a time, shared with inline pictures.
+let decryptChain = Promise.resolve();
 
+// What a tile's tooltip adds for each state.
 const TILE_NOTE = {
   pending: "decrypting", video: "video", pdf: "pdf", text: "text", file: "file",
   missing: "not on this device", corrupt: "corrupted", blocked: "unsupported type", image: "",
 };
-function makeTile(meta, readOnly) {
-  const el = mk("div", "att");
-  const ph = mk("div", "att-ph");
-  el.appendChild(ph);
-  const t = { el, meta, state: "pending" };
-  const label = s => [meta.name || "attachment", fmtSize(meta.size), TILE_NOTE[s]].filter(Boolean).join(" - ");
-  t.setState = s => {
-    t.state = s;
-    const img = el.querySelector("img");
-    if (img) img.remove();
-    ph.className = "att-ph" + (s === "missing" || s === "corrupt" ? " warn" : "");
-    ph.style.display = "";
-    ph.innerHTML = "";
-    if (s === "video") {
-      ph.appendChild(mk("div", "glyph", "▶"));
-      ph.appendChild(mk("div", "nm", meta.name || "video"));
-      ph.appendChild(mk("div", null, fmtSize(meta.size)));
-    } else if (s === "pdf" || s === "text" || s === "file") {
-      ph.appendChild(mk("div", "glyph", s === "pdf" ? "▤" : s === "text" ? "≡" : "⇓"));
-      ph.appendChild(mk("div", "nm", meta.name || s));
-      ph.appendChild(mk("div", null, fmtSize(meta.size)));
-    } else if (s === "missing") {
-      ph.appendChild(mk("div", "glyph", "↓"));
-      ph.appendChild(mk("div", null, "Not on this device"));
-      ph.appendChild(mk("div", null, "Sync to fetch"));
-    } else if (s === "corrupt") {
-      ph.appendChild(mk("div", "glyph", "!"));
-      ph.appendChild(mk("div", null, "Attachment corrupted"));
-    } else if (s === "blocked") {
-      ph.appendChild(mk("div", "glyph", "!"));
-      ph.appendChild(mk("div", null, "Unsupported type"));
+
+// ---------- The strip ----------
+
+/**
+ * Draws the strip of attachment tiles under the note (hidden when it has
+ * none). One read of IndexedDB's keys, without any bytes, tells every tile
+ * whether its bytes are on this device. Pictures are then queued for a
+ * thumbnail; every other kind is a tile that decrypts when clicked. Drawing
+ * again makes every decrypt still on its way stale.
+ *
+ * Used by: this file (addMedia, removeAttachment), pagination.js (openNote,
+ * openTrash), notes.js (purgeTrashCore, trashNote), history.js
+ * (applyDesignToNote, reloadNoteInPlace, resetNoteLayout,
+ * restoreSplitSnapshot), designs.js (applyDesign), media-sync.js
+ * (overwriteRemote, syncOnce), merge.js (applyMerge), panel.js
+ * (restorePrev), lock.js (on load).
+ * Uses: mediaCtx, makeTile, idbKeys, isAllowedMediaType and kindForMime (vault.js), queueThumb.
+ * Complexity: O(m) in the attachments, plus one AES-GCM decrypt per picture.
+ */
+function renderAttachments() {
+  const strip = $("attachments");
+  const generation = ++attachSeq;
+  strip.innerHTML = "";
+  const context = mediaCtx();
+  const media = context && Array.isArray(context.note.media) ? context.note.media : [];
+  if (!media.length) {
+    strip.style.display = "none";
+    return;
+  }
+  strip.style.display = "flex";
+  const tiles = media.map(meta => {
+    const tile = makeTile(meta, context.readOnly);
+    strip.appendChild(tile.el);
+    return tile;
+  });
+  idbKeys().then(keys => {
+    if (generation !== attachSeq) {
+      return;
     }
-    el.title = label(s);
+    const have = new Set(keys);
+    for (const tile of tiles) {
+      if (!isAllowedMediaType(tile.meta.mime)) {
+        tile.setState("blocked");
+        continue;
+      }
+      if (!have.has(tile.meta.id)) {
+        tile.setState("missing");
+        continue;
+      }
+      const kind = kindForMime(tile.meta.mime);
+      if (kind === "image") {
+        queueThumb(generation, tile);
+      } else {
+        tile.setState(kind);
+      }
+    }
+  }).catch(() => {
+    if (generation === attachSeq) {
+      for (const tile of tiles) {
+        tile.setState("missing");
+      }
+    }
+  });
+}
+
+/**
+ * Decrypts a picture for its tile, in the shared queue. An address already
+ * made (by an inline copy, or an earlier drawing) is used again, so a
+ * picture shown both in the strip and in the text is decrypted once. The
+ * bytes come from IndexedDB and are decrypted with AES-256-GCM (decryptMedia,
+ * about 3 ms per MB). Bytes that fail to decrypt (a damaged record, a file
+ * tampered with in the repository) show "Attachment corrupted". Nothing is
+ * made once the vault is locked, or a plain address would outlive the lock.
+ *
+ * Used by: this file (renderAttachments).
+ * Uses: mediaUrls, idbGet, decryptMedia and getOrCreateMediaUrl (vault.js), decryptChain.
+ * Complexity: O(size) of the picture.
+ */
+function queueThumb(generation, tile) {
+  const cached = mediaUrls.get(tile.meta.id);
+  if (cached) {
+    tile.setImage(cached);
+    return;
+  }
+  decryptChain = decryptChain.then(async () => {
+    if (generation !== attachSeq || !vault) {
+      return;
+    }
+    try {
+      const record = await idbGet(tile.meta.id);
+      if (generation !== attachSeq || !vault) {
+        return;
+      }
+      if (!record) {
+        tile.setState("missing");
+        return;
+      }
+      if (mediaUrls.get(tile.meta.id)) {
+        tile.setImage(mediaUrls.get(tile.meta.id));
+        return;
+      }
+      const plain = await decryptMedia(tile.meta.id, record.bytes);
+      if (generation !== attachSeq || !vault) {
+        return;
+      }
+      tile.setImage(getOrCreateMediaUrl(tile.meta.id, tile.meta.mime, plain));
+    } catch {
+      if (generation === attachSeq) {
+        tile.setState("corrupt");
+      }
+    }
+  }).catch(() => {});
+}
+
+/**
+ * A new tile for an attachment: { el, meta, state, setState, setImage }. A
+ * state shows a placeholder (a video, PDF, text or file tile, or a notice);
+ * setImage shows the thumbnail. A click opens it, a right-click (or the menu
+ * key, or Shift+F10) gives its menu, and it can be reached with Tab and
+ * opened with Enter or Space.
+ *
+ * Used by: this file (renderAttachments).
+ * Uses: makeElement (sidebar.js), formatSize, TILE_NOTE, openAttachment,
+ * openMenu (menu.js), attachmentMenu.
+ * Complexity: O(1).
+ */
+function makeTile(meta, readOnly) {
+  const el = makeElement("div", "att");
+  const placeholder = makeElement("div", "att-ph");
+  el.appendChild(placeholder);
+  const tile = { el, meta, state: "pending" };
+  const label = state => [meta.name || "attachment", formatSize(meta.size), TILE_NOTE[state]].filter(Boolean).join(" - ");
+
+  tile.setState = state => {
+    tile.state = state;
+    const img = el.querySelector("img");
+    if (img) {
+      img.remove();
+    }
+    placeholder.className = "att-ph" + (state === "missing" || state === "corrupt" ? " warn" : "");
+    placeholder.style.display = "";
+    placeholder.innerHTML = "";
+    if (state === "video") {
+      placeholder.appendChild(makeElement("div", "glyph", "▶"));
+      placeholder.appendChild(makeElement("div", "nm", meta.name || "video"));
+      placeholder.appendChild(makeElement("div", null, formatSize(meta.size)));
+    } else if (state === "pdf" || state === "text" || state === "file") {
+      placeholder.appendChild(makeElement("div", "glyph", state === "pdf" ? "▤" : state === "text" ? "≡" : "⇓"));
+      placeholder.appendChild(makeElement("div", "nm", meta.name || state));
+      placeholder.appendChild(makeElement("div", null, formatSize(meta.size)));
+    } else if (state === "missing") {
+      placeholder.appendChild(makeElement("div", "glyph", "↓"));
+      placeholder.appendChild(makeElement("div", null, "Not on this device"));
+      placeholder.appendChild(makeElement("div", null, "Sync to fetch"));
+    } else if (state === "corrupt") {
+      placeholder.appendChild(makeElement("div", "glyph", "!"));
+      placeholder.appendChild(makeElement("div", null, "Attachment corrupted"));
+    } else if (state === "blocked") {
+      placeholder.appendChild(makeElement("div", "glyph", "!"));
+      placeholder.appendChild(makeElement("div", null, "Unsupported type"));
+    }
+    el.title = label(state);
   };
-  t.setImage = url => {
-    t.state = "image";
-    ph.style.display = "none";
-    const img = mk("img");
+
+  tile.setImage = url => {
+    tile.state = "image";
+    placeholder.style.display = "none";
+    const img = makeElement("img");
     img.alt = meta.name || "";
     img.src = url;
     el.appendChild(img);
     el.title = label("image");
   };
-  el.onclick = () => openAttachment(t);
-  el.oncontextmenu = e => { e.preventDefault(); openMenu(e.clientX, e.clientY, attachmentMenu(t, readOnly)); };
-  // Keyboard parity: the tiles already had a :focus-visible style they could
-  // never reach, being plain divs.
+
+  el.onclick = () => openAttachment(tile);
+  el.oncontextmenu = event => {
+    event.preventDefault();
+    openMenu(event.clientX, event.clientY, attachmentMenu(tile, readOnly));
+  };
   el.tabIndex = 0;
-  el.onkeydown = e => {
-    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openAttachment(t); }
-    else if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
-      e.preventDefault();
-      const r = el.getBoundingClientRect();
-      openMenu(r.left + 8, r.bottom - 8, attachmentMenu(t, readOnly));
+  el.onkeydown = event => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openAttachment(tile);
+    } else if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+      event.preventDefault();
+      const box = el.getBoundingClientRect();
+      openMenu(box.left + 8, box.bottom - 8, attachmentMenu(tile, readOnly));
     }
   };
-  t.setState("pending");
-  return t;
+  tile.setState("pending");
+  return tile;
 }
 
-// Placeholder tiles never open the lightbox.
-async function openAttachment(t) {
-  if (t.state === "image") { openLightbox(t.meta, mediaUrls.get(t.meta.id), false); return; }
-  if (t.state === "file") { downloadAttachment(t); return; }   // nothing renders a docx: save it
-  if (t.state !== "video" && t.state !== "pdf" && t.state !== "text") return;
-  // Generation guard, same as queueThumb: a big decrypt outlives a note switch,
-  // and the lightbox must not pop open over a note the user already left.
-  const gen = attachSeq;
-  status("Decrypting " + (t.meta.name || t.state) + "...", false, true);
-  const plain = await loadMedia(t);
-  // !vault: the lock happened while this decrypt was in flight - without it the
-  // lightbox paints decrypted plaintext full-screen over the lock screen.
-  if (!plain || gen !== attachSeq || !vault) { status(""); return; }   // sticky message must not strand
+/**
+ * Opens a tile: a picture in the lightbox, a file as a download, and a
+ * video, PDF or text decrypted (AES-256-GCM, about 3 ms per MB) into the
+ * lightbox, which owns that address and revokes it when it closes. A
+ * placeholder tile opens nothing. Nothing opens if the strip was drawn again
+ * (another note) or the app was locked meanwhile, so decrypted content never
+ * appears over the lock screen.
+ *
+ * Used by: this file (a click, Enter or Space on a tile).
+ * Uses: openLightbox, downloadAttachment, status (pagination.js), loadMedia,
+ * mediaUrls and mediaObjectUrl (vault.js).
+ * Complexity: O(size) of the attachment.
+ */
+async function openAttachment(tile) {
+  if (tile.state === "image") {
+    openLightbox(tile.meta, mediaUrls.get(tile.meta.id), false);
+    return;
+  }
+  // Nothing here shows a .docx: it is saved instead.
+  if (tile.state === "file") {
+    downloadAttachment(tile);
+    return;
+  }
+  if (tile.state !== "video" && tile.state !== "pdf" && tile.state !== "text") {
+    return;
+  }
+  const generation = attachSeq;
+  status("Decrypting " + (tile.meta.name || tile.state) + "...", false, true);
+  const plain = await loadMedia(tile);
+  if (!plain || generation !== attachSeq || !vault) {
+    status("");
+    return;
+  }
   status("");
-  // The video URL is owned by the lightbox and revoked when it closes; nothing
-  // else holds it, because video tiles are never decrypted for a thumbnail.
-  openLightbox(t.meta, mediaObjectUrl(t.meta.id, t.meta.mime, plain), true);
+  openLightbox(tile.meta, mediaObjectUrl(tile.meta.id, tile.meta.mime, plain), true);
 }
 
-// Decrypt on demand, degrading a tile in place instead of throwing.
-async function loadMedia(t) {
+/**
+ * Reads and decrypts a tile's attachment (AES-256-GCM), or returns null,
+ * showing the tile as missing or corrupted instead of failing. A lock clears
+ * the keys, so a decrypt on its way when the app locks fails here: that is
+ * not reported, since saying so on the lock screen would tell that an
+ * attachment was being opened.
+ *
+ * Used by: this file (openAttachment, downloadAttachment).
+ * Uses: idbGet and decryptMedia (vault.js), status (pagination.js).
+ * Complexity: O(size) of the attachment.
+ */
+async function loadMedia(tile) {
   try {
-    const rec = await idbGet(t.meta.id);
-    if (!vault) return null;   // locked mid-decrypt: drop it, do not touch the DOM
-    if (!rec) { t.setState("missing"); status("Not on this device - Sync to fetch", true); return null; }
-    const plain = await decryptMedia(t.meta.id, rec.bytes);
+    const record = await idbGet(tile.meta.id);
+    if (!vault) {
+      return null;
+    }
+    if (!record) {
+      tile.setState("missing");
+      status("Not on this device - Sync to fetch", true);
+      return null;
+    }
+    const plain = await decryptMedia(tile.meta.id, record.bytes);
     return vault ? plain : null;
   } catch {
-    // A lock nulls the keys, so a decrypt in flight fails HERE: reporting that
-    // on the lock screen would leak that an attachment was being opened.
-    if (!vault) return null;
-    t.setState("corrupt");
+    if (!vault) {
+      return null;
+    }
+    tile.setState("corrupt");
     status("Attachment corrupted", true);
     return null;
   }
 }
 
-function downloadPlain(name, mime, plain) {
-  if (!vault) return;   // locked while the decrypt was in flight: never write plaintext to disk
-  const url = URL.createObjectURL(new Blob([plain], { type: mime || "application/octet-stream" }));
-  // Tracked, so a lock/purge/note-switch can revoke it too: an untracked URL
-  // outlived every teardown path and kept plaintext alive for its whole timeout.
-  downloadUrls.add(url);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name || "attachment";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => revokeDownloadUrl(url), 10000);
-}
-async function downloadAttachment(t) {
-  const plain = await loadMedia(t);
-  if (!plain) return;
-  downloadPlain(t.meta.name, t.meta.mime, plain);
+/**
+ * Decrypts a tile's attachment and saves it as a download.
+ *
+ * Used by: this file (openAttachment, attachmentMenu).
+ * Uses: loadMedia, downloadPlain.
+ * Complexity: O(size) of the attachment.
+ */
+async function downloadAttachment(tile) {
+  const plain = await loadMedia(tile);
+  if (!plain) {
+    return;
+  }
+  downloadPlain(tile.meta.name, tile.meta.mime, plain);
 }
 
-function attachmentMenu(t, readOnly) {
+/**
+ * Saves bytes as a download. The address is tracked, so a lock, a purge or
+ * a note switch can revoke it too, and it is revoked after 10 seconds in any
+ * case (an untracked one once kept plain bytes alive through every
+ * teardown). Nothing is saved once the vault is locked.
+ *
+ * Used by: this file (downloadAttachment), lines.js (openInlineMedia),
+ * pdf.js (exportNoteInternal), designs.js (exportDesign), backups.js (writeFolderFile).
+ * Uses: downloadUrls and revokeDownloadUrl (vault.js).
+ * Complexity: O(1), besides the browser's copy of the bytes.
+ */
+function downloadPlain(name, mime, plain) {
+  if (!vault) {
+    return;
+  }
+  const url = URL.createObjectURL(new Blob([plain], { type: mime || "application/octet-stream" }));
+  downloadUrls.add(url);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name || "attachment";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => revokeDownloadUrl(url), 10000);
+}
+
+/**
+ * A tile's menu: Download (when its bytes are here), "Sync this note" (when
+ * they are not), and Remove (not in the trash).
+ *
+ * Used by: this file (makeTile).
+ * Uses: downloadAttachment, flushSave (pagination.js), syncNote (media-sync.js), removeAttachment.
+ * Complexity: O(1).
+ */
+function attachmentMenu(tile, readOnly) {
   const items = [];
-  if (t.state !== "missing" && t.state !== "corrupt" && t.state !== "blocked")
-    items.push({ label: "Download", onClick: () => downloadAttachment(t) });
-  if (t.state === "missing") {
-    if (readOnly) items.push({ label: "Not on this device", disabled: true });
-    else items.push({ label: "Sync this note", disabled: syncing,
-      onClick: () => { flushSave(); if (currentId) window.syncNote(currentId); } });
+  if (tile.state !== "missing" && tile.state !== "corrupt" && tile.state !== "blocked") {
+    items.push({ label: "Download", onClick: () => downloadAttachment(tile) });
+  }
+  if (tile.state === "missing") {
+    if (readOnly) {
+      items.push({ label: "Not on this device", disabled: true });
+    } else {
+      items.push({
+        label: "Sync this note",
+        disabled: syncing,
+        onClick: () => {
+          flushSave();
+          if (currentId) {
+            window.syncNote(currentId);
+          }
+        },
+      });
+    }
   }
   if (!readOnly) {
-    if (items.length) items.push({ sep: true });
-    items.push({ label: "Remove", danger: true, disabled: syncing, onClick: () => removeAttachment(t.meta.id) });
+    if (items.length) {
+      items.push({ sep: true });
+    }
+    items.push({ label: "Remove", danger: true, disabled: syncing, onClick: () => removeAttachment(tile.meta.id) });
   }
-  if (!items.length) items.push({ label: "No actions", disabled: true });
+  if (!items.length) {
+    items.push({ label: "No actions", disabled: true });
+  }
   return items;
 }
 
-// Removes the metadata from the note; the encrypted bytes stay in IndexedDB
-// until the tombstone is applied (the next sync DELETEs the remote copy and
-// drops the local record), and only if nothing else still references them -
-// conflict copies share media ids with their originals.
+/**
+ * Removes an attachment from the open note, after asking. Every inline copy
+ * comes out of the text too, before its address is revoked (no inline
+ * picture is left pointing at a dead address), and the text is saved again.
+ * The encrypted bytes stay in IndexedDB until the next sync deletes the
+ * remote copy and the local record, and only if no other note still names
+ * them (a conflict copy shares its original's attachments).
+ *
+ * Used by: this file (attachmentMenu).
+ * Uses: confirmModal (modal.js), flushSave, status and renderStatus
+ * (pagination.js), getEditorBody and updateEditorEmpty (lines.js),
+ * closeLightbox, revokeMediaUrl, mediaReferenced and persistLocal
+ * (vault.js), renderList (sidebar.js), renderAttachments.
+ * Complexity: O(n) over the notes, to see whether anything else names it.
+ */
 async function removeAttachment(mid) {
-  if (syncing || trashViewId || !currentId) return;
-  const noteId = currentId, n = vault.notes[noteId];
-  if (!n) return;
-  const meta = (n.media || []).find(m => m.id === mid);
-  if (!meta) return;
-  const ok = await confirmModal({
+  if (syncing || trashViewId || !currentId) {
+    return;
+  }
+  const noteId = currentId;
+  const note = vault.notes[noteId];
+  if (!note) {
+    return;
+  }
+  const meta = (note.media || []).find(item => item.id === mid);
+  if (!meta) {
+    return;
+  }
+  const confirmed = await confirmModal({
     title: "Remove attachment?",
     body: `"${meta.name || "attachment"}" will be removed from this note and, on the next sync, from the repo.`,
     confirmLabel: "Remove", destructive: true,
   });
-  if (!ok || syncing || trashViewId || currentId !== noteId || !vault.notes[noteId]) return;
+  if (!confirmed || syncing || trashViewId || currentId !== noteId || !vault.notes[noteId]) {
+    return;
+  }
+
   flushSave();
-  n.media = (n.media || []).filter(m => m.id !== mid);
-  // Remove every inline occurrence too, BEFORE revoke: leave no inline <img> pointing
-  // at a URL we are about to revoke, and clear the body reference so mediaReferenced
-  // (now body-aware) lets the bytes be tombstoned. Re-serialize + rebaseline so the
-  // stripped body is what saves, not the pre-removal one.
-  const wraps = [...$("editor").querySelectorAll('span.inline-media[data-mid="' + mid + '"]')];
-  if (wraps.length) {
-    for (const w of wraps) w.remove();
-    n.body = getEditorBody();
-    n.bodyV = 2;
+  note.media = (note.media || []).filter(item => item.id !== mid);
+  const wrappers = [...$("editor").querySelectorAll('span.inline-media[data-mid="' + mid + '"]')];
+  if (wrappers.length) {
+    for (const wrapper of wrappers) {
+      wrapper.remove();
+    }
+    note.body = getEditorBody();
+    note.bodyV = 2;
     editorPlainOrig = null;
-    editorBaseline = n.body;
+    editorBaseline = note.body;
     updateEditorEmpty();
   }
-  n.mtime = Date.now();
-  if (lightbox && lightbox.mediaId === mid) closeLightbox();
+  note.mtime = Date.now();
+  if (lightbox && lightbox.mediaId === mid) {
+    closeLightbox();
+  }
   revokeMediaUrl(mid);
-  if (!mediaReferenced(mid)) vault.purged[mid] = Date.now();
-  persistLocal().catch(e => status("Save failed: " + e.message, true));
+  if (!mediaReferenced(mid)) {
+    vault.purged[mid] = Date.now();
+  }
+  persistLocal().catch(error => status("Save failed: " + error.message, true));
   renderList();
   renderStatus();
   renderAttachments();
   status("Attachment removed");
 }
 
-// ---------- Lightbox ----------
-// (`lightbox` itself is declared with the media-URL registry above.)
-window.isLightboxOpen = () => !!lightbox;
-window.closeLightboxIfOpen = () => { if (!lightbox) return false; closeLightbox(); return true; };
+// ---------- The lightbox ----------
 
-function openLightbox(meta, url, revokeOnClose) {
-  if (!url) return;
+// For other scripts: whether it is open, and closing it if it is (true when it was).
+// lightbox itself is declared in vault.js, with the address registry.
+window.isLightboxOpen = () => !!lightbox;
+window.closeLightboxIfOpen = () => {
+  if (!lightbox) {
+    return false;
+  }
   closeLightbox();
-  const back = mk("div", "lb-back");
+  return true;
+};
+
+/**
+ * Shows an attachment full-screen over the app: a video with its controls,
+ * a PDF in the browser's own viewer (boxed in an iframe on a blob: address,
+ * so the document never becomes page content), text through textContent
+ * only (inert for any content, even markup mislabelled as text), or a
+ * picture. A click on the dark backdrop, never on the content, closes it.
+ * revokeOnClose says the lightbox owns the address.
+ *
+ * Used by: this file (openAttachment), lines.js (openInlineMedia, setInlineImage).
+ * Uses: closeLightbox, makeElement (sidebar.js), isPdfType and isTextType (vault.js), formatSize.
+ * Complexity: O(1), besides the browser showing the content.
+ */
+function openLightbox(meta, url, revokeOnClose) {
+  if (!url) {
+    return;
+  }
+  closeLightbox();
+  const back = makeElement("div", "lb-back");
   let video = null;
   if ((meta.mime || "").startsWith("video/")) {
     video = document.createElement("video");
@@ -671,40 +1073,146 @@ function openLightbox(meta, url, revokeOnClose) {
     video.src = url;
     back.appendChild(video);
   } else if (isPdfType(meta.mime)) {
-    // The browser's own PDF viewer, boxed in an iframe on a blob: URL - the
-    // document never becomes page content, same isolation story as videos.
     const frame = document.createElement("iframe");
     frame.className = "lb-pdf";
     frame.title = meta.name || "PDF";
     frame.src = url;
     back.appendChild(frame);
   } else if (isTextType(meta.mime)) {
-    // textContent only: inert for ANY payload, even mislabeled markup.
-    const pre = mk("pre", "lb-text");
-    fetch(url).then(r => r.text()).then(t => { pre.textContent = t; }).catch(() => { pre.textContent = "(could not read)"; });
+    const pre = makeElement("pre", "lb-text");
+    fetch(url).then(response => response.text()).then(text => {
+      pre.textContent = text;
+    }).catch(() => {
+      pre.textContent = "(could not read)";
+    });
     back.appendChild(pre);
   } else {
-    const img = mk("img");
+    const img = makeElement("img");
     img.alt = meta.name || "";
     img.src = url;
     back.appendChild(img);
   }
-  back.appendChild(mk("div", "lb-cap", [meta.name, fmtSize(meta.size)].filter(Boolean).join("  ")));
-  // Click-away means the backdrop only, never the image or the video controls.
-  back.onclick = e => { if (e.target === back) closeLightbox(); };
+  back.appendChild(makeElement("div", "lb-cap", [meta.name, formatSize(meta.size)].filter(Boolean).join("  ")));
+  back.onclick = event => {
+    if (event.target === back) {
+      closeLightbox();
+    }
+  };
   document.body.appendChild(back);
   requestAnimationFrame(() => back.classList.add("show"));
   lightbox = { back, mediaId: meta.id, revokeOnClose: !!revokeOnClose, video };
 }
 
+/**
+ * Closes the lightbox: a video stops and lets go of its source before the
+ * address is revoked (when the lightbox owned it).
+ *
+ * Used by: this file (openLightbox, removeAttachment), settings.js (lockApp),
+ * vault.js (revokeAllMediaUrls, revokeMediaUrl).
+ * Uses: fadeOut (menu.js), revokeMediaUrl (vault.js).
+ * Complexity: O(1).
+ */
 function closeLightbox() {
-  if (!lightbox) return;
-  const lb = lightbox;
-  lightbox = null;
-  if (lb.video) {
-    // Stop playback and detach the source before the URL dies.
-    try { lb.video.pause(); lb.video.removeAttribute("src"); lb.video.load(); } catch {}
+  if (!lightbox) {
+    return;
   }
-  fadeOut(lb.back);
-  if (lb.revokeOnClose) revokeMediaUrl(lb.mediaId);
+  const shown = lightbox;
+  lightbox = null;
+  if (shown.video) {
+    try {
+      shown.video.pause();
+      shown.video.removeAttribute("src");
+      shown.video.load();
+    } catch {}
+  }
+  fadeOut(shown.back);
+  if (shown.revokeOnClose) {
+    revokeMediaUrl(shown.mediaId);
+  }
+}
+
+// =================== Auxiliary functions ===================
+
+/** A byte count for people: "512 B", "12 KB", "3.4 MB"; "" when unknown. Also used by pdf.js. Complexity: O(1). */
+function formatSize(bytes) {
+  if (!(bytes >= 0)) {
+    return "";
+  }
+  if (bytes < 1024) {
+    return bytes + " B";
+  }
+  if (bytes < 1048576) {
+    return Math.round(bytes / 1024) + " KB";
+  }
+  const megabytes = bytes / 1048576;
+  return (megabytes < 10 ? megabytes.toFixed(1) : Math.round(megabytes)) + " MB";
+}
+
+/** Whether adding is off: locked, a sync running, or the trash or a backup on screen. Complexity: O(1). */
+function ingestFrozen() {
+  return !vault || syncing || !!trashViewId || !!backupView;
+}
+
+/**
+ * Whether a paste or drop must be ignored: adding is off, or a dialog, menu
+ * or lightbox is open (an image pasted over a dialog must not attach
+ * silently). Complexity: O(1).
+ */
+function ingestBlocked() {
+  return ingestFrozen() || uiLayerOpen();
+}
+
+/**
+ * A picture's or video's size in pixels, { w, h }, to reserve its space, or
+ * null (other kinds, a failure, or no answer within 5 seconds). It reads a
+ * short-lived address on the bytes just given, revoked at once and never
+ * stored. Complexity: O(1) besides the browser reading the header.
+ */
+function probeDims(file) {
+  return new Promise(resolve => {
+    const kind = kindForMime(file.type);
+    if (kind !== "image" && kind !== "video") {
+      return resolve(null);
+    }
+    const url = URL.createObjectURL(file);
+    const done = dimensions => {
+      URL.revokeObjectURL(url);
+      resolve(dimensions);
+    };
+    const timer = setTimeout(() => done(null), 5000);
+    if (file.type.toLowerCase().startsWith("video/")) {
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      video.onloadedmetadata = () => {
+        clearTimeout(timer);
+        done(video.videoWidth ? { w: video.videoWidth, h: video.videoHeight } : null);
+      };
+      video.onerror = () => {
+        clearTimeout(timer);
+        done(null);
+      };
+      video.src = url;
+    } else {
+      const img = new Image();
+      img.onload = () => {
+        clearTimeout(timer);
+        done(img.naturalWidth ? { w: img.naturalWidth, h: img.naturalHeight } : null);
+      };
+      img.onerror = () => {
+        clearTimeout(timer);
+        done(null);
+      };
+      img.src = url;
+    }
+  });
+}
+
+/** Whether a drag carries files. Complexity: O(t) in its types. */
+function dragHasFiles(event) {
+  return !!event.dataTransfer && [...event.dataTransfer.types].includes("Files");
+}
+
+/** Lights up the main column while files are dragged over it. Complexity: O(1). */
+function setDragHighlight(on) {
+  $("main").classList.toggle("drag-over", on);
 }

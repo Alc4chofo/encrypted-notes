@@ -1,16 +1,29 @@
-// notes: Which build these files are, and which files make up the app.
+/*
+ * version.js - which build these files are, and which files make up the app.
+ *
+ * Sync reads this file from the repo as text (updates.js) and offers the
+ * build when it is newer, so its shape matters as much as its content: keep
+ * `const APP_BUILD = "...";` on one line, and the APP_FILES list as one
+ * quoted name per line with nothing else inside the brackets. Older copies
+ * of the app read it the same way.
+ *
+ * Main functions: none, it only declares data.
+ *
+ * Complexity: none at run time.
+ */
 "use strict";
 
-// Sync compares APP_BUILD with the one in the repo's copy of this file and
-// offers the newer build (see updates.js). Bump it with every change to any app
-// file: "YYYY-MM-DD.N", N counting that day's builds from 1.
-// APP_FILES is every file an update installs, in the order index.html loads
-// them. The updater reads this list as text, so keep its shape: one quoted name
-// per line, and only index.html and files in css/ and js/. Never config.js: that
-// one holds your own repo and stays as you set it.
-const APP_BUILD = "2026-11-10.1";
-// The version people see, at the bottom left of the lock screen.
+// Bumped with every change to any app file: "YYYY-MM-DD.N", N counting that
+// day's builds from 1. Sync compares it with the repo's copy to offer updates.
+const APP_BUILD = "2026-11-13.1";
+
+// The version people see, at the bottom left of the lock screen. It changes
+// only when the owner says which version a change is.
 const APP_VERSION = "1.02.1";
+
+// Every file an update installs, in the order index.html loads them: only
+// index.html and files in css/ and js/. Never config.js, which holds your own
+// repo and stays as you set it.
 const APP_FILES = [
   "index.html",
   "css/base.css",

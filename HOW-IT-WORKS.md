@@ -58,7 +58,7 @@ Each vault keeps these files in a folder of its own, named after it (section 4),
 
 | Purpose | Primitive | Parameters | Where |
 | --- | --- | --- | --- |
-| Password to key | PBKDF2-HMAC-SHA256 (RFC 8018) | 1,200,000 iterations, 128-bit random salt, 256-bit output | `deriveKey`, `ITER` |
+| Password to key | PBKDF2-HMAC-SHA256 (RFC 8018) | 1,200,000 iterations, 128-bit random salt, 256-bit output | `deriveKey`, `PBKDF2_ITERATIONS` |
 | Vault encryption | AES-256-GCM (NIST SP 800-38D) | 96-bit random IV per seal, 128-bit tag | `sealObject`, `openVault` |
 | Attachment encryption | AES-256-GCM | separate random 256-bit key, 96-bit random IV per file, AAD = `"media:" + id` | `encryptMedia`, `decryptMedia` |
 | Conflict tie-break | SHA-256 | over a canonical serialization of the note | `sha256Hex`, `resolveConflict` |
@@ -76,7 +76,7 @@ K = PBKDF2-HMAC-SHA256(password, salt, iterations = 1,200,000, length = 256 bits
 ```
 
 - The salt is 16 random bytes, fresh for every new vault and every re-key.
-- The iteration count is stored in each sealed blob (`iter`), so vaults sealed by older versions (310,000 and 600,000 iterations) still open. When one is opened, it is re-keyed straight away with a fresh salt at the current count (the `iterUsed < ITER` branch of the unlock handler).
+- The iteration count is stored in each sealed blob (`iter`), so vaults sealed by older versions (310,000 and 600,000 iterations) still open. When one is opened, it is re-keyed straight away with a fresh salt at the current count (the `vaultKeyIterations < PBKDF2_ITERATIONS` branch of the unlock handler).
 - A new vault requires a password of at least 8 characters. That is a floor, not a recommendation; see section 7.
 
 **Why PBKDF2 and not scrypt or Argon2.** Memory-hard functions resist GPU attacks better, but the Web Crypto API does not offer them. Using one would mean shipping a JavaScript or WebAssembly implementation, which breaks the zero-dependency property this design depends on (section 11). Within that constraint the iteration count is set to twice OWASP's current recommendation for PBKDF2-HMAC-SHA256 (600,000).
@@ -125,7 +125,7 @@ Attachments are not sealed under the password key, because that key depends on a
 
 ### In your private repo
 
-Every vault has a folder named after it (`<vault>/`, the paths built by `vpath`). A vault from before folders keeps the same files at the top level instead, until it is moved into `Main/` (section 6).
+Every vault has a folder named after it (`<vault>/`, the paths built by `vaultPath`). A vault from before folders keeps the same files at the top level instead, until it is moved into `Main/` (section 6).
 
 | Path | Content |
 | --- | --- |
@@ -158,7 +158,7 @@ Where the browser can write to the app's folder (Chrome and Edge, once you have 
 | IndexedDB `notes-media` | `<uuid>` | encrypted attachment records `{id, bytes: iv \|\| ciphertext \|\| tag}` |
 | IndexedDB `notes-media` | `__authGuard__`, `__notesDir__` | the second copy of the attempt counter, and the folder handle backups (and app updates) are written to |
 
-The keys that belong to one vault (`vault`, `vault.prev`, `vault.prevAt`, `syncMeta`, `pullBanner`, `backupMeta`) carry its folder's name for a vault in a folder (`vault@Work`, `syncMeta@Work` and so on, `vkey`), so two vaults on one device never share a copy or any bookkeeping.
+The keys that belong to one vault (`vault`, `vault.prev`, `vault.prevAt`, `syncMeta`, `pullBanner`, `backupMeta`) carry its folder's name for a vault in a folder (`vault@Work`, `syncMeta@Work` and so on, `vaultStorageKey`), so two vaults on one device never share a copy or any bookkeeping.
 
 Plaintext exists only in memory while the vault is unlocked: the JavaScript heap (including `searchTextCache`, the plain text of each note kept for search, and `appClip`/`appDrag`, the censored text of the last copy or drag made in the app, kept so it can be pasted back censored), the rendered page, and temporary `blob:` URLs for attachments you open.
 
@@ -198,7 +198,7 @@ Plaintext exists only in memory while the vault is unlocked: the JavaScript heap
 
 A sealed snapshot of the pre-merge vault is kept locally (`vault.prev`), and a merge that would replace local edits never synced before asks for confirmation first.
 
-Every path a sync reads or writes is inside the selected vault's folder (`vpath`), so vaults that share a repo never touch each other's files.
+Every path a sync reads or writes is inside the selected vault's folder (`vaultPath`), so vaults that share a repo never touch each other's files.
 
 **Moving a vault into its folder** (`offerVaultMove`, `moveVaultToFolder`, `moveRepoVault`). A vault from before folders sits at the top level of the repo. After it is unlocked, the app offers to move it into `Main/`, and does so only if you confirm. In the repo this is one commit made through the Git Data API (`ghGit`, behind the same repo guard and the same Contents permission): it reads the branch head and its whole tree, builds a tree in which every file of the vault (`vault.enc`, `vault.enc.js`, the backups and all of `media/`) points at the same blob under `Main/` and the old paths are gone, and moves the branch to that commit as a fast-forward only. If something was pushed in between, or the connection dropped (`fetch` throws a `TypeError`), `moveRepoVaultOnce` starts again from the new head, at most twice more. That is safe even when the move landed and only its answer was lost: the next try finds nothing left to move. If GitHub still cannot be reached, nothing has moved and the app says so; locking and unlocking offers the move again. Nothing is uploaded again and no ciphertext changes. Only then are this browser's keys renamed and the files in the app's folder moved. Another device still opening the top-level vault follows on its next Sync, as soon as it finds `Main/vault.enc` in the repo; a copy of the app from before folders would write the top-level files again, so update the app on every device before moving.
 
@@ -297,7 +297,7 @@ grep -rhoE "https?://[a-zA-Z0-9.-]+" index.html config.js css js | sort -u
 grep -rn "crypto\.subtle\|getRandomValues" js
 
 # The key-derivation cost:
-grep -rn "const ITER" js
+grep -rn "const PBKDF2_ITERATIONS" js
 
 # Every file the page loads, in order:
 grep -o '<script src="[^"]*"\|<link rel="stylesheet" href="[^"]*"' index.html
