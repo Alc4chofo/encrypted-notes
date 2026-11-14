@@ -29,6 +29,11 @@ const MIN_MARGIN = 72;
 // The space kept clear between the last dot and the text column.
 const TEXT_CLEARANCE = 12;
 
+// The most opaque a dot gets: the outermost dot of the strongest line. This is
+// the one number to change to make the lines fainter or stronger. On the
+// near-black page 0.4 is a soft grey, far below the text's brightness.
+const LINE_OPACITY = 0.4;
+
 // At most 30 frames a second: smooth for something this slow, and half the work of 60.
 const FRAME_MS = 1000 / 30;
 
@@ -90,9 +95,10 @@ function stopAmbientLines() {
 /**
  * Draws one frame at a time in milliseconds: for each line, a row of dots
  * shifted outward by its speed, each dot fainter the closer it is to the
- * text (its opacity falls with the square of the distance from the outer
- * edge), with a 1.5px vertical sway so the rows never look ruled. A side is
- * skipped when its margin is under MIN_MARGIN.
+ * text (its opacity falls evenly from the outer edge to nothing beside the
+ * text; falling with the square once left all but the outermost dots too
+ * faint to see), with a 1.5px vertical sway so the rows never look ruled. A
+ * side is skipped when its margin is under MIN_MARGIN.
  *
  * Used by: this file (the frame loop, the still frame, resizing).
  * Uses: resizeCanvas, writingMargins.
@@ -118,8 +124,8 @@ function drawAmbientFrame(time) {
 
     for (let x = offset - line.gap; x < reach; x += line.gap) {
       const fade = 1 - Math.max(0, x) / reach;
-      context.globalAlpha = line.alpha * fade * fade;
-      context.fillRect(line.side < 0 ? x : width - x - line.length, y, line.length, 1.2);
+      context.globalAlpha = line.alpha * fade;
+      context.fillRect(line.side < 0 ? x : width - x - line.length, y, line.length, 1.5);
     }
   }
   context.globalAlpha = 1;
@@ -223,8 +229,9 @@ function writingMargins(canvas) {
 /**
  * Makes the lines, each with its own look: a row (spread evenly down the
  * height, give or take 8px), a speed of 2.5 to 7.5 px/s, a dot spacing of 6
- * to 12px, a dot length of 1.5 to 5px, an opacity of 0.06 to 0.16 at the
- * outer edge, and a phase so they never move in step.
+ * to 12px, a dot length of 1.5 to 5px, an opacity at the outer edge of 40%
+ * to 100% of LINE_OPACITY (0.16 to 0.4; under about 0.1 a dot cannot be told
+ * from the page), and a phase so they never move in step.
  *
  * Complexity: O(l).
  */
@@ -239,7 +246,7 @@ function makeLines() {
         speed: 2.5 + Math.random() * 5,
         gap: 6 + Math.random() * 6,
         length: 1.5 + Math.random() * 3.5,
-        alpha: 0.06 + Math.random() * 0.1,
+        alpha: LINE_OPACITY * (0.4 + Math.random() * 0.6),
         phase: Math.random() * 100,
       });
     }
