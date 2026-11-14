@@ -66,7 +66,7 @@
 }
 
 #save:not(:disabled):hover {
-  background: #2f3d2a;
+  background: var(--s4);
 }
 
 /* A read-only trash view has to LOOK read-only, not just refuse keystrokes. */
@@ -499,7 +499,7 @@ body.backup-view #status-detail {
 }
 
 .palette-pop input.cpk-hue:focus {
-  box-shadow: 0 0 0 3px rgb(163 196 147 / .2);
+  box-shadow: 0 0 0 3px rgb(233 229 222 / .14);
 }
 
 .cpk-hue::-webkit-slider-thumb {
@@ -553,7 +553,7 @@ body.backup-view #status-detail {
 
 .palette-pop input.cpk-hex.bad {
   border-color: var(--bad-line);
-  box-shadow: 0 0 0 3px rgb(228 115 95 / .14);
+  box-shadow: 0 0 0 3px rgb(201 107 92 / .14);
 }
 
 .cpk-drop {
@@ -593,7 +593,7 @@ body.backup-view #status-detail {
   justify-content: center;
   padding: 18px;
   border-radius: 10px;
-  background: rgb(24 23 21 / .94);
+  background: rgb(5 5 5 / .94);
 }
 
 .cpk-confirm p {
@@ -673,7 +673,7 @@ body.backup-view #status-detail {
 .sheet-body [data-censor]:hover,
 #editor [data-censor]:hover {
   color: #cfc8bc !important;
-  background-color: #2a2725 !important;
+  background-color: #222 !important;
 }
 
 /* While it is read, the formatting inside it takes the same muted ink. */
@@ -757,7 +757,7 @@ body.backup-view #status-detail {
   background: var(--warn);
   opacity: 1;
   width: 2px;
-  box-shadow: 0 0 6px rgb(227 169 92 / .6);
+  box-shadow: 0 0 6px rgb(201 163 106 / .6);
 }
 
 .inline-media.align-center {
@@ -917,7 +917,9 @@ body.backup-view #status-detail {
   flex: 1;
   overflow: auto;
   padding: 20px 0 48px;
-  background: var(--s0);
+  /* See-through like the editor, and above the side lines. */
+  background: transparent;
+  position: relative;
   min-width: 0;
 }
 
@@ -1033,6 +1035,17 @@ body.paged-view #sheets {
   flex: 1;
   display: flex;
   min-height: 0;
+  position: relative;
+}
+
+/* The side lines (ambient.js): a canvas over the whole writing area, first in #edit-wrap so the editor and
+   the sheets paint above it. It only draws in the margins beside the text, and never takes a click. */
+#ambient-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
 
 #edit-wrap #editor {
@@ -1129,7 +1142,7 @@ body.split-edit #prev-pane {
 #split-btn:hover,
 #split-save:hover {
   background: var(--acc-dim);
-  color: #bcd9ad;
+  color: var(--acc);
 }
 
 #split-btn:disabled:hover {
@@ -1146,8 +1159,8 @@ body.split-edit #prev-pane {
 
 body.split-edit #split-btn {
   background: var(--acc-dim);
-  color: #bcd9ad;
-  border-color: #5f8054;
+  color: var(--acc);
+  border-color: #5a5a5a;
 }
 
 /* Only meaningful inside the second screen, where they can be undone. */
@@ -1193,7 +1206,8 @@ body.split-edit #split-cancel {
   padding: 26px var(--ed-pad-x) 96px;
   font: 400 14.5px/1.7 var(--mono);
   color: #dcd6cc;
-  background: var(--s1);
+  /* See-through, so the side lines behind it (#ambient-lines) show in its margins. */
+  background: transparent;
   white-space: pre-wrap;
   overflow-wrap: break-word;
   overflow-y: auto;

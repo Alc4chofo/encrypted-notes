@@ -259,7 +259,8 @@ async function autoLock() {
  * (pagination.js), closeMenu (menu.js), closePanel (panel.js), closeLightbox
  * (attachments.js), revokeAllMediaUrls (vault.js), closePalette (toolbar.js),
  * closeSettings, exitSplit (split.js), refreshLockBackupRow (backups.js),
- * renderHistoryButtons (history.js), syncLockBg and setLockMode (lock.js).
+ * renderHistoryButtons (history.js), syncLockBg and setLockMode (lock.js),
+ * stopAmbientLines (ambient.js).
  * Complexity: O(u) in the decrypted attachment URLs it revokes, plus one seal
  * (O(n), about 20 ms for 500 KB) when it saves first.
  */
@@ -356,6 +357,7 @@ async function lockApp(force) {
   lastSyncError = null;
 
   $("app").style.display = "none";
+  stopAmbientLines();
   $("lock").style.display = "flex";
   syncLockBg();
   // A vault exists now: never the first-run form again.

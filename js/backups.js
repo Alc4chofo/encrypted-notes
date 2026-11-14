@@ -75,8 +75,9 @@ try {
   }
 } catch {}
 
-// The age pill's colours: safe, normal, danger, unsafe.
-const BACKUP_AGE_COLORS = ["#7c6", "#dc5", "#e83", "#e55"];
+// The age pill's colours: safe, normal, danger, unsafe. The same calm scale as the lock screen's
+// (LOCK_AGE_COLORS, below): grey while a backup is recent, then amber, then red.
+const BACKUP_AGE_COLORS = ["#a9a39a", "#c9a36a", "#c98a5c", "#c96b5c"];
 
 // The folder ids the directory picker understands as a starting place.
 const WELL_KNOWN_DIRS = ["documents", "desktop", "downloads", "pictures", "music", "videos"];

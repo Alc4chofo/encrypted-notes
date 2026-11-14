@@ -224,6 +224,8 @@
       </div>
       <div id="page-tabs"></div>
       <div id="edit-wrap">
+        <!-- The side lines in the margins (js/ambient.js), behind the text. -->
+        <canvas id="ambient-lines" aria-hidden="true"></canvas>
         <div id="prev-pane"><div id="prev-head"></div><div id="prev-body"></div></div>
         <div id="editor" contenteditable="true" spellcheck="true" data-empty="true"
           data-placeholder="Write here. Everything is encrypted before it leaves this page."></div>
@@ -308,6 +310,7 @@
 <script src="js/guard.js"></script>
 <script src="js/lock.js"></script>
 <script src="js/help.js"></script>
+<script src="js/ambient.js"></script>
 <script>
 // Opened without the files beside it (only index.html copied somewhere): say so
 // instead of showing a page that does nothing.

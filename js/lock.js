@@ -517,9 +517,10 @@ if ($("lock-bg").readyState >= 2) {
 //   - housekeeping (old tombstones, expired trash) and the re-keying of an
 //     older vault, then the attachment key (it lives inside the vault, so
 //     only once the live vault is settled);
-//   - the app opens with every folder and the trash folded, the attempt
-//     count is reset, and the old top-level vault is offered its move into a
-//     folder, then any overdue backup.
+//   - the app opens, with its side lines (ambient.js) and with every folder
+//     and the trash folded, the attempt count is reset, and the old
+//     top-level vault is offered its move into a folder, then any overdue
+//     backup.
 // Only a real decrypt failure spends an attempt (a slip such as a
 // mismatched confirmation does not); it empties the password field, shakes
 // the card and says how many attempts are left.
@@ -586,6 +587,7 @@ $("unlock-form").onsubmit = async event => {
       $("lock").style.display = "none";
       syncLockBg();
       $("app").style.display = "flex";
+      startAmbientLines();
       unsavedEdits = false;
       enterBackupView(pendingBackupKind, wrapper.at);
       renderList();
@@ -698,6 +700,7 @@ $("unlock-form").onsubmit = async event => {
     $("lock").style.display = "none";
     syncLockBg();
     $("app").style.display = "flex";
+    startAmbientLines();
     unsavedEdits = false;
     collapsed = new Set(Object.keys(vault.folders));
     trashCollapsed = true;

@@ -12,31 +12,33 @@
    screens read as one designed thing. */
 :root {
   color-scheme: dark;
-  /* Surfaces, darkest to lightest: chrome (sidebar, status bar), the writing area, raised controls, hover, pressed. */
-  --s0: #121110;
-  --s1: #181715;
-  --s2: #201e1c;
-  --s3: #292724;
-  --s4: #33302c;
+  /* Surfaces, darkest to lightest: chrome (sidebar, status bar), the writing area, raised controls, hover, pressed.
+     Black and near-black neutral greys, as on the lock screen. */
+  --s0: #000;
+  --s1: #050505;
+  --s2: #0b0b0b;
+  --s3: #141414;
+  --s4: #1b1b1b;
   /* Lines: hairline dividers, control edges, and the strongest edge for hover/focus. */
-  --line: #272522;
-  --line-2: #383430;
-  --line-3: #4d4843;
+  --line: #1c1c1c;
+  --line-2: #262626;
+  --line-3: #3a3a3a;
   /* Text, strongest to faintest: body, secondary labels, meta, placeholders. */
-  --t1: #ece7de;
-  --t2: #bcb5aa;
-  --t3: #8a8378;
-  --t4: #625c54;
-  /* Sage green is the one accent (primary actions, focus, active states); -ink is the text on it. */
-  --acc: #a3c493;
-  --acc-ink: #11150f;
-  --acc-dim: #263222;
-  --acc-line: #4f6c46;
+  --t1: #e9e5de;
+  --t2: #bdb7ad;
+  --t3: #8d877e;
+  --t4: #5f5a54;
+  /* The one accent is the lock screen's warm white (primary actions, active states), used as text and an
+     edge on a dim fill, like the Unlock button; -ink is the text on anything filled with it. */
+  --acc: #e9e5de;
+  --acc-ink: #000;
+  --acc-dim: #141414;
+  --acc-line: #4a4a4a;
   /* Amber means "not saved / not synced yet", red means destructive or failed, blue is for links. */
-  --warn: #e3a95c;
+  --warn: #c9a36a;
   --warn-dim: #2a2116;
   --warn-line: #5b4527;
-  --bad: #e4735f;
+  --bad: #c96b5c;
   --bad-dim: #2c1916;
   --bad-line: #66342b;
   --link: #86afd9;
@@ -76,7 +78,7 @@ body {
 }
 
 ::selection {
-  background: rgb(163 196 147 / .28);
+  background: rgb(233 229 222 / .22);
 }
 
 /* ---------- Controls ----------
@@ -135,40 +137,41 @@ button:disabled:hover {
   border-color: var(--line-2);
 }
 
-/* Filled sage: the single most likely next action (Unlock, Sync, a dialog's confirm). */
+/* The single most likely next action (Unlock, Sync, a dialog's confirm) looks like the lock screen's Unlock:
+   a dim fill, a lighter edge and warm white text. */
 button.primary,
 #sync {
-  background: var(--acc);
-  border-color: var(--acc);
-  color: var(--acc-ink);
-  font-weight: 600;
+  background: var(--acc-dim);
+  border-color: var(--acc-line);
+  color: var(--acc);
+  font-weight: 500;
 }
 
 button.primary:hover,
 #sync:hover {
-  background: #b6d3a8;
-  border-color: #b6d3a8;
+  background: var(--s4);
+  border-color: #5a5a5a;
 }
 
 button.primary:disabled:hover,
 #sync:disabled:hover {
-  background: var(--acc);
-  border-color: var(--acc);
+  background: var(--acc-dim);
+  border-color: var(--acc-line);
 }
 
-/* Focus is a soft sage ring, the same on every input and keyboard-focused button. */
+/* Focus is a soft neutral ring, the same on every input and keyboard-focused button. */
 input:focus,
 textarea:focus,
 select:focus {
   outline: none;
-  border-color: var(--acc-line);
-  box-shadow: 0 0 0 3px rgb(163 196 147 / .12);
+  border-color: var(--t4);
+  box-shadow: 0 0 0 3px rgb(233 229 222 / .07);
 }
 
 button:focus-visible {
   outline: none;
-  border-color: var(--acc-line);
-  box-shadow: 0 0 0 3px rgb(163 196 147 / .16);
+  border-color: var(--t3);
+  box-shadow: 0 0 0 3px rgb(233 229 222 / .1);
 }
 
 /* Icon slot for buttons whose label the app rewrites ("Syncing..."): a ::before

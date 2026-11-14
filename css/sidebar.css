@@ -48,9 +48,8 @@
 }
 
 #new-note:hover {
-  background: #2f3d2a;
-  border-color: #5f8054;
-  color: #bcd9ad;
+  background: var(--s4);
+  border-color: #5a5a5a;
 }
 
 #new-folder {
@@ -551,7 +550,7 @@
 }
 
 .note-snippet mark {
-  background: rgb(227 169 92 / .24);
+  background: rgb(201 163 106 / .24);
   color: var(--t1);
   border-radius: 2px;
   padding: 0 1px;
