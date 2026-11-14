@@ -602,6 +602,28 @@ const I18N = {
   "This copy is up to date (build {0})": ["Diese Kopie ist aktuell (Build {0})", "Esta copia está al día (compilación {0})"],
   "Could not check for an update: {0}": ["Konnte nicht nach einem Update suchen: {0}", "No se ha podido buscar una actualización: {0}"],
   "The app in the repo is not a complete copy ({0}), so it was not offered": ["Die App im Repo ist keine vollständige Kopie ({0}) und wurde daher nicht angeboten", "La app del repositorio no es una copia completa ({0}), así que no se ha ofrecido"],
+  // Why a build is not a complete copy (the {0} of the line above).
+  "its js/version.js does not list the app's files": ["ihre js/version.js listet die Dateien der App nicht auf", "su js/version.js no lista los archivos de la app"],
+  "{0} is missing from it": ["{0} fehlt darin", "le falta {0}"],
+  "{0} did not download intact": ["{0} kam nicht unversehrt an", "{0} no se descargó completo"],
+  "{0} does not parse ({1})": ["{0} lässt sich nicht einlesen ({1})", "{0} no se puede analizar ({1})"],
+  "its index.html is not a whole page": ["ihre index.html ist keine vollständige Seite", "su index.html no es una página completa"],
+  "its index.html loads {0}, which is not part of the build": ["ihre index.html lädt {0}, das nicht zum Build gehört", "su index.html carga {0}, que no forma parte de la compilación"],
+  // The update question, one sentence at a time (offerAppUpdate in updates.js).
+  "There is a newer build of the app in {0}:": ["In {0} gibt es einen neueren Build der App:", "Hay una compilación más nueva de la app en {0}:"],
+  "build {0} (this copy is build {1}),": ["Build {0} (diese Kopie ist Build {1}),", "compilación {0} (esta copia es la compilación {1}),"],
+  "committed {0} by {1}": ["committet {0} von {1}", "confirmada {0} por {1}"],
+  "on an unknown date": ["an einem unbekannten Datum", "en una fecha desconocida"],
+  "It replaces the app's {0} files: index.html and the css and js folders. config.js, your notes and your backups stay as they are.": ["Er ersetzt die {0} Dateien der App: index.html und die Ordner css und js. config.js, deine Notizen und deine Sicherungen bleiben, wie sie sind.", "Sustituye los {0} archivos de la app: index.html y las carpetas css y js. config.js, tus notas y tus copias de seguridad se quedan como están."],
+  "It no longer takes the repo to sync with from your config.js.": ["Er nimmt das Repo zum Synchronisieren nicht mehr aus deiner config.js.", "Ya no toma de tu config.js el repositorio con el que sincronizar."],
+  "It no longer contains the check that refuses public repos.": ["Er enthält die Prüfung nicht mehr, die öffentliche Repos ablehnt.", "Ya no contiene la comprobación que rechaza los repositorios públicos."],
+  // After saying yes: written, partly written, or downloaded instead.
+  "Only {0} of the {1} files could be put in place in \"{2}\", so the app there is now a mix of two builds: do not reload before the step below.": ["Nur {0} der {1} Dateien konnten in \"{2}\" abgelegt werden, die App dort ist also jetzt eine Mischung aus zwei Builds: Lade nicht neu, bevor du den Schritt unten erledigt hast.", "Solo {0} de los {1} archivos se pudieron colocar en \"{2}\", así que la app que hay allí es ahora una mezcla de dos compilaciones: no recargues antes de hacer el paso de abajo."],
+  "{0} is in your downloads. Unpack it and copy everything in it ({1} and the css and js folders) over the app's folder, in: {2} replacing the old files. config.js is not in it, so your settings stay. Then reload this page to use it.": ["{0} liegt in deinen Downloads. Entpacke es und kopiere alles darin ({1} und die Ordner css und js) über den Ordner der App, in:\n{2}\n\nund ersetze dabei die alten Dateien. config.js ist nicht dabei, deine Einstellungen bleiben also erhalten. Lade danach diese Seite neu, um sie zu verwenden.", "{0} está en tus descargas. Descomprímelo y copia todo lo que contiene ({1} y las carpetas css y js) sobre la carpeta de la app, en:\n{2}\n\nreemplazando los archivos antiguos. config.js no va dentro, así que tu configuración se mantiene. Después recarga esta página para usarla."],
+  "{0} is in your downloads. Unpack it and copy everything in it ({1} and the css and js folders) over the app's folder, replacing the old files. config.js is not in it, so your settings stay. Then reload this page to use it.": ["{0} liegt in deinen Downloads. Entpacke es und kopiere alles darin ({1} und die Ordner css und js) über den Ordner der App und ersetze dabei die alten Dateien. config.js ist nicht dabei, deine Einstellungen bleiben also erhalten. Lade danach diese Seite neu, um sie zu verwenden.", "{0} está en tus descargas. Descomprímelo y copia todo lo que contiene ({1} y las carpetas css y js) sobre la carpeta de la app, reemplazando los archivos antiguos. config.js no va dentro, así que tu configuración se mantiene. Después recarga esta página para usarla."],
+  "The app in \"{0}\" is now build {1}. It takes effect when the page reloads, and the vault asks for your master password again.": ["Die App in \"{0}\" ist jetzt Build {1}. Das gilt ab dem nächsten Neuladen der Seite, und der Tresor fragt dann wieder nach deinem Master-Passwort.", "La app de \"{0}\" es ahora la compilación {1}. Surte efecto al recargar la página, y la bóveda vuelve a pedirte la contraseña maestra."],
+  "The app is {0} and its css and js folders, in: {1} \"{2}\" does not hold them, so the update is downloaded instead.": ["Die App ist {0} mit ihren Ordnern css und js, in:\n{1}\n\n\"{2}\" enthält sie nicht, deshalb wird das Update stattdessen heruntergeladen.", "La app es {0} con sus carpetas css y js, en:\n{1}\n\n\"{2}\" no las contiene, así que la actualización se descarga en su lugar."],
+  "the folder you opened it from": ["der Ordner, aus dem du sie geöffnet hast", "la carpeta desde la que la abriste"],
 };
 
 // ---------- Lookup tables ----------
@@ -656,7 +678,8 @@ const I18N_SKIP = '[translate="no"], #editor, #sheets, #prev-body, script, style
  *
  * Used by: this file (everything on screen goes through it), help.js (the
  * screenshots' descriptions), sidebar.js (the "Trash" and "(untitled)" parts
- * of the Unsynced section's paths).
+ * of the Unsynced section's paths), updates.js (the update question and the
+ * download note, put together from sentences that come and go).
  * Uses: nothing but the lookup tables; it calls itself for a {0} part.
  * Complexity: O(1) for an exact line, O(p) over the pattern lines otherwise;
  * the answer is remembered.

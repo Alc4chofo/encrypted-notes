@@ -162,7 +162,7 @@ async function checkAppUpdate(manual) {
  * Uses: status (pagination.js), fetchBuild, buildWarnings, showModal and
  * alertModal (modal.js), saveAppMeta, loadAppMeta, appDirHandle,
  * appFolderInfo (backups.js), writeBuild, downloadBuild, OWNER and REPO
- * (core.js), flushSave (pagination.js), persistChain (vault.js).
+ * (core.js), flushSave (pagination.js), persistChain (vault.js), t (i18n.js).
  * Complexity: O(b) in the build's bytes.
  */
 async function offerAppUpdate(update, manual) {
@@ -184,15 +184,20 @@ async function offerAppUpdate(update, manual) {
   const who = (info.author && info.author.name) || (update.commit.author && update.commit.author.login) || "unknown";
   const msg = String(info.message || "").split("\n")[0].trim().slice(0, 160);
   const warn = buildWarnings(files);
+  const committedAt = when
+    ? new Date(when).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+    : t("on an unknown date");
+  // The page translates a text only as a whole, and parts of this one come and
+  // go (the message, the warnings), so each sentence is translated here.
+  const body = t("There is a newer build of the app in {0}:", `${OWNER}/${REPO}`) + "\n" +
+    t("build {0} (this copy is build {1}),", update.build, APP_BUILD) + "\n" +
+    t("committed {0} by {1}", committedAt, who) + (msg ? `:\n"${msg}"` : ".") + "\n\n" +
+    t("It replaces the app's {0} files: index.html and the css and js folders. config.js, your notes and your backups stay as they are.", files.size) + "\n\n" +
+    (warn.length ? t("WARNING:") + " " + warn.map(line => t(line)).join(" ") + "\n\n" : "") +
+    t("Only update if you made this change yourself: anyone who can write to the repo could have pushed it, and the app runs whatever these files contain. Your notes sync either way.");
   const choice = await showModal({
     title: warn.length ? "Update the app? Read the warning first" : "Update the app?",
-    body: `There is a newer build of the app in ${OWNER}/${REPO}:\n` +
-      `build ${update.build} (this copy is build ${APP_BUILD}),\n` +
-      `committed ${when ? new Date(when).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
-        : "on an unknown date"} by ${who}` + (msg ? `:\n"${msg}"` : ".") + "\n\n" +
-      `It replaces the app's ${files.size} files: index.html and the css and js folders. config.js, your notes and your backups stay as they are.\n\n` +
-      (warn.length ? "WARNING: " + warn.join(" ") + "\n\n" : "") +
-      "Only update if you made this change yourself: anyone who can write to the repo could have pushed it, and the app runs whatever these files contain. Your notes sync either way.",
+    body,
     choices: [
       { id: "update", label: "Update the app", danger: warn.length > 0 },
       { id: "skip", label: "Not now" },
@@ -224,9 +229,11 @@ async function offerAppUpdate(update, manual) {
   if (how === "download") {
     await alertModal({
       title: placed ? "Update only partly written" : "Update downloaded",
-      body: (placed ? `Only ${placed} of the ${files.size} files could be put in place in "${dir.name}", so the app there is now a mix of two builds: do not reload before the step below.\n\n` : "") +
-        `${zip} is in your downloads. Unpack it and copy everything in it (${page} and the css and js folders) over the app's folder` +
-        (app ? `, in:\n${app.display}\n\n` : ", ") + "replacing the old files. config.js is not in it, so your settings stay. Then reload this page to use it.",
+      // Translated sentence by sentence, as the question above.
+      body: (placed ? t("Only {0} of the {1} files could be put in place in \"{2}\", so the app there is now a mix of two builds: do not reload before the step below.", placed, files.size, dir.name) + "\n\n" : "") +
+        (app
+          ? t("{0} is in your downloads. Unpack it and copy everything in it ({1} and the css and js folders) over the app's folder, in:\n{2}\n\nreplacing the old files. config.js is not in it, so your settings stay. Then reload this page to use it.", zip, page, app.display)
+          : t("{0} is in your downloads. Unpack it and copy everything in it ({1} and the css and js folders) over the app's folder, replacing the old files. config.js is not in it, so your settings stay. Then reload this page to use it.", zip, page)),
     });
   } else {
     const again = await showModal({

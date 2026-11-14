@@ -714,7 +714,7 @@ $("unlock-form").onsubmit = async event => {
     }
     creatingVault = false;
     status(creating && noFolder ? "Vault created in this browser only: without access to the app folder, its folder could not be made"
-      : stored ? "Unlocked" : restored ? "Vault restored, press Sync to connect" : "Vault created, use Sync to push it", noFolder);
+      : restored ? "Vault restored, press Sync to connect" : stored ? "Unlocked" : "Vault created, use Sync to push it", noFolder);
     // Not awaited: each dialog owns its own clicks.
     (async () => {
       await offerVaultMove();

@@ -43,7 +43,7 @@
  * currentEditorRange, editorHasFocus, setEditorBody, buildInlineWrapper,
  * insertInlineWrapper, hydrateInlineMedia, hydrateOneInline,
  * queueInlineImage, openInlineMedia, applyInlineSize, scheduleInlineSave,
- * moveInlineNode, updateEditorEmpty, renderSheets, fitSheets, sheetsSnapshot.
+ * updateEditorEmpty, renderSheets, fitSheets, sheetsSnapshot.
  * Auxiliary functions: isLineTag, isFrameEl, isLineEl, isMediaEl, isFloatEl,
  * isSelMarker, isCensorEl, censorMark, uncensorMark, isBareMark, isStructEl,
  * isEmptyLine, isCleanLine, flattenRun, mergeStyle, buildLine, appendToLine,
@@ -822,7 +822,7 @@ function applyInlineSize(span, width, height) {
  * deleted or moved). It waits like typing does, so a burst of moves becomes
  * one save, and the unsaved flag guards closing the tab until it lands.
  *
- * Used by: this file (moveInlineNode), events.js (Backspace and Delete, on load).
+ * Used by: events.js (Backspace and Delete, on load).
  * Uses: status, renderStatus, saveCurrent and scheduleRepaginate
  * (pagination.js), updateEditorEmpty, renderList (sidebar.js), saveTimer (events.js).
  * Complexity: O(1), plus redrawing the list.
@@ -847,40 +847,6 @@ function scheduleInlineSave() {
   // A page that lost a picture may take lines back from the next one.
   scheduleRepaginate();
   renderStatus();
-}
-
-/**
- * Moves an inline attachment to the caret under (x, y), on any page of the
- * note. The same node is moved: nothing is encrypted again and nothing from
- * outside enters the editor. It is never dropped into itself.
- *
- * Used by: nothing at the moment (pictures are moved by the attachments script's own
- * drop handler).
- * Uses: surfaceOfNode, caretRangeAt, scheduleInlineSave.
- * Complexity: O(p * depth).
- */
-function moveInlineNode(node, x, y) {
-  if (!node || !surfaceOfNode(node)) {
-    return;
-  }
-  const range = caretRangeAt(x, y);
-  if (!range || !surfaceOfNode(range.commonAncestorContainer)) {
-    return;
-  }
-  if (node.contains(range.startContainer) || node === range.startContainer) {
-    return;
-  }
-  node.remove();
-  range.insertNode(node);
-  const after = document.createRange();
-  after.setStartAfter(node);
-  after.collapse(true);
-  const selection = window.getSelection();
-  if (selection) {
-    selection.removeAllRanges();
-    selection.addRange(after);
-  }
-  scheduleInlineSave();
 }
 
 // ---------- Sheets ----------

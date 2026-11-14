@@ -365,10 +365,8 @@ $("split-format").onclick = async () => {
 
 // ---------- Designs: state ----------
 
-// The mark for where the note's writing goes. CONTENT_MARK is the canonical
-// spelling and is not read anywhere at the moment; CONTENT_RE matches the
-// mark as people type it: {content} or {{content}}, any case, spaces inside allowed.
-const CONTENT_MARK = "{{content}}";
+// The mark for where the note's writing goes, as people type it: {content}
+// or {{content}}, any case, spaces inside allowed.
 const CONTENT_RE = /\{\{?\s*content\s*\}\}?/i;
 
 // ---------- Designs ----------
