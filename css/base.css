@@ -81,6 +81,12 @@ body {
   background: rgb(233 229 222 / .22);
 }
 
+/* The white A4 sheets need a dark selection: the warm white above would vanish on them. It comes before
+   editor.css, so the censor rule there still wins on censored text. */
+.sheet ::selection {
+  background: rgb(0 0 0 / .16);
+}
+
 /* ---------- Controls ----------
    Default button = a quiet bordered control. Hierarchy comes from three
    variants: .primary (filled sage, at most one per area), ghost (borderless,
