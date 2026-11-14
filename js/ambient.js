@@ -1,32 +1,36 @@
 /*
- * ambient.js - the thin vertical lines that sway in the margins beside the
- * writing column, like a curtain hanging in still air, so the inside of the
- * app feels as calm as the lock screen.
+ * ambient.js - the vertical lines of small oval marks in the margins beside
+ * the writing column, drawn the way the lock screen's picture is, so the
+ * inside of the app feels as calm as the lock screen.
  *
- * A canvas (#ambient-lines) lies over the whole writing area, under the
- * editor and the sheets. Each margin gets a row of hairlines running from
- * top to bottom, brightest at the outer edge and fading to nothing beside
- * the text, so the text stays the brightest thing on screen. Two things move
- * them:
- *   - a slow sway. Every point of every line is carried a few pixels by a
- *     smooth noise field that drifts across the page, so neighbouring lines
- *     move together, like cloth, and nothing repeats or points anywhere;
- *   - the pointer. Moving it through a margin drags the lines near it a
- *     little, the way it is going; they swing back on a soft spring.
+ * The lock screen's video is drawn in white oval marks on a grid, a
+ * dot-matrix: the size of a mark says how bright that spot is, from a tiny
+ * dot to a wide oval, and many marks lean a little. The side lines are built
+ * the same way. A canvas (#ambient-lines) lies over the whole writing area,
+ * under the editor and the sheets. Each margin gets a few vertical lines,
+ * each a row of marks from top to bottom, strongest at the outer edge and
+ * fading to nothing beside the text, so the text stays the brightest thing
+ * on screen. Three things keep the lines from looking ruled:
+ *   - every mark's size and lean come from a smooth noise field, so a line
+ *     swells in one stretch, thins in the next and breaks where the field is
+ *     low. Two copies of the field slide past each other, one up and one
+ *     down, so the marks breathe in place and nothing travels or points;
+ *   - each line sways a few pixels, slowly, on the same kind of field;
+ *   - the marks near the pointer swell a little, filling the line in around
+ *     it, and ease back when it leaves.
  * No lines are drawn in a margin under 72px (a narrow window, the second
  * screen), nothing runs while the app is locked or the tab is hidden, and
  * when the system asks for reduced motion one still frame is drawn instead.
  *
- * The idea (lines of points swayed by noise, dragged by the pointer and
- * sprung back) is the one in Antoine Wodniack's "Wavy Lines". This is
- * written from scratch for the margins, and much slower and fainter.
- *
  * Main functions: startAmbientLines, stopAmbientLines, drawAmbientFrame.
  * Auxiliary functions: scheduleFrame, resizeCanvas, writingMargins,
- * layoutLines, swayAt, smoothNoise, followPointer, pushPoint, strokeLine.
+ * layoutLines, markAt, swayAt, smoothNoise, followPointer, warmMark,
+ * fillLine.
  *
- * Complexity: each frame is O(l * p), l lines of p points: about 36 lines of
- * 28 points in a wide window, at most 30 times a second.
+ * Complexity: each frame is O(l * m), l lines of m marks: about 18 lines of
+ * 43 marks in a wide window, about 1.5 ms. Frames come 7 times a second
+ * while the lines are calm (about 1% of one processor core) and 30 times a
+ * second only while marks near the pointer are swelling or easing back.
  */
 "use strict";
 
@@ -36,43 +40,56 @@ const MIN_MARGIN = 72;
 // The space kept clear between the lines and the text column.
 const TEXT_CLEARANCE = 12;
 
-// The space between two neighbouring lines, and between two points of a line.
-const LINE_GAP = 14;
-const POINT_GAP = 28;
+// The space between two neighbouring lines, and between two marks of a line.
+const LINE_GAP = 26;
+const MARK_GAP = 14;
 
 // The opacity of the outermost line; each line after it is fainter. This is
-// the one number to change to make the lines fainter or stronger. On the
-// near-black page 0.3 is a soft grey, far below the text's brightness.
-const LINE_OPACITY = 0.3;
+// the one number to change to make the lines fainter or stronger.
+const LINE_OPACITY = 0.4;
 
-// The lines take the app's warm white (--t1 in base.css), not pure white.
+// The marks take the app's warm white (--t1 in base.css), not pure white.
 const LINE_COLOUR = "#e9e5de";
 
-// The sway: how far it carries a point sideways and along the line, how much
-// the noise turns that direction, the size of the noise field's cells (400px
-// by 555px, so a line bends only once or twice down its length) and how fast
-// the field drifts, in px per millisecond. Together they move a point at
-// most about 3px a second.
-const SWAY_X = 9;
-const SWAY_Y = 5;
-const NOISE_TWIST = 6;
-const NOISE_SCALE_X = 0.0025;
-const NOISE_SCALE_Y = 0.0018;
-const DRIFT_X = 0.012;
-const DRIFT_Y = 0.005;
+// A mark is an oval, longer along its line. MARK_DOT is its half-width and
+// half-length at size 0 (a round dot); at size 1 it has grown by MARK_WIDTH
+// across and MARK_LENGTH along, to 5.4px by 10.4px. Under MARK_GONE it is not
+// drawn, which is what breaks a line. MARK_LEAN is the most it leans, in
+// radians.
+const MARK_DOT = 0.8;
+const MARK_WIDTH = 1.9;
+const MARK_LENGTH = 4.4;
+const MARK_GONE = 0.08;
+const MARK_LEAN = 0.45;
 
-// The pointer: how near it must pass to move a point, how hard it drags, the
-// most it can move one, and the spring that brings the point back (a low
-// tension and a high friction: it returns in about a second and a half,
-// without bouncing).
-const POINTER_REACH = 140;
-const POINTER_PULL = 0.014;
-const MAX_PUSH = 28;
-const SPRING_TENSION = 0.012;
-const SPRING_FRICTION = 0.88;
+// The field the sizes come from: the size of its cells (100px across the
+// lines, 166px along them, so a line changes a few times down its length)
+// and how fast its two copies slide, in px per millisecond. A mark changes
+// size by at most about a fifth in a second.
+const FIELD_SCALE_X = 0.01;
+const FIELD_SCALE_Y = 0.006;
+const FIELD_DRIFT = 0.012;
 
-// At most 30 frames a second: smooth for something this slow, and half the work of 60.
-const FRAME_MS = 1000 / 30;
+// The sway: how far a line bends sideways, the size of that field's cells
+// (50px across, 333px along) and how fast it changes, in cells per
+// millisecond. It moves a mark about half a pixel a second.
+const SWAY_X = 3;
+const SWAY_SCALE_X = 0.02;
+const SWAY_SCALE_Y = 0.003;
+const SWAY_DRIFT = 0.00006;
+
+// The pointer: how near it must be to warm a mark, how much size a fully
+// warmed mark gains, and how much of the way a mark moves toward its warmth
+// each frame (it swells and eases back in about half a second).
+const POINTER_REACH = 130;
+const POINTER_SWELL = 0.6;
+const POINTER_EASE = 0.12;
+
+// The time between two frames. Calm, the marks change far too slowly for
+// more than 7 frames a second to show; marks warming under the pointer need
+// 30 to move smoothly.
+const CALM_FRAME_MS = 1000 / 7;
+const LIVELY_FRAME_MS = 1000 / 30;
 
 // The noise field's heights, 256 random values made once per page load.
 const NOISE_HEIGHTS = Array.from({ length: 256 }, () => Math.random() * 2 - 1);
@@ -91,10 +108,12 @@ let ambientFrame = 0;
 // When the last frame was drawn, in requestAnimationFrame time.
 let ambientLastDraw = 0;
 
-// The pointer: where it is in the window, then (worked out once a frame, see
-// followPointer) where it is over the canvas, how fast it moves in px a
-// frame, and which way.
-const ambientPointer = { seen: false, clientX: 0, clientY: 0, x: 0, y: 0, speed: 0, angle: 0, placed: false };
+// Whether a mark was still swelling or easing back in the last frame.
+let ambientLively = false;
+
+// The pointer: whether it is over the page, where it is in the window, and
+// (worked out once a frame, see followPointer) where it is over the canvas.
+const ambientPointer = { seen: false, clientX: 0, clientY: 0, x: 0, y: 0 };
 
 // ---------- Starting and stopping ----------
 
@@ -131,28 +150,35 @@ function stopAmbientLines() {
   cancelAnimationFrame(ambientFrame);
   ambientFrame = 0;
   const canvas = $("ambient-lines");
-  canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+  const context = canvas.getContext("2d");
+  context.setTransform(1, 0, 0, 1, 0, 0);
+  context.clearRect(0, 0, canvas.width, canvas.height);
 }
 
 // ---------- Drawing ----------
 
 /**
  * Draws one frame at a time in milliseconds. The lines are laid out again
- * when the writing area or its margins changed size; then every point is
- * moved by the pointer and its spring, and each line is drawn through its
- * points as they stand in the sway at that time. Drawing is clipped to the
- * margins, so no line ever crosses into the text. With reduced motion the
- * sway is frozen at time 0 and the pointer moves nothing.
+ * when the writing area or its margins changed size; then each line is
+ * filled mark by mark, as the field stands at that time and as the pointer
+ * has warmed it. Drawing is clipped to the margins, so no mark ever crosses
+ * into the text. With reduced motion the field is frozen at time 0 and the
+ * pointer warms nothing.
+ *
+ * The canvas is wiped in its own pixels, before the scale is set. On a
+ * screen scaled to 125% the scaled size can cover the last row of pixels
+ * only in part; wiping just the scaled size left that row to build up,
+ * frame after frame, into a white edge at the bottom.
  *
  * Used by: this file (the frame loop, the still frame, resizing).
- * Uses: resizeCanvas, writingMargins, layoutLines, followPointer, pushPoint,
- * strokeLine, stillMotion (lock.js).
- * Complexity: O(l * p), see the header.
+ * Uses: resizeCanvas, writingMargins, layoutLines, followPointer, warmMark,
+ * fillLine, stillMotion (lock.js).
+ * Complexity: O(l * m), see the header.
  */
 function drawAmbientFrame(time) {
   const canvas = $("ambient-lines");
   const context = canvas.getContext("2d");
-  const { width, height } = resizeCanvas(canvas, context);
+  const { width, height, scale } = resizeCanvas(canvas);
   const margins = writingMargins(canvas);
   const layoutKey = [width, height, Math.round(margins.left), Math.round(margins.right)].join(" ");
   if (layoutKey !== ambientLayoutKey) {
@@ -165,34 +191,42 @@ function drawAmbientFrame(time) {
     followPointer(canvas);
   }
 
-  context.clearRect(0, 0, width, height);
+  context.setTransform(1, 0, 0, 1, 0, 0);
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.setTransform(scale, 0, 0, scale, 0, 0);
   context.save();
   context.beginPath();
   context.rect(0, 0, margins.left - TEXT_CLEARANCE, height);
   context.rect(width - margins.right + TEXT_CLEARANCE, 0, margins.right - TEXT_CLEARANCE, height);
   context.clip();
-  context.strokeStyle = LINE_COLOUR;
-  context.lineWidth = 1;
+  context.fillStyle = LINE_COLOUR;
 
+  let lively = false;
   for (const line of ambientLines) {
     if (!still) {
       for (const point of line.points) {
-        pushPoint(point, line.x);
+        lively = warmMark(point, line.x) || lively;
       }
     }
-    strokeLine(context, line, still ? 0 : time);
+    fillLine(context, line, still ? 0 : time);
   }
   context.restore();
+  ambientLively = lively;
 }
 
 // ---------- On load: the pointer, pausing, resizing, reduced motion ----------
 
-// Only where the pointer is; what it does to the lines is worked out once a frame.
+// Only where the pointer is; what it does to the marks is worked out once a frame.
 window.addEventListener("pointermove", event => {
   ambientPointer.seen = true;
   ambientPointer.clientX = event.clientX;
   ambientPointer.clientY = event.clientY;
 }, { passive: true });
+
+// A pointer that left the window warms nothing.
+document.documentElement.addEventListener("pointerleave", () => {
+  ambientPointer.seen = false;
+});
 
 // A hidden tab draws nothing; the lines go on where they were when it shows again.
 document.addEventListener("visibilitychange", () => {
@@ -223,9 +257,10 @@ stillMotion.addEventListener("change", () => {
 
 /**
  * Asks for the next animation frame, and draws in it when a frame is due
- * (30 a second), then asks again, for as long as the lines run and the tab
- * shows. A frame counts as due a little early (90% of FRAME_MS), since frame
- * times jitter and a 60 Hz screen would otherwise sometimes skip to 20 fps.
+ * (7 a second while calm, 30 while a mark is warming), then asks again, for
+ * as long as the lines run and the tab shows. A frame counts as due a
+ * little early (90% of the gap), since frame times jitter and it would
+ * otherwise sometimes come one screen frame late.
  *
  * Complexity: O(1), plus the frame it draws.
  */
@@ -235,7 +270,8 @@ function scheduleFrame() {
     if (!ambientRunning || document.hidden) {
       return;
     }
-    if (time - ambientLastDraw >= FRAME_MS * 0.9) {
+    const frameGap = ambientLively ? LIVELY_FRAME_MS : CALM_FRAME_MS;
+    if (time - ambientLastDraw >= frameGap * 0.9) {
       ambientLastDraw = time;
       drawAmbientFrame(time);
     }
@@ -245,11 +281,12 @@ function scheduleFrame() {
 
 /**
  * Matches the canvas's pixels to its size on screen and the screen's pixel
- * density, so the lines stay sharp, and returns that size in CSS pixels.
+ * density, so the marks stay sharp. Returns that size in CSS pixels and the
+ * scale from CSS pixels to the canvas's own.
  *
  * Complexity: O(1); a resize clears the canvas.
  */
-function resizeCanvas(canvas, context) {
+function resizeCanvas(canvas) {
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
   const scale = window.devicePixelRatio || 1;
@@ -259,8 +296,7 @@ function resizeCanvas(canvas, context) {
     canvas.width = pixelWidth;
     canvas.height = pixelHeight;
   }
-  context.setTransform(scale, 0, 0, scale, 0, 0);
-  return { width, height };
+  return { width, height, scale };
 }
 
 /**
@@ -290,13 +326,13 @@ function writingMargins(canvas) {
 /**
  * Lays the lines out for a writing area of this size: in each margin of
  * MIN_MARGIN or more, one line every LINE_GAP from the outer edge inward,
- * stopping short of the text by TEXT_CLEARANCE and the sway's reach. Each
- * line knows where it stands (x), how opaque it is (LINE_OPACITY at the
- * outer edge, falling evenly to nothing at the text; a line under 0.03 is
- * left out, it could not be seen) and its points, one every POINT_GAP from
- * above the top to below the bottom, each at rest on its spring.
+ * stopping short of the text. Each line knows where it stands (x), how
+ * opaque it is (LINE_OPACITY at the outer edge, falling evenly to nothing at
+ * the text; a line under 0.04 is left out, it could not be seen) and the
+ * places of its marks, one every MARK_GAP from above the top to below the
+ * bottom, each with its warmth from the pointer (glow, 0 to 1).
  *
- * Complexity: O(l * p).
+ * Complexity: O(l * m).
  */
 function layoutLines(width, height, margins) {
   const lines = [];
@@ -305,16 +341,17 @@ function layoutLines(width, height, margins) {
     if (margin < MIN_MARGIN) {
       continue;
     }
-    const reach = margin - TEXT_CLEARANCE - SWAY_X;
+    // Room for the widest mark and the sway before the clearance.
+    const reach = margin - TEXT_CLEARANCE - SWAY_X - MARK_DOT - MARK_LENGTH;
 
     for (let distance = LINE_GAP / 2; distance < reach; distance += LINE_GAP) {
       const alpha = LINE_OPACITY * (1 - distance / reach);
-      if (alpha < 0.03) {
+      if (alpha < 0.04) {
         break;
       }
       const points = [];
-      for (let y = -POINT_GAP; y <= height + POINT_GAP; y += POINT_GAP) {
-        points.push({ y, pushX: 0, pushY: 0, speedX: 0, speedY: 0 });
+      for (let y = -MARK_GAP; y <= height + MARK_GAP; y += MARK_GAP) {
+        points.push({ y, glow: 0 });
       }
       lines.push({ x: side < 0 ? distance : width - distance, alpha, points });
     }
@@ -323,23 +360,40 @@ function layoutLines(width, height, margins) {
 }
 
 /**
- * How far the sway carries the point at rest at (x, y), at a time in
- * milliseconds: { dx, dy }. The noise field gives a slowly changing angle
- * for that place, and the point sits that way on a flat ellipse (SWAY_X wide,
- * SWAY_Y tall) around its place, so it wanders without ever leaving it.
+ * The mark at (x, y) at a time in milliseconds: { size, lean }. The size (0
+ * to 1) adds two copies of the noise field, one sliding up and one sliding
+ * down, so it swells and shrinks where it is and no shape travels along the
+ * line; about a tenth of the marks come out under MARK_GONE, the gaps. The
+ * lean follows the difference of the two, so it changes as gently.
+ *
+ * Complexity: O(1).
+ */
+function markAt(x, y, time) {
+  const across = x * FIELD_SCALE_X;
+  const rising = smoothNoise(across + 7.3, (y + time * FIELD_DRIFT) * FIELD_SCALE_Y);
+  const falling = smoothNoise(across + 91.7, (y - time * FIELD_DRIFT) * FIELD_SCALE_Y + 40.5);
+  return {
+    size: Math.max(0, Math.min(1, 0.5 + 0.6 * (rising + falling))),
+    lean: MARK_LEAN * (rising - falling) / 2,
+  };
+}
+
+/**
+ * How far the sway carries the mark at rest at (x, y), at a time in
+ * milliseconds: { dx, dy }. Sideways only, a few pixels, changing very
+ * slowly, so a line is never quite straight and never still.
  *
  * Complexity: O(1).
  */
 function swayAt(x, y, time) {
-  const angle = NOISE_TWIST * smoothNoise((x + time * DRIFT_X) * NOISE_SCALE_X, (y + time * DRIFT_Y) * NOISE_SCALE_Y);
-  return { dx: Math.cos(angle) * SWAY_X, dy: Math.sin(angle) * SWAY_Y };
+  return { dx: SWAY_X * smoothNoise(x * SWAY_SCALE_X + 500.5, y * SWAY_SCALE_Y + time * SWAY_DRIFT), dy: 0 };
 }
 
 /**
  * Smooth noise: a height from -1 to 1 for any point of the plane, random
  * from cell to cell but changing smoothly in between (the four corners of a
  * cell, each with its own random height, blended with an ease at both ends).
- * It is what makes the sway look like air and not like a machine.
+ * It is what makes the marks look grown and not ruled.
  *
  * Complexity: O(1).
  */
@@ -358,84 +412,66 @@ function smoothNoise(x, y) {
 }
 
 /**
- * Works out, once a frame, where the pointer is over the canvas, how fast it
- * is going (px a frame, smoothed, at most 40) and which way. A pointer that
- * stopped slows to nothing within a few frames, so it stops dragging.
+ * Works out, once a frame, where the pointer is over the canvas.
  *
  * Complexity: O(1); it reads layout the browser has already done.
  */
 function followPointer(canvas) {
-  const pointer = ambientPointer;
-  if (!pointer.seen) {
+  if (!ambientPointer.seen) {
     return;
   }
   const area = canvas.getBoundingClientRect();
-  const x = pointer.clientX - area.left;
-  const y = pointer.clientY - area.top;
-  if (!pointer.placed) {
-    pointer.placed = true;
-    pointer.x = x;
-    pointer.y = y;
-  }
-  const movedX = x - pointer.x;
-  const movedY = y - pointer.y;
-  const moved = Math.hypot(movedX, movedY);
-  pointer.speed = Math.min(40, pointer.speed + (moved - pointer.speed) * 0.3);
-  if (moved > 0) {
-    pointer.angle = Math.atan2(movedY, movedX);
-  }
-  pointer.x = x;
-  pointer.y = y;
+  ambientPointer.x = ambientPointer.clientX - area.left;
+  ambientPointer.y = ambientPointer.clientY - area.top;
 }
 
 /**
- * Moves one point of the line standing at x for one frame: a pointer moving
- * within POINTER_REACH drags it the way the pointer goes (harder the nearer
- * and the faster), its spring pulls it back toward rest, and friction slows
- * it, so it settles without bouncing. It never strays more than MAX_PUSH.
+ * Moves one mark of the line standing at x a step toward its warmth: 1
+ * under the pointer, falling to 0 at POINTER_REACH (with the square of the
+ * distance, so only the nearest marks swell much), and 0 when the pointer is
+ * away. A step is POINTER_EASE of what is left, so a mark swells and eases
+ * back softly. Returns whether the mark is still on its way (so the next
+ * frame should come soon).
  *
  * Complexity: O(1).
  */
-function pushPoint(point, x) {
-  const pointer = ambientPointer;
-  if (pointer.speed > 0.05) {
-    const distance = Math.hypot(x - pointer.x, point.y - pointer.y);
+function warmMark(point, x) {
+  let warmth = 0;
+  if (ambientPointer.seen) {
+    const distance = Math.hypot(x - ambientPointer.x, point.y - ambientPointer.y);
     if (distance < POINTER_REACH) {
-      const pull = (1 - distance / POINTER_REACH) * pointer.speed * POINTER_PULL;
-      point.speedX += Math.cos(pointer.angle) * pull;
-      point.speedY += Math.sin(pointer.angle) * pull;
+      const nearness = 1 - distance / POINTER_REACH;
+      warmth = nearness * nearness;
     }
   }
-  point.speedX = (point.speedX - point.pushX * SPRING_TENSION) * SPRING_FRICTION;
-  point.speedY = (point.speedY - point.pushY * SPRING_TENSION) * SPRING_FRICTION;
-  point.pushX = Math.max(-MAX_PUSH, Math.min(MAX_PUSH, point.pushX + point.speedX));
-  point.pushY = Math.max(-MAX_PUSH, Math.min(MAX_PUSH, point.pushY + point.speedY));
+  const step = (warmth - point.glow) * POINTER_EASE;
+  point.glow += step;
+  return Math.abs(step) > 0.002;
 }
 
 /**
- * Draws one line as a smooth curve through its points, each where the sway
- * (at this time) and the pointer have carried it, at the line's opacity.
+ * Fills one line: an oval for each of its marks that is large enough, as
+ * big, as leaning and as far aside as the fields make it at this time, and
+ * a little bigger where the pointer warmed it. All at the line's opacity.
  *
- * Complexity: O(p).
+ * Complexity: O(m).
  */
-function strokeLine(context, line, time) {
-  let lastX = 0;
-  let lastY = 0;
+function fillLine(context, line, time) {
   context.beginPath();
-  line.points.forEach((point, index) => {
-    const sway = swayAt(line.x, point.y, time);
-    const x = line.x + sway.dx + point.pushX;
-    const y = point.y + sway.dy + point.pushY;
-    if (index === 0) {
-      context.moveTo(x, y);
-    } else {
-      // A curve through the midpoints, so the line has no corners.
-      context.quadraticCurveTo(lastX, lastY, (lastX + x) / 2, (lastY + y) / 2);
+  for (const point of line.points) {
+    const mark = markAt(line.x, point.y, time);
+    const size = Math.min(1, mark.size + point.glow * POINTER_SWELL);
+    if (size < MARK_GONE) {
+      continue;
     }
-    lastX = x;
-    lastY = y;
-  });
-  context.lineTo(lastX, lastY);
+    const x = line.x + swayAt(line.x, point.y, time).dx;
+    const halfWidth = MARK_DOT + MARK_WIDTH * size;
+    const halfLength = MARK_DOT + MARK_LENGTH * size;
+    // An oval's outline starts at the end of its first radius: starting the
+    // path there keeps each mark apart from the one before.
+    context.moveTo(x + halfWidth * Math.cos(mark.lean), point.y + halfWidth * Math.sin(mark.lean));
+    context.ellipse(x, point.y, halfWidth, halfLength, mark.lean, 0, Math.PI * 2);
+  }
   context.globalAlpha = line.alpha;
-  context.stroke();
+  context.fill();
 }
