@@ -153,7 +153,7 @@ Where the browser can write to the app's folder (Chrome and Edge, once you have 
 | `localStorage` | `settings` | `{"autoLockMin", "weeklyDays", "monthlyDays"}`: the auto-lock delay (section 5) and how old each backup may get before unlock asks to update it. Per device, not synced |
 | `localStorage` | `backupMeta`, `pullBanner`, UI preferences | timestamps, counts, colours, which sections are collapsed |
 | `localStorage` | `appUpdate` | `{"commit", "build", "declined"}`: the last commit of `js/version.js` this device looked at, the build it names, and a version you declined (section 6). Per device, not synced |
-| `localStorage` | `vaults`, `vaultSel` | the vaults this device knows, `{name: {dir, at}}`, and the one it opens: names and times in plaintext, nothing from inside a vault |
+| `localStorage` | `vaults`, `vaultSel` | the vaults this device knows, `{name: {dir, at, closed}}`, and the one it opens: names, times and whether a vault was closed (taken off the list), in plaintext, nothing from inside a vault. A vault is known by its folder (`dir`); renaming one changes only its name here |
 | `localStorage` | `lang` | the interface language (`en`, `de` or `es`). Per device, not synced |
 | IndexedDB `notes-media` | `<uuid>` | encrypted attachment records `{id, bytes: iv \|\| ciphertext \|\| tag}` |
 | IndexedDB `notes-media` | `__authGuard__`, `__notesDir__` | the second copy of the attempt counter, and the folder handle backups (and app updates) are written to |
@@ -283,6 +283,7 @@ Every input path into the vault goes through AES-GCM authenticated decryption, s
 - **PBKDF2 is not memory-hard.** It is the strongest function the Web Crypto API offers natively, and the iteration count is set high to compensate, but a long random password is still essential (section 7).
 - **The attempt limit is client-side** and does nothing against an offline copy (section 5).
 - **No password recovery.** Without the master password nobody can decrypt the vault, the author included.
+- **Deleting is not forensic erasure.** **Delete vault** (`js/delete-vault.js`) overwrites every piece it can reach with random bytes of the same length before removing it: the vault's `localStorage` values, its attachment records in IndexedDB, and every file in its folder next to `index.html`; the page then reloads, which drops every decrypted note from memory. But a web page cannot overwrite a disk in place: the browser writes a file through a fresh copy that then replaces it, and keeps its own storage in log-structured databases, so the old bytes can sit in space the disk has let go until something else is written there, and an SSD moves data around on its own. In the repo the vault's folder is removed in one commit (`deleteRepoVaultOnce`, refused when the folder holds anything that is not a vault file), but git keeps every earlier commit, and GitHub can keep unreachable objects for a while; other devices and downloaded backups keep their own copies. Everything left behind is the same AES-256-GCM ciphertext, sealed with your master password: without it, none of it can be read.
 
 ## 11. Checking it yourself
 

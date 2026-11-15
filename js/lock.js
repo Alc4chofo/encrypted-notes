@@ -36,8 +36,8 @@
  * Main functions: estimateBits, crackSeconds, renderPwMeter, setLockMode,
  * renderVaultLine, syncUnlockLabel, renderVaultList, closeVaultList,
  * syncLockBg, lockBgFile.
- * Auxiliary functions: formatCrackTime, showFileName, loadScript,
- * showLockBg, shakeLock.
+ * Auxiliary functions: formatCrackTime, showFileName, vaultRow,
+ * renameInPlace, loadScript, showLockBg, shakeLock.
  *
  * Complexity: unlocking is one PBKDF2 (about 0.6 s) and one decrypt, O(n) in
  * the vault; the meter is O(n) in the password.
@@ -214,6 +214,9 @@ let autoVault = selectedVault && !selectedVault.dir ? legacyBlob : null;
 // Whether the form is making a vault (it starts so when this device knows none).
 let creatingVault = !selectedVault && !Object.keys(knownVaults()).length;
 
+// Whether the vault list shows its closed vaults.
+let showClosedVaults = false;
+
 // ---------- The form ----------
 
 /**
@@ -258,7 +261,8 @@ function renderVaultLine() {
     el.textContent = "No vault selected";
     return;
   }
-  const at = Math.max((knownVaults()[selectedVault.name] || {}).at || 0, +window.__VAULT_AT__ || 0);
+  const listed = Object.values(knownVaults()).find(entry => entry.dir === selectedVault.dir) || {};
+  const at = Math.max(listed.at || 0, +window.__VAULT_AT__ || 0);
   const nameEl = makeElement("span", "vn", selectedVault.name);
   nameEl.setAttribute("translate", "no");
   el.append("Vault selected:", " ", nameEl);
@@ -293,45 +297,86 @@ function syncUnlockLabel() {
 }
 
 /**
- * The "Other vault" list: every other vault this device knows (those next to
- * index.html included), the most recent first, each with when it last
- * changed; choosing one reloads the page with it selected. At the end,
+ * The "Other vault" list: every vault this device knows (those next to
+ * index.html included), the selected one first and marked, then the most
+ * recent first, each with when it last changed. Choosing one reloads the
+ * page with it selected. Each can be renamed in place (the pencil: Enter
+ * keeps the name, Escape drops it), and every one but the selected can be
+ * closed (the cross), which takes it off the list and deletes nothing.
+ * Closed vaults wait under "Closed vaults", each with "Reopen". At the end,
  * "From a file..." shows or hides the restore picker (and forgets a file
  * chosen there when it hides).
  *
- * Used by: this file (the Other vault button).
- * Uses: knownVaults, formatWhen and selectVault (vaults.js), makeElement
- * (sidebar.js), showFileName, syncUnlockLabel.
+ * Used by: this file (the Other vault button, renaming, closing, reopening).
+ * Uses: knownVaults, closeVault and reopenVault (vaults.js), makeElement
+ * (sidebar.js), vaultRow, showFileName, syncUnlockLabel.
  * Complexity: O(v log v) in the vaults.
  */
 function renderVaultList() {
   const box = $("vault-list");
   const known = knownVaults();
   box.textContent = "";
-  const names = Object.keys(known).filter(name => !(selectedVault && name === selectedVault.name))
-    .sort((a, b) => (known[b].at || 0) - (known[a].at || 0));
-  for (const name of names) {
-    const button = makeElement("button", "vault-pick");
-    button.type = "button";
-    const nameEl = makeElement("span", "vp-name", name);
-    nameEl.setAttribute("translate", "no");
-    button.append(nameEl, makeElement("span", "vp-at", known[name].at ? formatWhen(known[name].at) : ""));
-    button.onclick = () => {
-      selectVault(name, known[name].dir);
-      location.reload();
-    };
-    box.appendChild(button);
+  const isSelected = name => !!selectedVault && known[name].dir === selectedVault.dir;
+  const names = Object.keys(known)
+    .sort((a, b) => (isSelected(b) - isSelected(a)) || ((known[b].at || 0) - (known[a].at || 0)));
+  const open = names.filter(name => !known[name].closed);
+  const closed = names.filter(name => known[name].closed);
+
+  for (const name of open) {
+    const row = vaultRow(name, known[name], isSelected(name));
+    if (!isSelected(name)) {
+      const close = makeElement("button", "vp-act vp-close");
+      close.type = "button";
+      close.title = "Remove from this list (nothing is deleted)";
+      close.setAttribute("aria-label", close.title);
+      close.onclick = () => {
+        closeVault(known[name].dir);
+        renderVaultList();
+      };
+      row.appendChild(close);
+    } else {
+      // Where the cross would be, so every pencil lines up.
+      row.appendChild(makeElement("span", "vp-act vp-space"));
+    }
+    box.appendChild(row);
   }
-  if (!names.length) {
+  if (!open.some(name => !isSelected(name))) {
     box.appendChild(makeElement("small", null, "No other vaults found next to index.html."));
   }
+
+  if (closed.length) {
+    const toggle = makeElement("button", "vault-closed-toggle", "Closed vaults (" + closed.length + ")");
+    toggle.type = "button";
+    toggle.setAttribute("aria-expanded", String(showClosedVaults));
+    toggle.onclick = () => {
+      showClosedVaults = !showClosedVaults;
+      renderVaultList();
+    };
+    box.appendChild(toggle);
+    if (showClosedVaults) {
+      for (const name of closed) {
+        const row = makeElement("div", "vault-item closed");
+        const nameEl = makeElement("span", "vp-name", name);
+        nameEl.setAttribute("translate", "no");
+        const reopen = makeElement("button", "vp-reopen", "Reopen");
+        reopen.type = "button";
+        reopen.onclick = () => {
+          reopenVault(known[name].dir);
+          renderVaultList();
+        };
+        row.append(nameEl, reopen);
+        box.appendChild(row);
+      }
+    }
+  }
+
   const fileButton = makeElement("button", "vault-file-btn", "From a file...");
   fileButton.type = "button";
   fileButton.onclick = () => {
     const restore = $("restore-box");
-    const open = restore.style.display !== "none";
-    restore.style.display = open ? "none" : "flex";
-    if (open) {
+    const isOpen = restore.style.display !== "none";
+    restore.style.display = isOpen ? "none" : "flex";
+    if (isOpen) {
       $("vault-file").value = "";
       showFileName();
     }
@@ -538,7 +583,8 @@ $("unlock-form").onsubmit = async event => {
     return;
   }
   const creating = mode === "new" && !pendingBackupKind;
-  const newName = creating ? $("vault-name").value.trim() : "";
+  // A vault given no name is called "Vault 1", or the next number free.
+  const newName = creating ? ($("vault-name").value.trim() || defaultVaultName()) : "";
   if (creating) {
     const why = vaultNameProblem(newName);
     if (why) {
@@ -792,6 +838,82 @@ function showFileName() {
     el.removeAttribute("translate");
   }
   el.textContent = file ? file.name : "No file chosen";
+}
+
+/**
+ * One row of the vault list: the vault's name and when it last changed (or
+ * "Selected" for the one the form opens), which switches to it, and the
+ * pencil that renames it in place. Complexity: O(1).
+ */
+function vaultRow(name, entry, selected) {
+  const row = makeElement("div", "vault-item" + (selected ? " selected" : ""));
+  const pick = makeElement("button", "vault-pick");
+  pick.type = "button";
+  const nameEl = makeElement("span", "vp-name", name);
+  nameEl.setAttribute("translate", "no");
+  const when = selected ? "Selected" : (entry.at ? formatWhen(entry.at) : "");
+  pick.append(nameEl, makeElement("span", "vp-at", when));
+  pick.onclick = () => {
+    if (selected) {
+      closeVaultList();
+      return;
+    }
+    selectVault(name, entry.dir);
+    location.reload();
+  };
+  const rename = makeElement("button", "vp-act vp-rename");
+  rename.type = "button";
+  rename.title = "Rename";
+  rename.setAttribute("aria-label", "Rename");
+  rename.onclick = () => renameInPlace(row, name, entry.dir);
+  row.append(pick, rename);
+  return row;
+}
+
+/**
+ * Turns a row's name into a text field: Enter (or leaving the field) keeps
+ * the new name, Escape keeps the old one. A name that cannot be used is
+ * explained under the form, and the old one stays. Complexity: O(v).
+ */
+function renameInPlace(row, name, dir) {
+  const field = makeElement("input", "vp-rename-field");
+  field.type = "text";
+  field.value = name;
+  field.maxLength = 40;
+  field.spellcheck = false;
+  field.setAttribute("aria-label", "Vault name");
+  field.setAttribute("translate", "no");
+  row.querySelector(".vault-pick").replaceWith(field);
+  row.querySelector(".vp-rename").remove();
+  field.focus();
+  field.select();
+
+  let finished = false;
+  const finish = keep => {
+    if (finished) {
+      return;
+    }
+    finished = true;
+    if (keep && field.value.trim() !== name) {
+      const problem = renameVault(dir, field.value);
+      $("lock-msg").style.color = "var(--bad)";
+      $("lock-msg").textContent = problem || "";
+      renderVaultLine();
+    }
+    renderVaultList();
+  };
+  field.onkeydown = event => {
+    if (event.key === "Enter") {
+      // Inside the unlock form, Enter would otherwise submit it.
+      event.preventDefault();
+      finish(true);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      finish(false);
+    }
+  };
+  field.onblur = () => finish(true);
 }
 
 /** Loads a script beside index.html; resolves whether it loaded or not. Complexity: O(1). */

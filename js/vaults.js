@@ -14,13 +14,14 @@
  * moving it puts every file it owns under "Main/", in the repository, in
  * this browser and in the app folder.
  *
- * Main functions: knownVaults, rememberVault, selectVault, resetVaultState,
+ * Main functions: knownVaults, rememberVault, selectVault, renameVault,
+ * closeVault, reopenVault, defaultVaultName, resetVaultState,
  * vaultNameProblem, scanVaults, saveVaultFiles, inVaultFolder,
  * askAppDirAccess, saveMediaFile, loadMediaFile, removeMediaFile,
  * moveVaultToFolder, moveRepoVault, moveRepoVaultOnce, moveDiskVault,
  * offerVaultMove.
- * Auxiliary functions: legacyVaultHere, formatWhen, grantedAppDir,
- * vaultFolder, writeDirFile, vaultWrapper, vaultMediaDir.
+ * Auxiliary functions: setVaultClosed, legacyVaultHere, formatWhen,
+ * grantedAppDir, vaultFolder, writeDirFile, vaultWrapper, vaultMediaDir.
  *
  * Complexity: a save writes two files; moving a vault is one commit in the
  * repository (no file uploaded again) and one copy per file on disk.
@@ -37,12 +38,14 @@ const VAULT_KEYS = ["vault", "vault.prev", "vault.prevAt", "syncMeta", "pullBann
 // ---------- Which vaults there are ----------
 
 /**
- * The vaults this device knows, each with its folder and when it last
- * changed: { name: { dir, at } }. Plain localStorage: names and times,
- * nothing from inside a vault.
+ * The vaults this device knows, each with its folder, when it last changed
+ * and whether it was closed (taken off the list): { name: { dir, at, closed } }.
+ * A vault is known by its folder: renaming one changes only the name it is
+ * listed under. Plain localStorage: names and times, nothing from inside a vault.
  *
  * Used by: this file (rememberVault, vaultNameProblem), lock.js
- * (renderVaultLine, renderVaultList, and the vault being made).
+ * (renderVaultLine, renderVaultList, and the vault being made),
+ * delete-vault.js (taking a deleted vault off the list).
  * Uses: nothing.
  * Complexity: O(v) in the vaults.
  */
@@ -58,7 +61,8 @@ function knownVaults() {
 
 /**
  * Remembers a vault, its folder and when it last changed (never moving that
- * time backwards).
+ * time backwards). A folder already on the list keeps the name it is listed
+ * under (it may have been renamed), and a closed one stays closed.
  *
  * Used by: this file (selectVault, scanVaults), lock.js (on load), vault.js (persistLocal).
  * Uses: knownVaults.
@@ -66,7 +70,9 @@ function knownVaults() {
  */
 function rememberVault(name, dir, at) {
   const known = knownVaults();
-  known[name] = { dir, at: Math.max(+at || 0, (known[name] && known[name].at) || 0) };
+  const listedAs = Object.keys(known).find(other => known[other].dir === dir) || name;
+  const before = known[listedAs] || {};
+  known[listedAs] = { ...before, dir, at: Math.max(+at || 0, before.at || 0) };
   localStorage.setItem("vaults", JSON.stringify(known));
 }
 
@@ -82,6 +88,77 @@ function selectVault(name, dir) {
   selectedVault = { name, dir };
   localStorage.setItem("vaultSel", JSON.stringify(selectedVault));
   rememberVault(name, dir, 0);
+}
+
+/**
+ * Gives the vault in this folder another name on the list (and on the lock
+ * screen, when it is the selected one). Its folder, here and in the
+ * repository, keeps its name: nothing is moved. Returns what is wrong with
+ * the new name, or null once it is renamed.
+ *
+ * Used by: lock.js (renaming in the vault list).
+ * Uses: knownVaults, vaultNameProblem.
+ * Complexity: O(v).
+ */
+function renameVault(dir, newName) {
+  const name = newName.trim();
+  const problem = vaultNameProblem(name, dir);
+  if (problem) {
+    return problem;
+  }
+  const known = knownVaults();
+  const oldName = Object.keys(known).find(other => known[other].dir === dir);
+  if (oldName === undefined || oldName === name) {
+    return null;
+  }
+  known[name] = known[oldName];
+  delete known[oldName];
+  localStorage.setItem("vaults", JSON.stringify(known));
+  if (selectedVault && selectedVault.dir === dir) {
+    selectedVault = { name, dir };
+    localStorage.setItem("vaultSel", JSON.stringify(selectedVault));
+  }
+  return null;
+}
+
+/**
+ * Takes a vault off the list. Closing deletes nothing: its folder, its copy
+ * in this browser and the repository are untouched; it only stops showing
+ * among the others, until it is reopened.
+ *
+ * Used by: lock.js (the vault list).
+ * Uses: setVaultClosed.
+ * Complexity: O(v).
+ */
+function closeVault(dir) {
+  setVaultClosed(dir, true);
+}
+
+/**
+ * Puts a closed vault back on the list.
+ *
+ * Used by: lock.js (the vault list's closed ones).
+ * Uses: setVaultClosed.
+ * Complexity: O(v).
+ */
+function reopenVault(dir) {
+  setVaultClosed(dir, false);
+}
+
+/**
+ * The name a new vault gets when it is given none: "Vault 1", or the next
+ * number not taken by another vault (open or closed) or folder.
+ *
+ * Used by: lock.js (making a vault).
+ * Uses: vaultNameProblem.
+ * Complexity: O(v * n), n the numbers tried.
+ */
+function defaultVaultName() {
+  let number = 1;
+  while (vaultNameProblem("Vault " + number)) {
+    number++;
+  }
+  return "Vault " + number;
 }
 
 /**
@@ -101,18 +178,19 @@ function resetVaultState() {
 }
 
 /**
- * What is wrong with a name for a new vault, or null. A vault's name is also
- * its folder's, next to index.html and in the repository: up to 40 letters,
+ * What is wrong with a name for a new vault, or null. A new vault's name is
+ * also its folder's, next to index.html and in the repository: up to 40 letters,
  * digits, spaces and . _ -, starting with a letter or digit, not ending in a
  * dot or space, not a reserved DOS name, not one of the app's own folders
  * (css, js, media), not "Main" while the old vault is still here, and not a
- * name already in use.
+ * name or a folder already in use. When the vault in renamingDir is being
+ * renamed, only the other vaults' names count (its folder keeps its name).
  *
- * Used by: lock.js (making a vault, on load).
+ * Used by: this file (renameVault, defaultVaultName), lock.js (making a vault, on load).
  * Uses: LEGACY_VAULT (core.js), legacyVaultHere, knownVaults.
  * Complexity: O(v).
  */
-function vaultNameProblem(name) {
+function vaultNameProblem(name, renamingDir) {
   if (!/^[\p{L}\p{N}][\p{L}\p{N} ._-]{0,39}$/u.test(name) || /[. ]$/.test(name) ||
       /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(name)) {
     return "Use up to 40 letters, digits, spaces, dots, dashes or underscores, starting with a letter or digit.";
@@ -124,7 +202,11 @@ function vaultNameProblem(name) {
   if (lower === LEGACY_VAULT.toLowerCase() && legacyVaultHere()) {
     return "\"Main\" is kept for the vault that is already here.";
   }
-  if (Object.keys(knownVaults()).some(known => known.toLowerCase() === lower)) {
+  const known = knownVaults();
+  const others = Object.keys(known).filter(other => renamingDir === undefined || known[other].dir !== renamingDir);
+  const folderTaken = renamingDir === undefined &&
+    others.some(other => (known[other].dir || "").toLowerCase() === lower);
+  if (folderTaken || others.some(other => other.toLowerCase() === lower)) {
     return "There is already a vault with that name.";
   }
   return null;
@@ -218,7 +300,8 @@ async function inVaultFolder(root) {
  * Unlock click is the gesture it needs), so the vault's folder can be written
  * from then on. It never opens the folder picker.
  *
- * Used by: lock.js (unlocking, on load).
+ * Used by: lock.js (unlocking, on load), delete-vault.js (before erasing a
+ * vault's folder).
  * Uses: idbGet (vault.js).
  * Complexity: O(1).
  */
@@ -501,6 +584,21 @@ async function offerVaultMove() {
 }
 
 // =================== Auxiliary functions ===================
+
+/** Marks the vault in this folder as closed (off the list) or open. Complexity: O(v). */
+function setVaultClosed(dir, closed) {
+  const known = knownVaults();
+  const name = Object.keys(known).find(other => known[other].dir === dir);
+  if (name === undefined) {
+    return;
+  }
+  if (closed) {
+    known[name].closed = true;
+  } else {
+    delete known[name].closed;
+  }
+  localStorage.setItem("vaults", JSON.stringify(known));
+}
 
 /** Whether the old top-level vault is still in use here. Complexity: O(1). */
 function legacyVaultHere() {

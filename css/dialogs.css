@@ -332,6 +332,27 @@ button.danger:hover {
   align-items: stretch;
 }
 
+/* Three choices side by side and the way out under them, as wide as the three (deleting a vault). */
+.modal-actions.three-and-cancel {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.modal-actions.three-and-cancel button {
+  min-height: 38px;
+  padding: 6px 8px;
+  line-height: 1.25;
+}
+
+.modal-actions.three-and-cancel button:last-child {
+  grid-column: 1 / -1;
+}
+
+/* That dialog is wider, so its three labels fit on one line each. */
+.modal:has(.three-and-cancel) {
+  width: 500px;
+}
+
 .modal-actions button {
   padding: 7px 14px;
   font-size: 13px;

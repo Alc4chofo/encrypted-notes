@@ -175,7 +175,8 @@ function prunePurged() {
  * redo), attachments.js (adding and removing attachments), media-sync.js
  * (Sync and "Overwrite remote"), merge.js (applying a merge), panel.js
  * (restoring the pre-merge snapshot, applying a new token), lock.js (after
- * unlocking, when the vault was upgraded or tidied), and persistSafe.
+ * unlocking, when the vault was upgraded or tidied), delete-vault.js (a vault
+ * deleted from the repo loses its token), and persistSafe.
  * Uses: sealVault (core.js), vaultStorageKey (core.js), rememberVault and
  * saveVaultFiles (vaults.js).
  * Complexity: O(n) in the vault's size, one seal: about 20 ms for 500 KB.
@@ -336,7 +337,8 @@ function autoPurgeTrash() {
  *
  * Used by: attachments.js, lines.js and pdf.js (reading an attachment to
  * decrypt it), media-sync.js (uploading one), guard.js (the attempt counter),
- * backups.js, updates.js and vaults.js (the folder handle).
+ * backups.js, updates.js and vaults.js (the folder handle), delete-vault.js
+ * (an attachment's size, to write over it).
  * Uses: mediaStoreRequest.
  * Complexity: O(1) lookups; the cost is the record's size.
  */
@@ -349,7 +351,8 @@ function idbGet(id) {
  *
  * Used by: attachments.js (a new attachment), media-sync.js (a downloaded or
  * folder-read attachment), guard.js (the attempt counter), backups.js and
- * updates.js (the folder handle).
+ * updates.js (the folder handle), delete-vault.js (random bytes over an
+ * attachment before it is deleted).
  * Uses: mediaStoreRequest.
  * Complexity: O(1) plus the record's size.
  */
@@ -361,7 +364,8 @@ function idbPut(id, bytes) {
  * Deletes one record.
  *
  * Used by: autoPurgeTrash in this file, notes.js (purging from the trash),
- * media-sync.js (deleting attachments nothing refers to).
+ * media-sync.js (deleting attachments nothing refers to), delete-vault.js
+ * (erasing a deleted vault's attachments).
  * Uses: mediaStoreRequest.
  * Complexity: O(1).
  */

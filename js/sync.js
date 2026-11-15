@@ -57,7 +57,8 @@ let repoCheck = null;
  * A failed check is forgotten, so the next Sync asks again (say, after the
  * repository was made private).
  *
- * Used by: this file (gh, ghRaw, ghApi, ghGit), vaults.js (moveRepoVaultOnce).
+ * Used by: this file (gh, ghRaw, ghApi, ghGit), vaults.js (moveRepoVaultOnce),
+ * delete-vault.js (deleteRepoVaultOnce).
  * Uses: REPO_UNSET, ghError.
  * Complexity: one request per token.
  */
@@ -163,7 +164,7 @@ async function ghApi(sub) {
  * moving a vault's files into its folder is one commit that reuses every
  * file as it is.
  *
- * Used by: vaults.js (moveRepoVaultOnce).
+ * Used by: vaults.js (moveRepoVaultOnce), delete-vault.js (deleteRepoVaultOnce).
  * Uses: ensurePrivateRepo, repoApiUrl (core.js), ghError.
  * Complexity: one request.
  */

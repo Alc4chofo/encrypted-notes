@@ -823,7 +823,7 @@ const ERROR_EXPLANATIONS = {
  * ("Syncing...") never clears by itself.
  *
  * Used by: this file and almost every script: alignment.js, attachments.js,
- * backups.js, censor.js, content.js, designs.js, events.js, format-menu.js,
+ * backups.js, censor.js, content.js, delete-vault.js, designs.js, events.js, format-menu.js,
  * history.js, lines.js, lock.js, media-sync.js, notes.js, panel.js, pdf.js,
  * settings.js, sidebar.js, split.js, tables.js, toolbar.js, updates.js,
  * vault.js, vaults.js.

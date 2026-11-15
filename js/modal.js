@@ -42,9 +42,12 @@ function modalIsOpen() {
 /**
  * Shows a dialog with any set of buttons and resolves with the id of the
  * button pressed, or null when it was cancelled. `opts`: title, body,
- * choices ([{ id, label, danger }]), defaultId.
+ * choices ([{ id, label, danger }]), defaultId, and actionsClass, a class
+ * that lays the buttons out another way ("three-and-cancel": three in a row,
+ * the last one under them, as wide as the three).
  *
- * Used by: backups.js (whether to update an old backup), notes.js (deleting a
+ * Used by: backups.js (whether to update an old backup), delete-vault.js
+ * (where to delete a vault from), notes.js (deleting a
  * folder), split.js (unsaved changes when the second screen closes),
  * updates.js (offering an app update, and how installing it went).
  * Uses: modalRaw.
@@ -59,10 +62,10 @@ async function showModal(opts) {
  * A destructive question (opts.destructive) shows its confirm button in red
  * and puts the focus on Cancel; a harmless one focuses the confirm button.
  *
- * Used by: attachments.js, backups.js, content.js, designs.js, history.js,
- * media-sync.js, merge.js, notes.js, panel.js, settings.js, sidebar.js and
- * vaults.js, before anything that deletes, replaces or cannot be undone
- * easily.
+ * Used by: attachments.js, backups.js, content.js, delete-vault.js,
+ * designs.js, history.js, media-sync.js, merge.js, notes.js, panel.js,
+ * settings.js, sidebar.js and vaults.js, before anything that deletes,
+ * replaces or cannot be undone easily.
  * Uses: modalRaw.
  * Complexity: O(1).
  */
@@ -154,7 +157,8 @@ function buildModal(opts, resolve) {
   }
 
   const choices = opts.choices || [{ id: "ok", label: "OK" }];
-  const actions = makeElement("div", "modal-actions" + (choices.length > 2 ? " stack" : ""));
+  const layout = opts.actionsClass ? " " + opts.actionsClass : (choices.length > 2 ? " stack" : "");
+  const actions = makeElement("div", "modal-actions" + layout);
   let defaultButton = null;
   for (const choice of choices) {
     const button = makeElement("button", choice.danger ? "danger" : null, choice.label);

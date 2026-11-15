@@ -457,6 +457,140 @@
   color: #bdb7ad;
 }
 
+/* One vault on the list: its name and date (choosing it switches to it),
+   then quiet actions, the pencil that renames it in place and the cross that
+   takes it off the list. The selected vault is marked and cannot be closed. */
+#vault-list .vault-item {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+
+#vault-list .vault-item .vault-pick {
+  flex: 1;
+  min-width: 0;
+}
+
+#vault-list .vault-item.selected .vault-pick {
+  border-color: #3a3a3a;
+  color: #e9e5de;
+}
+
+#vault-list .vault-item.selected .vp-at {
+  color: #8d877e;
+}
+
+#vault-list .vp-act {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #5f5a54;
+}
+
+#vault-list .vp-act::before,
+#vault-list .vault-closed-toggle::before {
+  content: "";
+  width: 13px;
+  height: 13px;
+  background: currentColor;
+  -webkit-mask: var(--icon) center / contain no-repeat;
+  mask: var(--icon) center / contain no-repeat;
+}
+
+#vault-list .vp-rename {
+  --icon: var(--i-pencil);
+}
+
+#vault-list .vp-close {
+  --icon: var(--i-close);
+}
+
+#vault-list .vp-space::before {
+  content: none;
+}
+
+#vault-list .vp-act:hover {
+  border-color: #2a2a2a;
+  background: var(--lock-back);
+  color: #cfc9c0;
+}
+
+/* The name being changed: a field the size of the row it replaces. */
+#vault-list .vp-rename-field {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid #5a5a5a;
+  border-radius: 8px;
+  background: #0b0b0b;
+  color: #e9e5de;
+  font-size: 13px;
+}
+
+/* Closed vaults: a quiet line that folds them away, then each one with "Reopen". */
+#vault-list .vault-closed-toggle {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  padding: 4px 8px 4px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--lock-back);
+  color: #6f6a63;
+  font-size: 12px;
+  --icon: var(--i-chev);
+}
+
+#vault-list .vault-closed-toggle::before {
+  width: 11px;
+  height: 11px;
+  transition: transform .15s;
+}
+
+#vault-list .vault-closed-toggle[aria-expanded="true"]::before {
+  transform: rotate(90deg);
+}
+
+#vault-list .vault-closed-toggle:hover {
+  color: #bdb7ad;
+}
+
+#vault-list .vault-item.closed {
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  height: 34px;
+  padding: 0 4px 0 12px;
+  border: 1px dashed #262626;
+  border-radius: 8px;
+  background: var(--lock-back);
+  color: #6f6a63;
+  font-size: 12.5px;
+}
+
+#vault-list .vp-reopen {
+  flex: none;
+  padding: 4px 10px;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  background: transparent;
+  color: #bdb7ad;
+  font-size: 12px;
+}
+
+#vault-list .vp-reopen:hover {
+  border-color: #4a4a4a;
+  color: #e9e5de;
+}
+
 #restore-box {
   display: flex;
   flex-direction: column;

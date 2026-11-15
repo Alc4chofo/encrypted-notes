@@ -40,10 +40,26 @@
   transition: opacity 1.2s ease;
 }
 
-/* --panel-inset: how far the panel stands in from each side of the note area. */
+/* The panel is the box the whole note lives in: #main's padding is the space around it, so the title, the
+   toolbar, the scrolling text and the sheets all stay inside it and never pass under its edge.
+   --panel-inset is how far it stands in from each side; --outer-pad-x keeps the side padding the note area
+   would have without a panel. */
 #main.has-bg {
   --panel-inset: max(8px, calc(var(--ed-pad-x) - 48px));
+  --outer-pad-x: var(--ed-pad-x);
+  padding: 10px var(--panel-inset);
   background: #000;
+}
+
+/* Inside the panel each part of the note measures its side padding from the panel's edge, so the text column
+   stays exactly where it is without a panel. */
+#main.has-bg > * {
+  --ed-pad-x: calc(var(--outer-pad-x) - var(--panel-inset));
+}
+
+/* The title row starts lower inside the panel; this keeps the title where it is without one. */
+#main.has-bg .bar {
+  padding-top: 12px;
 }
 
 #main.has-bg #app-bg {
@@ -55,10 +71,7 @@
 #main.has-bg::before {
   content: "";
   position: absolute;
-  top: 10px;
-  bottom: 10px;
-  left: var(--panel-inset);
-  right: var(--panel-inset);
+  inset: 10px var(--panel-inset);
   z-index: -1;
   border: 1px solid var(--line-3);
   border-radius: 12px;
@@ -72,18 +85,6 @@
 #main.has-bg #attachments,
 #main.has-bg.readonly #editor {
   background: transparent;
-}
-
-/* The toolbar and the attachment strip span the note area; here they keep inside the panel, their lines and
-   the toolbar's hint with them, with their buttons where they always are. */
-#main.has-bg #fmt-bar {
-  margin-inline: var(--panel-inset);
-  padding-left: calc(var(--ed-pad-x) - 8px - var(--panel-inset));
-}
-
-#main.has-bg #attachments {
-  margin-inline: var(--panel-inset);
-  padding-inline: calc(var(--ed-pad-x) - var(--panel-inset));
 }
 
 /* Title row: the note title is the page heading, set in the book serif with no

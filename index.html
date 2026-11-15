@@ -47,7 +47,7 @@
       <span class="for-none">Pick a vault, or make a new one.</span>
     </p>
     <!-- Also the name of its folder, next to index.html and in the repo. -->
-    <input id="vault-name" type="text" placeholder="Vault name" aria-label="Vault name" maxlength="40" autocomplete="off" spellcheck="false">
+    <input id="vault-name" type="text" placeholder="Vault name (optional)" aria-label="Vault name" maxlength="40" autocomplete="off" spellcheck="false">
     <input id="password" type="password" placeholder="Master password" aria-label="Master password" autofocus>
     <!-- A wrong password costs one of the ten attempts, so say when Caps Lock is on. -->
     <div id="caps-msg" class="lock-caps" hidden>Caps Lock is on</div>
@@ -155,6 +155,10 @@
       <div id="trash-section">
         <div id="trash-head"></div>
         <div id="trash-list"></div>
+      </div>
+      <!-- Deleting this vault, in a section of its own, apart from everyday controls (js/delete-vault.js). -->
+      <div id="vault-danger">
+        <button id="delete-vault" type="button">Delete vault</button>
       </div>
       <div id="backup-bar">
         <button id="bk-weekly" type="button"><span class="bk-label">Weekly</span><span class="bk-age"></span></button>
@@ -310,6 +314,7 @@
 <script src="js/settings.js"></script>
 <script src="js/guard.js"></script>
 <script src="js/lock.js"></script>
+<script src="js/delete-vault.js"></script>
 <script src="js/help.js"></script>
 <script src="js/background.js"></script>
 <script>

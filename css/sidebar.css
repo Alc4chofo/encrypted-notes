@@ -402,6 +402,49 @@
 
 /* Two self-describing buttons, no heading: a "Backups" title beside them made
    the row need 257px inside a 229px sidebar, so the right button was clipped. */
+/* Deleting the vault: a section of its own between the trash and the backups, so it is never pressed by
+   accident on the way to something else. Red only where it means it. */
+#vault-danger {
+  flex: none;
+  padding: 8px 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+#delete-vault {
+  --icon: var(--i-trash);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  height: 30px;
+  border: 1px solid var(--bad-line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--bad);
+  font-size: 12.5px;
+}
+
+#delete-vault::before {
+  content: "";
+  width: 13px;
+  height: 13px;
+  background: currentColor;
+  -webkit-mask: var(--icon) center / contain no-repeat;
+  mask: var(--icon) center / contain no-repeat;
+}
+
+#delete-vault:hover {
+  border-color: #7a3e33;
+  background: var(--bad-dim);
+  color: #f08b78;
+}
+
+/* A backup is only being looked at: nothing in it can be deleted from here. */
+body.backup-view #vault-danger {
+  display: none;
+}
+
 #backup-bar {
   flex: none;
   display: flex;
