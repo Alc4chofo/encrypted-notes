@@ -337,8 +337,8 @@ function autoPurgeTrash() {
  *
  * Used by: attachments.js, lines.js and pdf.js (reading an attachment to
  * decrypt it), media-sync.js (uploading one), guard.js (the attempt counter),
- * backups.js, updates.js and vaults.js (the folder handle), delete-vault.js
- * (an attachment's size, to write over it).
+ * vaults.js (the folder handle), delete-vault.js (an attachment's size, to
+ * write over it).
  * Uses: mediaStoreRequest.
  * Complexity: O(1) lookups; the cost is the record's size.
  */
@@ -350,8 +350,8 @@ function idbGet(id) {
  * Writes one record. For attachments, bytes are ciphertext only.
  *
  * Used by: attachments.js (a new attachment), media-sync.js (a downloaded or
- * folder-read attachment), guard.js (the attempt counter), backups.js and
- * updates.js (the folder handle), delete-vault.js (random bytes over an
+ * folder-read attachment), guard.js (the attempt counter), backups.js,
+ * updates.js and vaults.js (the folder handle), delete-vault.js (random bytes over an
  * attachment before it is deleted).
  * Uses: mediaStoreRequest.
  * Complexity: O(1) plus the record's size.
@@ -365,7 +365,8 @@ function idbPut(id, bytes) {
  *
  * Used by: autoPurgeTrash in this file, notes.js (purging from the trash),
  * media-sync.js (deleting attachments nothing refers to), delete-vault.js
- * (erasing a deleted vault's attachments).
+ * (erasing a deleted vault's attachments), vaults.js (the folder handle kept
+ * before each copy had its own).
  * Uses: mediaStoreRequest.
  * Complexity: O(1).
  */

@@ -239,22 +239,23 @@ async function eraseVaultHere(dir, mediaIds) {
  * reloads into.
  *
  * Used by: this file (askDeleteVault).
- * Uses: knownVaults (vaults.js).
+ * Uses: allVaults and knownVaults (vaults.js), SELECTION_KEY (core.js).
  * Complexity: O(v log v).
  */
 function forgetDeletedVault(dir, message) {
-  const known = knownVaults();
-  const name = Object.keys(known).find(other => known[other].dir === dir);
+  const all = allVaults();
+  const name = Object.keys(all).find(other => all[other].dir === dir);
   if (name !== undefined) {
-    delete known[name];
+    delete all[name];
   }
-  localStorage.setItem("vaults", JSON.stringify(known));
+  localStorage.setItem("vaults", JSON.stringify(all));
+  const known = knownVaults();
   const next = Object.keys(known).filter(other => !known[other].closed)
     .sort((a, b) => (known[b].at || 0) - (known[a].at || 0))[0];
   if (next === undefined) {
-    localStorage.removeItem("vaultSel");
+    localStorage.removeItem(SELECTION_KEY);
   } else {
-    localStorage.setItem("vaultSel", JSON.stringify({ name: next, dir: known[next].dir }));
+    localStorage.setItem(SELECTION_KEY, JSON.stringify({ name: next, dir: known[next].dir }));
   }
   sessionStorage.setItem("vaultDeleted", message);
 }

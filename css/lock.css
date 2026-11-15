@@ -128,7 +128,9 @@
 }
 
 #lock input[type="password"],
-#vault-name {
+#vault-name,
+#setup-owner,
+#setup-repo {
   height: 44px;
   padding: 0 14px;
   border: 1px solid #262626;
@@ -140,18 +142,24 @@
 }
 
 #lock input[type="password"]:hover,
-#vault-name:hover {
+#vault-name:hover,
+#setup-owner:hover,
+#setup-repo:hover {
   border-color: #333;
 }
 
 #lock input[type="password"]:focus,
-#vault-name:focus {
+#vault-name:focus,
+#setup-owner:focus,
+#setup-repo:focus {
   border-color: #5a5a5a;
   box-shadow: none;
 }
 
 #lock input[type="password"]::placeholder,
-#vault-name::placeholder {
+#vault-name::placeholder,
+#setup-owner::placeholder,
+#setup-repo::placeholder {
   color: #5f5f5f;
 }
 
@@ -253,6 +261,20 @@
   }
 }
 
+/* The lock screen's words are labels, not text to copy: a click or a drag
+   over them selects nothing. The fields, and the token help (its config.js
+   line, its links), still do. */
+#lock {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#lock input,
+#token-help {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 #lock small {
   display: block;
   font-size: 12px;
@@ -308,6 +330,43 @@
   display: none;
   flex-direction: column;
   gap: 12px;
+}
+
+/* "Set up a new repository...": a quiet link under the token, like the vault
+   list's "From a file...", opening two names and the download. */
+#setup-repo-btn {
+  align-self: center;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--lock-back);
+  color: #6f6a63;
+  font-size: 12.5px;
+}
+
+#setup-repo-btn:hover,
+#setup-repo-btn[aria-expanded="true"] {
+  background: var(--lock-back);
+  color: #bdb7ad;
+}
+
+#repo-setup {
+  flex-direction: column;
+  gap: 8px;
+}
+
+#setup-download {
+  height: 40px;
+  border: 1px solid #333;
+  border-radius: 8px;
+  background: var(--lock-back);
+  color: #e9e5de;
+  font-size: 13.5px;
+}
+
+#setup-download:hover {
+  border-color: #4a4a4a;
+  background: #111;
 }
 
 /* The language list at the very top centre, the version at the bottom left: both quiet. */
@@ -480,16 +539,17 @@
   color: #8d877e;
 }
 
+/* Like every control on the lock screen, on a dark backing of its own: over the video a bare icon vanished. */
 #vault-list .vp-act {
   flex: none;
   display: grid;
   place-items: center;
   width: 34px;
   padding: 0;
-  border: 1px solid transparent;
+  border: 1px solid #222;
   border-radius: 8px;
-  background: transparent;
-  color: #5f5a54;
+  background: var(--lock-back);
+  color: #8d877e;
 }
 
 #vault-list .vp-act::before,
@@ -510,14 +570,19 @@
   --icon: var(--i-close);
 }
 
+#vault-list .vp-space {
+  border-color: transparent;
+  background: transparent;
+}
+
 #vault-list .vp-space::before {
   content: none;
 }
 
 #vault-list .vp-act:hover {
-  border-color: #2a2a2a;
-  background: var(--lock-back);
-  color: #cfc9c0;
+  border-color: #3a3a3a;
+  background: #111;
+  color: #e9e5de;
 }
 
 /* The name being changed: a field the size of the row it replaces. */

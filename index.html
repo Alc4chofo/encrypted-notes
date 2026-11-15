@@ -65,8 +65,18 @@
         <button id="token-help-btn" type="button" popovertarget="token-help" aria-label="How to get a token" title="How to get a token">?</button>
       </div>
       <small>Paste a fine-grained GitHub token (Settings &rsaquo; Developer settings &rsaquo; Fine-grained
-      tokens) with access to your notes repo only and Contents set to read and write. The password
-      and the token are kept only inside the encrypted vault.</small>
+      tokens) with access to your notes repo only, Contents set to read and write and no expiration
+      date. The password and the token are kept only inside the encrypted vault.</small>
+      <!-- For a vault in a repository of its own: the whole app as one ZIP, its
+           config.js already naming that repository (js/setup.js). -->
+      <button id="setup-repo-btn" type="button" aria-expanded="false" aria-controls="repo-setup">Set up a new repository...</button>
+      <div id="repo-setup" style="display:none">
+        <small>For a vault in a repository of its own: the whole app as one ZIP, its config.js already naming
+        that repository. Unzip it anywhere and open its index.html.</small>
+        <input id="setup-owner" type="text" placeholder="GitHub user name" aria-label="GitHub user name" maxlength="39" autocomplete="off" spellcheck="false">
+        <input id="setup-repo" type="text" placeholder="Repository name" aria-label="Repository name" maxlength="100" autocomplete="off" spellcheck="false">
+        <button id="setup-download" type="button">Download the app (.zip)</button>
+      </div>
     </div>
     <button id="unlock-btn" class="primary"><span id="unlock-label">Unlock</span></button>
     <div class="lock-line"><span id="lock-msg" role="status"></span></div>
@@ -97,28 +107,38 @@
   </form>
   </div>
   <!-- How to get a token, opened by the ? in the token field. A native popover, so
-       Escape or a click outside closes it. The screenshots come from js/help.js. -->
+       Escape or a click outside closes it. The screenshots come from js/help.js.
+       The th-setup steps show while config.js names no repository; th-shared once
+       it does (js/setup.js). -->
   <div id="token-help" popover>
     <div class="th-head">
       <h2>Getting a GitHub token</h2>
       <button class="th-close" type="button" popovertarget="token-help" popovertargetaction="hide" aria-label="Close" title="Close">&times;</button>
     </div>
     <ol class="th-steps">
-      <li>
+      <li class="th-shared" hidden>
+        <h3>Your vaults share one repository</h3>
+        <p>Every vault of this copy of the app syncs to the repository config.js names, each in a folder of its own:</p>
+        <pre id="th-repo" translate="no"></pre>
+        <p>So a new vault needs no new repository and no change to config.js, and a token for that repository works for every vault in it. For a vault in a repository of its own, press "Set up a new repository..." under this form.</p>
+      </li>
+      <li class="th-setup">
         <h3>Create a private repository for your notes</h3>
         <p>Open the new repository page on GitHub. Give it a name, choose "Private" and press "Create repository". Do not fork this app's public repository: a fork of a public repository is public, and the app refuses to sync to a public repository.</p>
         <a href="https://github.com/new" target="_blank" rel="noopener noreferrer" translate="no">github.com/new</a>
         <img data-shot="repo" alt="" loading="lazy">
       </li>
-      <li>
-        <h3>Name it in config.js</h3>
-        <p>Open config.js, next to index.html, write your GitHub user name and the repository's name in it, and reload this page.</p>
+      <li class="th-setup">
+        <h3>Point the app at it</h3>
+        <p>Press "Set up a new repository..." under this form, write your GitHub user name and the repository's name, and unzip the download wherever you like: it is this app, its config.js already naming that repository. Open its index.html.</p>
+        <p>Or open config.js, next to index.html, write the two names in it, and reload this page.</p>
         <pre translate="no">window.NOTES_CONFIG = { owner: "your-name", repo: "my-notes" };</pre>
-        <p>Put the app's files (index.html, config.js and the css and js folders) in that repository too: other devices clone it from there, and app updates come from it.</p>
+        <p>The first Sync then offers to put the app's files in the repository too: other devices clone it from there, and app updates come from it.</p>
       </li>
       <li>
         <h3>Create a fine-grained token</h3>
-        <p>Open the new token page (Settings › Developer settings › Personal access tokens › Fine-grained tokens › Generate new token). GitHub may ask you to confirm it is you first. Give the token a name and an expiration date.</p>
+        <p>Open the new token page (Settings › Developer settings › Personal access tokens › Fine-grained tokens › Generate new token). GitHub may ask you to confirm it is you first. Give the token a name, and under "Expiration" choose "No expiration".</p>
+        <p>GitHub warns about a token that never expires. This one reaches only your notes repository, is kept inside the encrypted vault, and can be revoked on GitHub at any time; with an expiration date, Sync stops on that day until you paste a new token.</p>
         <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer" translate="no">github.com/settings/personal-access-tokens/new</a>
         <img data-shot="token-name" alt="" loading="lazy">
         <p>Under "Repository access", choose "Only select repositories" and pick your notes repository.</p>
@@ -129,7 +149,7 @@
       </li>
       <li>
         <h3>Paste it here</h3>
-        <p>Paste the token into the "GitHub fine-grained token" field. It is kept only inside the encrypted vault. When it expires, Sync says so and lets you paste a new one.</p>
+        <p>Paste the token into the "GitHub fine-grained token" field. It is kept only inside the encrypted vault. If you gave it an expiration date, Sync says so once it expires and lets you paste a new one.</p>
       </li>
     </ol>
   </div>
@@ -317,6 +337,7 @@
 <script src="js/delete-vault.js"></script>
 <script src="js/help.js"></script>
 <script src="js/background.js"></script>
+<script src="js/setup.js"></script>
 <script>
 // Opened without the files beside it (only index.html copied somewhere): say so
 // instead of showing a page that does nothing.

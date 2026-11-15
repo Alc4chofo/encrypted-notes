@@ -23,7 +23,7 @@ let crcTable = null;
  * bytes, then the central directory, then its end record.
  *
  * Used by: updates.js (an app update downloaded as one ZIP when the browser
- * cannot write to the app's folder).
+ * cannot write to the app's folder), setup.js (the app for a new repository).
  * Uses: crc32.
  * Complexity: O(n) in the total size.
  */

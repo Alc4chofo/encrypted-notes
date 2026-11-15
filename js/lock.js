@@ -518,7 +518,7 @@ function syncLockBg() {
 /**
  * The background file the lock screen found and shows, or null: for its line in Settings.
  *
- * Used by: settings.js (openSettings).
+ * Used by: settings.js (openSettings), setup.js (readAppFiles).
  * Uses: nothing.
  * Complexity: O(1).
  */

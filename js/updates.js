@@ -23,8 +23,12 @@
  * collision-proof); that is what the user's own decision and the warnings
  * are for. Nothing here is encrypted: the app's files are public code.
  *
+ * A repository with no app in it (no js/version.js: a vault set up from the
+ * ZIP, say) is offered this copy's files, once per repository on this
+ * device and again from Settings > Check now (setup.js uploads them).
+ *
  * Main functions: appUpdateStep, manualAppUpdate, checkAppUpdate,
- * offerAppUpdate, fetchBuild, buildWarnings, filesOf, appFileAt, treeIds,
+ * offerAppUpdate, offerAppUpload, fetchBuild, buildWarnings, filesOf, appFileAt, treeIds,
  * gitBlobId, appDirHandle, writeBuild, downloadBuild.
  * Auxiliary functions: buildParts, compareBuild, buildOf, loadAppMeta,
  * saveAppMeta, bytesToText, isAppDir.
@@ -49,15 +53,19 @@ const APP_PATH = /^(index\.html|css\/[a-z0-9][a-z0-9-]*\.css|js\/[a-z0-9][a-z0-9
 let appUpdateWritten = null;
 let appUpdateBusy = false;
 
+// Whether the last check found no app in the repository (no js/version.js).
+let appMissingFromRepo = false;
+
 // ---------- Checking for an update ----------
 
 /**
  * The update step of a full Sync, after the notes have synced: offers a
- * newer build if there is one. It never fails the sync: a check that cannot
- * run (offline, rate limited) waits for the next.
+ * newer build if there is one, or this copy's files when the repository has
+ * no app yet. It never fails the sync: a check that cannot run (offline,
+ * rate limited) waits for the next.
  *
  * Used by: media-sync.js (runSync).
- * Uses: checkAppUpdate, offerAppUpdate.
+ * Uses: checkAppUpdate, offerAppUpdate, offerAppUpload.
  * Complexity: that of checkAppUpdate.
  */
 async function appUpdateStep() {
@@ -69,6 +77,8 @@ async function appUpdateStep() {
     const update = await checkAppUpdate(false);
     if (update && vault) {
       await offerAppUpdate(update, false);
+    } else if (appMissingFromRepo && vault) {
+      await offerAppUpload(false);
     }
   } catch {} finally {
     appUpdateBusy = false;
@@ -76,12 +86,13 @@ async function appUpdateStep() {
 }
 
 /**
- * Settings > "Check now": also offers a build declined before, and says when
- * this copy is up to date or why the check failed.
+ * Settings > "Check now": also offers a build declined before, or this
+ * copy's files to a repository with no app yet, and says when this copy is
+ * up to date or why the check failed.
  *
  * Used by: settings.js (openSettings).
  * Uses: status (pagination.js), checkAppUpdate, offerAppUpdate,
- * ERROR_EXPLANATIONS (pagination.js).
+ * offerAppUpload, ERROR_EXPLANATIONS (pagination.js).
  * Complexity: that of checkAppUpdate.
  */
 async function manualAppUpdate() {
@@ -92,6 +103,11 @@ async function manualAppUpdate() {
   status("Checking the repo for a newer app...", false, true);
   try {
     const update = await checkAppUpdate(true);
+    if (!update && appMissingFromRepo) {
+      status("");
+      await offerAppUpload(true);
+      return;
+    }
     if (!update) {
       status(`This copy is up to date (build ${APP_BUILD})`);
       return;
@@ -119,6 +135,7 @@ async function manualAppUpdate() {
 async function checkAppUpdate(manual) {
   const list = await ghApi(`commits?path=${encodeURIComponent(MANIFEST)}&per_page=1`);
   // No js/version.js in the repository.
+  appMissingFromRepo = Array.isArray(list) && !list.length;
   if (!Array.isArray(list) || !list.length) {
     return null;
   }
@@ -252,6 +269,53 @@ async function offerAppUpdate(update, manual) {
     }
   }
   return true;
+}
+
+/**
+ * Offers to put this copy's own files in a repository that has no app yet,
+ * so other devices can clone it and app updates can reach them; puts them
+ * in on yes, in one commit. Asked once per repository on this device, unless
+ * asked by hand. Returns whether they went in.
+ *
+ * Used by: this file (appUpdateStep, manualAppUpdate).
+ * Uses: loadAppMeta, saveAppMeta, showModal (modal.js), status and
+ * ERROR_EXPLANATIONS (pagination.js), putAppInRepo (setup.js), OWNER, REPO
+ * and VAULT_REPO (core.js), t (i18n.js).
+ * Complexity: that of putAppInRepo.
+ */
+async function offerAppUpload(manual) {
+  const meta = loadAppMeta();
+  const asked = Array.isArray(meta.uploadAsked) ? meta.uploadAsked : [];
+  if (!manual && asked.includes(VAULT_REPO)) {
+    return false;
+  }
+  saveAppMeta({ ...meta, uploadAsked: [...new Set([...asked, VAULT_REPO])] });
+  const choice = await showModal({
+    title: "Put the app in your repository?",
+    // Translated sentence by sentence, as the update question.
+    body: t("{0} holds your notes but not the app.", `${OWNER}/${REPO}`) + "\n\n" +
+      t("Put this copy's files in it (index.html, config.js, the css and js folders and the videos), in one commit? " +
+        "Other devices can then clone the repository to get the app, and app updates reach them through Sync. " +
+        "None of these files holds your notes."),
+    choices: [
+      { id: "upload", label: "Put the app in the repo" },
+      { id: "skip", label: "Not now" },
+    ],
+    defaultId: "skip",
+  });
+  if (choice !== "upload") {
+    return false;
+  }
+  status("Putting the app in the repo...", false, true);
+  try {
+    const count = await putAppInRepo();
+    appMissingFromRepo = false;
+    status(`The app is in the repo now (${count} files)`);
+    return true;
+  } catch (error) {
+    status("Could not put the app in the repo: " + (error.guard ? ERROR_EXPLANATIONS[error.guard] : error.message), true);
+    return false;
+  }
 }
 
 /**
@@ -431,8 +495,8 @@ async function gitBlobId(bytes) {
  * folder; a different one chosen for backups is left as it is.
  *
  * Used by: this file (offerAppUpdate).
- * Uses: appFolderInfo and startInFor (backups.js), idbGet and idbPut
- * (vault.js), isAppDir, alertModal (modal.js).
+ * Uses: appFolderInfo and startInFor (backups.js), storedAppDir (vaults.js),
+ * idbPut (vault.js), isAppDir, alertModal (modal.js).
  * Complexity: O(1), besides the picker.
  */
 async function appDirHandle() {
@@ -441,11 +505,7 @@ async function appDirHandle() {
   }
   const app = appFolderInfo();
   const page = app ? app.file : "index.html";
-  let saved = null;
-  try {
-    const record = await idbGet("__notesDir__");
-    saved = (record && record.bytes) || null;
-  } catch {}
+  const saved = await storedAppDir();
   try {
     if (saved && (await saved.queryPermission({ mode: "readwrite" }) === "granted" ||
         await saved.requestPermission({ mode: "readwrite" }) === "granted") && await isAppDir(saved, page)) {
@@ -459,7 +519,7 @@ async function appDirHandle() {
     }
     if (!saved) {
       try {
-        await idbPut("__notesDir__", handle);
+        await idbPut(APP_DIR_KEY, handle);
       } catch {}
     }
     return handle;

@@ -15,7 +15,7 @@
 
 // Bumped with every change to any app file: "YYYY-MM-DD.N", N counting that
 // day's builds from 1. Sync compares it with the repo's copy to offer updates.
-const APP_BUILD = "2026-11-15.2";
+const APP_BUILD = "2026-11-15.3";
 
 // The version people see, at the bottom left of the lock screen. It changes
 // only when the owner says which version a change is.
@@ -68,5 +68,6 @@ const APP_FILES = [
   "js/lock.js",
   "js/delete-vault.js",
   "js/help.js",
-  "js/background.js"
+  "js/background.js",
+  "js/setup.js"
 ];

@@ -14,6 +14,11 @@
  * moving it puts every file it owns under "Main/", in the repository, in
  * this browser and in the app folder.
  *
+ * Copies of the app opened from files share this browser's storage. Each
+ * vault on the list belongs to the repository of the copy that made it,
+ * and a copy lists only its own; names and folders stay unique across all
+ * of them, since a vault's values here are kept by its folder.
+ *
  * Main functions: knownVaults, rememberVault, selectVault, renameVault,
  * closeVault, reopenVault, defaultVaultName, resetVaultState,
  * vaultNameProblem, scanVaults, saveVaultFiles, inVaultFolder,
@@ -21,7 +26,8 @@
  * moveVaultToFolder, moveRepoVault, moveRepoVaultOnce, moveDiskVault,
  * offerVaultMove.
  * Auxiliary functions: setVaultClosed, legacyVaultHere, formatWhen,
- * grantedAppDir, vaultFolder, writeDirFile, vaultWrapper, vaultMediaDir.
+ * grantedAppDir, vaultFolder, writeDirFile, vaultWrapper, vaultMediaDir,
+ * allVaults, storedAppDir.
  *
  * Complexity: a save writes two files; moving a vault is one commit in the
  * repository (no file uploaded again) and one copy per file on disk.
@@ -38,41 +44,44 @@ const VAULT_KEYS = ["vault", "vault.prev", "vault.prevAt", "syncMeta", "pullBann
 // ---------- Which vaults there are ----------
 
 /**
- * The vaults this device knows, each with its folder, when it last changed
- * and whether it was closed (taken off the list): { name: { dir, at, closed } }.
- * A vault is known by its folder: renaming one changes only the name it is
- * listed under. Plain localStorage: names and times, nothing from inside a vault.
+ * The vaults this copy of the app lists, each with its folder, when it last
+ * changed, whether it was closed (taken off the list) and the repository it
+ * belongs to: { name: { dir, at, closed, repo } }. A vault is known by its
+ * folder: renaming one changes only the name it is listed under. Copies for
+ * other repositories share the list in this browser, so only this copy's
+ * vaults come back (its repository's, or ones no copy has claimed yet).
+ * Plain localStorage: names, times and repository names, nothing from
+ * inside a vault.
  *
  * Used by: this file (rememberVault, vaultNameProblem), lock.js
  * (renderVaultLine, renderVaultList, and the vault being made),
  * delete-vault.js (taking a deleted vault off the list).
- * Uses: nothing.
+ * Uses: allVaults, VAULT_REPO (core.js).
  * Complexity: O(v) in the vaults.
  */
 function knownVaults() {
-  try {
-    const known = JSON.parse(localStorage.getItem("vaults"));
-    if (known && typeof known === "object") {
-      return known;
-    }
-  } catch {}
-  return {};
+  return Object.fromEntries(Object.entries(allVaults())
+    .filter(([, entry]) => !entry.repo || entry.repo === VAULT_REPO));
 }
 
 /**
  * Remembers a vault, its folder and when it last changed (never moving that
  * time backwards). A folder already on the list keeps the name it is listed
- * under (it may have been renamed), and a closed one stays closed.
+ * under (it may have been renamed), and a closed one stays closed. A vault
+ * new to the list belongs to this copy's repository.
  *
  * Used by: this file (selectVault, scanVaults), lock.js (on load), vault.js (persistLocal).
- * Uses: knownVaults.
+ * Uses: allVaults, REPO_UNSET (sync.js), VAULT_REPO (core.js).
  * Complexity: O(v).
  */
 function rememberVault(name, dir, at) {
-  const known = knownVaults();
+  const known = allVaults();
   const listedAs = Object.keys(known).find(other => known[other].dir === dir) || name;
   const before = known[listedAs] || {};
   known[listedAs] = { ...before, dir, at: Math.max(+at || 0, before.at || 0) };
+  if (!known[listedAs].repo && !REPO_UNSET) {
+    known[listedAs].repo = VAULT_REPO;
+  }
   localStorage.setItem("vaults", JSON.stringify(known));
 }
 
@@ -81,12 +90,12 @@ function rememberVault(name, dir, at) {
  * value kept per vault (its sync bookkeeping, its backups) is then read fresh.
  *
  * Used by: this file (moveVaultToFolder), lock.js (renderVaultList, and on load).
- * Uses: rememberVault.
+ * Uses: rememberVault, SELECTION_KEY (core.js).
  * Complexity: O(v).
  */
 function selectVault(name, dir) {
   selectedVault = { name, dir };
-  localStorage.setItem("vaultSel", JSON.stringify(selectedVault));
+  localStorage.setItem(SELECTION_KEY, JSON.stringify(selectedVault));
   rememberVault(name, dir, 0);
 }
 
@@ -97,7 +106,7 @@ function selectVault(name, dir) {
  * the new name, or null once it is renamed.
  *
  * Used by: lock.js (renaming in the vault list).
- * Uses: knownVaults, vaultNameProblem.
+ * Uses: allVaults, vaultNameProblem, SELECTION_KEY (core.js).
  * Complexity: O(v).
  */
 function renameVault(dir, newName) {
@@ -106,7 +115,7 @@ function renameVault(dir, newName) {
   if (problem) {
     return problem;
   }
-  const known = knownVaults();
+  const known = allVaults();
   const oldName = Object.keys(known).find(other => known[other].dir === dir);
   if (oldName === undefined || oldName === name) {
     return null;
@@ -116,7 +125,7 @@ function renameVault(dir, newName) {
   localStorage.setItem("vaults", JSON.stringify(known));
   if (selectedVault && selectedVault.dir === dir) {
     selectedVault = { name, dir };
-    localStorage.setItem("vaultSel", JSON.stringify(selectedVault));
+    localStorage.setItem(SELECTION_KEY, JSON.stringify(selectedVault));
   }
   return null;
 }
@@ -183,11 +192,13 @@ function resetVaultState() {
  * digits, spaces and . _ -, starting with a letter or digit, not ending in a
  * dot or space, not a reserved DOS name, not one of the app's own folders
  * (css, js, media), not "Main" while the old vault is still here, and not a
- * name or a folder already in use. When the vault in renamingDir is being
- * renamed, only the other vaults' names count (its folder keeps its name).
+ * name or a folder already in use, here or by another copy of the app in
+ * this browser (they share its storage, where a vault's values are kept by
+ * its folder). When the vault in renamingDir is being renamed, only the
+ * other vaults' names count (its folder keeps its name).
  *
  * Used by: this file (renameVault, defaultVaultName), lock.js (making a vault, on load).
- * Uses: LEGACY_VAULT (core.js), legacyVaultHere, knownVaults.
+ * Uses: LEGACY_VAULT and VAULT_REPO (core.js), legacyVaultHere, allVaults.
  * Complexity: O(v).
  */
 function vaultNameProblem(name, renamingDir) {
@@ -202,14 +213,15 @@ function vaultNameProblem(name, renamingDir) {
   if (lower === LEGACY_VAULT.toLowerCase() && legacyVaultHere()) {
     return "\"Main\" is kept for the vault that is already here.";
   }
-  const known = knownVaults();
+  const known = allVaults();
   const others = Object.keys(known).filter(other => renamingDir === undefined || known[other].dir !== renamingDir);
-  const folderTaken = renamingDir === undefined &&
-    others.some(other => (known[other].dir || "").toLowerCase() === lower);
-  if (folderTaken || others.some(other => other.toLowerCase() === lower)) {
-    return "There is already a vault with that name.";
+  const clash = others.find(other => other.toLowerCase() === lower ||
+    (renamingDir === undefined && (known[other].dir || "").toLowerCase() === lower));
+  if (clash === undefined) {
+    return null;
   }
-  return null;
+  return !known[clash].repo || known[clash].repo === VAULT_REPO ? "There is already a vault with that name."
+    : "That name is taken by a vault of another copy of the app in this browser.";
 }
 
 /**
@@ -302,14 +314,14 @@ async function inVaultFolder(root) {
  *
  * Used by: lock.js (unlocking, on load), delete-vault.js (before erasing a
  * vault's folder).
- * Uses: idbGet (vault.js).
+ * Uses: storedAppDir.
  * Complexity: O(1).
  */
 async function askAppDirAccess() {
   try {
-    const record = await idbGet("__notesDir__");
-    if (record && record.bytes) {
-      await record.bytes.requestPermission({ mode: "readwrite" });
+    const handle = await storedAppDir();
+    if (handle) {
+      await handle.requestPermission({ mode: "readwrite" });
     }
   } catch {}
 }
@@ -583,11 +595,38 @@ async function offerVaultMove() {
   }
 }
 
+// ---------- On load ----------
+
+// The vaults listed before each belonged to a repository go to the first
+// copy with a repository that opens (the device's own copy, in practice).
+if (!REPO_UNSET) {
+  const all = allVaults();
+  const unclaimed = Object.values(all).filter(entry => !entry.repo);
+  for (const entry of unclaimed) {
+    entry.repo = VAULT_REPO;
+  }
+  if (unclaimed.length) {
+    localStorage.setItem("vaults", JSON.stringify(all));
+  }
+}
+// A selection of another copy's vault is not this copy's; the selection
+// kept before each copy had its own becomes this copy's.
+if (selectedVault && !Object.values(knownVaults()).some(entry => entry.dir === selectedVault.dir) &&
+    Object.values(allVaults()).some(entry => entry.dir === selectedVault.dir)) {
+  selectedVault = null;
+}
+if (localStorage.getItem("vaultSel") !== null) {
+  if (selectedVault && localStorage.getItem(SELECTION_KEY) === null) {
+    localStorage.setItem(SELECTION_KEY, JSON.stringify(selectedVault));
+  }
+  localStorage.removeItem("vaultSel");
+}
+
 // =================== Auxiliary functions ===================
 
 /** Marks the vault in this folder as closed (off the list) or open. Complexity: O(v). */
 function setVaultClosed(dir, closed) {
-  const known = knownVaults();
+  const known = allVaults();
   const name = Object.keys(known).find(other => known[other].dir === dir);
   if (name === undefined) {
     return;
@@ -616,8 +655,7 @@ async function grantedAppDir() {
     return null;
   }
   try {
-    const record = await idbGet("__notesDir__");
-    const handle = record && record.bytes;
+    const handle = await storedAppDir();
     return handle && await handle.queryPermission({ mode: "readwrite" }) === "granted" ? handle : null;
   } catch {
     return null;
@@ -657,4 +695,39 @@ async function vaultMediaDir() {
   } catch {
     return null;
   }
+}
+
+/** Every vault listed in this browser, by any copy of the app: { name: { dir, at, closed, repo } }. O(v). */
+function allVaults() {
+  try {
+    const known = JSON.parse(localStorage.getItem("vaults"));
+    if (known && typeof known === "object") {
+      return known;
+    }
+  } catch {}
+  return {};
+}
+
+/**
+ * This copy's app folder as stored (a directory handle), or null. Copies
+ * opened from files share IndexedDB, so each keeps its folder under its own
+ * path (APP_DIR_KEY). The one handle kept before that cannot say whose
+ * folder it was: the first copy that asks takes it (the device's own copy,
+ * in practice), and any other copy then picks its folder again.
+ * Complexity: O(1).
+ */
+async function storedAppDir() {
+  try {
+    const record = await idbGet(APP_DIR_KEY);
+    if (record && record.bytes) {
+      return record.bytes;
+    }
+    const old = await idbGet("__notesDir__");
+    if (old && old.bytes) {
+      await idbPut(APP_DIR_KEY, old.bytes);
+      await idbDelete("__notesDir__");
+      return old.bytes;
+    }
+  } catch {}
+  return null;
 }

@@ -58,7 +58,7 @@ let repoCheck = null;
  * repository was made private).
  *
  * Used by: this file (gh, ghRaw, ghApi, ghGit), vaults.js (moveRepoVaultOnce),
- * delete-vault.js (deleteRepoVaultOnce).
+ * delete-vault.js (deleteRepoVaultOnce), setup.js (putAppInRepo).
  * Uses: REPO_UNSET, ghError.
  * Complexity: one request per token.
  */
@@ -164,7 +164,8 @@ async function ghApi(sub) {
  * moving a vault's files into its folder is one commit that reuses every
  * file as it is.
  *
- * Used by: vaults.js (moveRepoVaultOnce), delete-vault.js (deleteRepoVaultOnce).
+ * Used by: vaults.js (moveRepoVaultOnce), delete-vault.js (deleteRepoVaultOnce),
+ * setup.js (putAppInRepo).
  * Uses: ensurePrivateRepo, repoApiUrl (core.js), ghError.
  * Complexity: one request.
  */

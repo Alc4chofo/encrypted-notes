@@ -52,7 +52,7 @@ let endBackgroundWait = null;
  * 2, and so on, stopping at the first number with no video (so they must be
  * numbered without a gap). Returns the list, also kept in appBackgrounds.
  *
- * Used by: this file (on load, showAppBackground).
+ * Used by: this file (on load, showAppBackground), setup.js (readAppFiles).
  * Uses: videoExists.
  * Complexity: one header read per video found, and two failed reads at the
  * end (they show as "not found" lines in the console, like any missing file).

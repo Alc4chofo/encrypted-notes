@@ -152,11 +152,11 @@ Where the browser can write to the app's folder (Chrome and Edge, once you have 
 | `localStorage` | `authGuard` | the failed-attempt counter (section 5) |
 | `localStorage` | `settings` | `{"autoLockMin", "weeklyDays", "monthlyDays"}`: the auto-lock delay (section 5) and how old each backup may get before unlock asks to update it. Per device, not synced |
 | `localStorage` | `backupMeta`, `pullBanner`, UI preferences | timestamps, counts, colours, which sections are collapsed |
-| `localStorage` | `appUpdate` | `{"commit", "build", "declined"}`: the last commit of `js/version.js` this device looked at, the build it names, and a version you declined (section 6). Per device, not synced |
-| `localStorage` | `vaults`, `vaultSel` | the vaults this device knows, `{name: {dir, at, closed}}`, and the one it opens: names, times and whether a vault was closed (taken off the list), in plaintext, nothing from inside a vault. A vault is known by its folder (`dir`); renaming one changes only its name here |
+| `localStorage` | `appUpdate` | `{"commit", "build", "declined", "uploadAsked"}`: the last commit of `js/version.js` this device looked at, the build it names, a version you declined, and the repos already offered this copy's files (section 6). Per device, not synced |
+| `localStorage` | `vaults`, `vaultSel:<owner>/<repo>` | the vaults this device knows, `{name: {dir, at, closed, repo}}`, and the one each copy of the app opens: names, times, whether a vault was closed (taken off the list) and the repo of the copy that made it, in plaintext, nothing from inside a vault. A vault is known by its folder (`dir`); renaming one changes only its name here. Copies opened from files share this storage (the browser counts every file as one site), so each lists only its own repo's vaults (`knownVaults`), while names and folders stay unique across all of them (`vaultNameProblem`, `allVaults`), since a vault's own values are kept by its folder |
 | `localStorage` | `lang` | the interface language (`en`, `de` or `es`). Per device, not synced |
 | IndexedDB `notes-media` | `<uuid>` | encrypted attachment records `{id, bytes: iv \|\| ciphertext \|\| tag}` |
-| IndexedDB `notes-media` | `__authGuard__`, `__notesDir__` | the second copy of the attempt counter, and the folder handle backups (and app updates) are written to |
+| IndexedDB `notes-media` | `__authGuard__`, `__notesDir__:<path>` | the second copy of the attempt counter, and the folder handle backups (and app updates) are written to, one per copy of the app, under the path its `index.html` was opened from (`APP_DIR_KEY`, `storedAppDir`) |
 
 The keys that belong to one vault (`vault`, `vault.prev`, `vault.prevAt`, `syncMeta`, `pullBanner`, `backupMeta`) carry its folder's name for a vault in a folder (`vault@Work`, `syncMeta@Work` and so on, `vaultStorageKey`), so two vaults on one device never share a copy or any bookkeeping.
 
@@ -213,6 +213,10 @@ Every path a sync reads or writes is inside the selected vault's folder (`vaultP
 Copies from before the app was split into files (build 2026-11-03.4 and older) look for `APP_BUILD` in `index.html`, find none in the new one, and so never offer it: they need one update by hand.
 
 A failed check (offline, rate limited) is silent and never fails the sync; the next one tries again.
+
+**Putting the app in the repo** (`offerAppUpload`, `putAppInRepo`). When step 1 finds no commit of `js/version.js` (a repo set up from the ZIP below, say), the Sync asks once per repo on this device, and again from **Settings > Check now**, whether to put this copy's own files there: every file in `APP_FILES`, `config.js`, and the videos found next to `index.html` (`readAppFiles`). They are read with `fetch` when the page is served, or from the app's folder through the File System Access API when it is opened from a file. Each goes up as a blob (`POST git/blobs`); then one tree on top of the branch's, one commit ("The app") and a fast-forward of the branch, tried again if the branch moved in between; every request behind `ensurePrivateRepo`. None of these files holds anything of a vault.
+
+**A copy for a new repo** (`downloadSetupZip`, `js/setup.js`). **Set up a new repository...** on the lock screen puts the same files into one ZIP (`zipBlob`, stored, not compressed), in a folder named after the repo, with a `config.js` written for that repo and a `Start here.txt` with the steps. It is built in the page and handed to the browser's downloads; nothing is sent anywhere.
 
 ## 7. How long would guessing your password take?
 

@@ -87,6 +87,14 @@ const CONFIG = window.NOTES_CONFIG || {};
 const OWNER = String(CONFIG.owner || "YOUR_GITHUB_USER");
 const REPO = String(CONFIG.repo || "YOUR_PRIVATE_REPO");
 
+// Every copy of the app opened from a file shares this browser's storage (it
+// counts all files as one site), so each copy keeps its own: the vault it
+// opens under its repository's name, its folder under its own path. A vault
+// belongs to the repository of the copy that made it (see vaults.js).
+const VAULT_REPO = (OWNER + "/" + REPO).toLowerCase();
+const SELECTION_KEY = "vaultSel:" + VAULT_REPO;
+const APP_DIR_KEY = "__notesDir__:" + decodeURIComponent(location.pathname).replace(/[^/]*$/, "");
+
 const FILE = "vault.enc";
 const WRAPPER = "vault.enc.js";
 
@@ -212,7 +220,8 @@ try {
  * Reads which vault this device opens: { name, dir }, from localStorage. On
  * the first run of the folders version on a device that already had a vault,
  * that vault is the old top-level one, "Main" with dir "". With no vault at
- * all it returns null, and the lock screen offers to make one.
+ * all it returns null, and the lock screen offers to make one. It is this
+ * copy's selection, or the one kept before each copy had its own.
  *
  * Used by: this file, once while it loads, to set selectedVault.
  * Uses: nothing but localStorage.
@@ -220,7 +229,7 @@ try {
  */
 function readSelectedVault() {
   try {
-    const stored = JSON.parse(localStorage.getItem("vaultSel"));
+    const stored = JSON.parse(localStorage.getItem(SELECTION_KEY) || localStorage.getItem("vaultSel"));
     if (stored && typeof stored.name === "string" && typeof stored.dir === "string") {
       return stored;
     }

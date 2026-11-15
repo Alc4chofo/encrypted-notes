@@ -330,19 +330,15 @@ refreshLockBackupRow();
  * the folder just chosen is still used for this write.
  *
  * Used by: this file (updateBackup, converting a backup), lock.js (on load),
- * vaults.js (offerVaultMove, scanVaults).
- * Uses: idbGet and idbPut (vault.js), appFolderInfo, startInFor, dirHasFile, confirmModal (modal.js).
+ * vaults.js (offerVaultMove, scanVaults), setup.js (readAppFiles).
+ * Uses: storedAppDir (vaults.js), idbPut (vault.js), appFolderInfo, startInFor, dirHasFile, confirmModal (modal.js).
  * Complexity: O(1), besides the picker.
  */
 async function notesDirHandle() {
   if (!("showDirectoryPicker" in window)) {
     return null;
   }
-  let handle = null;
-  try {
-    const record = await idbGet("__notesDir__");
-    handle = (record && record.bytes) || null;
-  } catch {}
+  let handle = await storedAppDir();
   const app = appFolderInfo();
   try {
     if (handle) {
@@ -366,7 +362,7 @@ async function notesDirHandle() {
       }
     }
     try {
-      await idbPut("__notesDir__", handle);
+      await idbPut(APP_DIR_KEY, handle);
     } catch {}
     return handle;
   } catch {

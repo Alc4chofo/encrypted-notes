@@ -9,7 +9,7 @@ This repo holds the app only. It never contains anyone's notes, and nobody can s
 ## Setting it up
 
 1. Create a new **private** GitHub repo for your vault, for example `notes`. Do not fork this one: GitHub makes forks of public repos public, and the app refuses to sync to a public repo.
-2. Copy the app into it: `index.html`, `config.js` and the `css` and `js` folders. Then set your repo in `config.js`, the one file you edit:
+2. Point the app at it. The easy way: open `index.html`, press **New vault**, then **Set up a new repository...** under the form, write your GitHub user name and the repo's name, and press **Download the app (.zip)**. The ZIP is the whole app, its `config.js` already naming that repo, with a short `Start here.txt`; unzip it wherever you like and open its `index.html`. Or set the repo in `config.js` yourself, the one file you edit:
 
    ```js
    window.NOTES_CONFIG = { owner: "YOUR_GITHUB_USER", repo: "YOUR_PRIVATE_REPO" };
@@ -17,9 +17,14 @@ This repo holds the app only. It never contains anyone's notes, and nobody can s
 
    Just the names, not a link: `owner` is your GitHub user name and `repo` the private repo's name.
 
-3. Create a fine-grained token (GitHub Settings > Developer settings > Fine-grained tokens) with access to **that repo only** and the permission **Contents: read and write**. The **?** in the lock screen's token field shows these steps with screenshots of GitHub's pages.
+
+3. Create a fine-grained token (GitHub Settings > Developer settings > Fine-grained tokens) with access to **that repo only**, the permission **Contents: read and write**, and **Expiration: No expiration**. GitHub warns about tokens that never expire; this one reaches only that repo, is kept inside the encrypted vault and can be revoked on GitHub at any time, while one with an expiration date stops Sync on that day until you paste a new one. The **?** in the lock screen's token field shows these steps with screenshots of GitHub's pages.
 4. Open `index.html` (a double click is enough). On first run, name your vault, choose a master password (a strength meter shows a rough cracking time as you type), confirm it, and paste the token. The token is stored inside the encrypted vault, never in plain text. The vault gets a folder of its own next to `index.html`, named after it (Chrome and Edge ask once for access to the app's folder), and syncs to the same folder in your repo.
 5. Write notes. They autosave; **Save** or Ctrl+S forces a save. **Sync** (bottom left) merges with the repo, and **Lock** (Ctrl+L) forgets the decrypted vault until you type the password again.
+
+Your first Sync to a repo with no app in it offers to put this copy's files there too (`index.html`, `config.js`, the `css` and `js` folders and the videos, in one commit), so other devices can clone the repo and app updates can reach them.
+
+Every vault of one copy of the app syncs to the same repo, each in a folder of its own: a second vault needs no new repo and no change to `config.js`. For a vault in a repo of its own, use **Set up a new repository...** and open the copy it gives you. Copies opened from files share the browser's storage, so each copy lists only its own repo's vaults and keeps its own folder.
 
 On another computer, clone your private repo, open `index.html`, press **Other vault** and pick your vault: only the master password is needed. Chrome and Edge ask once for access to the app's folder to list its vaults; in other browsers, open the vault's `vault.enc.js` with **From a file...** and give it the same name.
 
