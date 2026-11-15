@@ -687,7 +687,8 @@ function canonicalJson(value) {
  * is added only when it is a number, so a note never reordered gives the same
  * key on a device upgraded and one not yet (no mass fork on the first sync
  * across versions). bodyV is left out: it always travels with an HTML body,
- * and the body covers the content. Complexity: O(s).
+ * and the body covers the content. A protected note's sealed text (its lock)
+ * counts as its body. Complexity: O(s).
  */
 function noteKey(note) {
   if (!note) {
@@ -698,13 +699,17 @@ function noteKey(note) {
   if (typeof note.order === "number") {
     base.push(note.order);
   }
+  if (note.lock) {
+    base.push(["lock", note.lock.data]);
+  }
   return canonicalJson(base);
 }
 
 /** noteKey without order: tells "the two differ only in order". Complexity: O(s). */
 function contentKey(note) {
   return note ? canonicalJson([note.title || "", note.body || "", note.color || null, note.folderId || null,
-    (note.media || []).map(item => [item.id, item.mime, item.name, item.size])]) : "";
+    (note.media || []).map(item => [item.id, item.mime, item.name, item.size]),
+    ...(note.lock ? [["lock", note.lock.data]] : [])]) : "";
 }
 
 /**
@@ -714,7 +719,8 @@ function contentKey(note) {
  */
 function textKey(note) {
   return note ? canonicalJson([note.title || "", note.body || "",
-    (note.media || []).map(item => [item.id, item.mime, item.name, item.size])]) : "";
+    (note.media || []).map(item => [item.id, item.mime, item.name, item.size]),
+    ...(note.lock ? [["lock", note.lock.data]] : [])]) : "";
 }
 
 /**

@@ -318,6 +318,8 @@ async function lockApp(force) {
   refreshLockBackupRow();
 
   vault = null;
+  // The protected notes' keys, once the last save no longer needs them.
+  forgetProtection();
   vaultKey = null;
   vaultSalt = null;
   vaultKeyIterations = PBKDF2_ITERATIONS;

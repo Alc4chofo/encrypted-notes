@@ -216,6 +216,15 @@
   white-space: nowrap;
 }
 
+/* A protected note or folder: a small lock after its name, a shade brighter than the count. */
+.lock-mark {
+  flex: none;
+  align-self: center;
+  width: 12px;
+  height: 12px;
+  color: var(--t2);
+}
+
 /* The note count is metadata: small, tabular, faint. */
 .folder-count {
   flex: none;

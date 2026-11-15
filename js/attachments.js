@@ -632,12 +632,12 @@ const TILE_NOTE = {
  * thumbnail; every other kind is a tile that decrypts when clicked. Drawing
  * again makes every decrypt still on its way stale.
  *
- * Used by: this file (addMedia, removeAttachment), pagination.js (openNote,
- * openTrash), notes.js (purgeTrashCore, trashNote), history.js
- * (applyDesignToNote, reloadNoteInPlace, resetNoteLayout,
- * restoreSplitSnapshot), designs.js (applyDesign), media-sync.js
- * (overwriteRemote, syncOnce), merge.js (applyMerge), panel.js
- * (restorePrev), lock.js (on load).
+ * Used by: this file (addMedia, removeAttachment), pagination.js (openNote, *
+ * openTrash), notes.js (purgeTrashCore, trashNote), history.js *
+ * (applyDesignToNote, reloadNoteInPlace, resetNoteLayout, *
+ * restoreSplitSnapshot), designs.js (applyDesign), media-sync.js *
+ * (overwriteRemote, syncOnce), merge.js (applyMerge), panel.js *
+ * (restorePrev), lock.js (on load), protect.js (closing a protected note).
  * Uses: mediaCtx, makeTile, idbKeys, isAllowedMediaType and kindForMime (vault.js), queueThumb.
  * Complexity: O(m) in the attachments, plus one AES-GCM decrypt per picture.
  */

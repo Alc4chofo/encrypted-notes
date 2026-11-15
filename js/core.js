@@ -129,6 +129,7 @@ let selectedVault = readSelectedVault();
 // { v: 2, token, savedAt,
 //   notes:   { id: { title, body, color, folderId, mtime, media: [{ id, mime, name, size }] } },
 //   folders: { id: { name, color, mtime } },
+//   (a note or folder with a password of its own also has a lock: see protect.js)
 //   trash:   { id: { data: <the whole note>, deletedAt } },
 //   purged:  { id: purgedAtMs } }   tombstones for permanent deletions, of notes and of attachments
 let vault = null;
@@ -245,7 +246,8 @@ function readSelectedVault() {
  * Stores which folders are folded, as a list of folder ids.
  *
  * Used by: sidebar.js (folding a folder, dragging, revealing a note's folder),
- * notes.js (deleting a folder).
+ * * notes.js (deleting a folder), protect.js (unfolding and protecting a
+ * folder).
  * Uses: nothing but localStorage.
  * Complexity: O(f) in the number of folded folders.
  */
@@ -279,8 +281,9 @@ function saveSyncMeta() {
  * random salt. The key it returns is non-extractable: page code can encrypt
  * and decrypt with it, but can never read its bytes.
  *
- * Used by: openVault (every time a sealed blob is opened), and lock.js (the
- * unlock form: a brand-new vault, and the upgrade of an older blob).
+ * Used by: openVault (every time a sealed blob is opened), and lock.js (the *
+ * unlock form: a brand-new vault, and the upgrade of an older blob),
+ * protect.js (a note's or folder's own password).
  * Uses: textToBytes.
  * Complexity: O(iterations), and slow on purpose: at 1,200,000 rounds about
  * 0.6 s in Chrome on a fast desktop, several seconds on a phone. Anyone who
@@ -308,15 +311,18 @@ async function deriveKey(password, saltBytes, iterations) {
  *
  * The outer shape never changes. `iter` is the round count this key was really
  * derived with (vaultKeyIterations), so the blob can always be opened again.
+ * A protected note open in the page goes in with its text sealed again under
+ * its own key (storedForm), never as plain text.
  *
  * Used by: sealVault, and media-sync.js (Sync seals the merged vault it pushes,
  * which is not always the open one).
- * Uses: textToBytes, toBase64.
+ * Uses: storedForm (protect.js), textToBytes, toBase64.
  * Complexity: O(n) in the size of the JSON: about 20 ms for a 500 KB vault,
  * JSON and base64 included (AES-GCM alone is under 1 ms). It derives nothing:
  * the key is already in memory.
  */
 async function sealObject(object) {
+  object = await storedForm(object);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const data = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, vaultKey, textToBytes(JSON.stringify(object)));
 

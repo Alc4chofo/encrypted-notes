@@ -523,8 +523,9 @@ $("sheets").addEventListener("focusin", event => {
  * Empties the editor: decrypts still on their way are cancelled and the
  * baseline is reset, so the next note opened starts clean.
  *
- * Used by: notes.js (purgeTrashCore, trashNote), merge.js (applyMerge),
- * panel.js (restorePrev), settings.js (lockApp).
+ * Used by: notes.js (purgeTrashCore, trashNote), merge.js (applyMerge), *
+ * panel.js (restorePrev), settings.js (lockApp), protect.js (closing a
+ * protected note).
  * Uses: updateEditorEmpty (lines.js).
  * Complexity: O(1).
  */
@@ -544,10 +545,11 @@ function clearEditor() {
  * undo and pending-change state start fresh for this note. A note in a
  * collapsed folder is revealed, folders above it included.
  *
- * Used by: attachments.js (ensureNoteForMedia), content.js (duplicateNote,
- * makePagedAndShow), designs.js (applyDesign, applyPreset, designItems,
- * importDesign, newDesign), events.js (newNote), notes.js (noteMenu,
- * restoreFromTrash), panel.js (renderDetail), sidebar.js (noteRow, renderUnsynced).
+ * Used by: attachments.js (ensureNoteForMedia), content.js (duplicateNote, *
+ * makePagedAndShow), designs.js (applyDesign, applyPreset, designItems, *
+ * importDesign, newDesign), events.js (newNote), notes.js (noteMenu, *
+ * restoreFromTrash), panel.js (renderDetail), sidebar.js (noteRow,
+ * renderUnsynced), protect.js (opening a note once its password is right).
  * Uses: exitSplit (split.js), revokeAllMediaUrls (vault.js), isPaged,
  * activeBody and renderPageTabs (content.js), renderSheets and setEditorBody
  * (lines.js), revealFolder and renderList (sidebar.js), applyReadonly,
@@ -555,7 +557,7 @@ function clearEditor() {
  * Complexity: O(n) in the note's content.
  */
 function openNote(id) {
-  if (!vault.notes[id]) {
+  if (!vault.notes[id] || protectGate(id)) {
     return;
   }
   exitSplit(true);
@@ -563,6 +565,8 @@ function openNote(id) {
   // Leaving the read-only trash view.
   trashViewId = null;
   currentId = id;
+  // A protected note left behind is sealed again.
+  relockNotes(id);
   currentPage = 0;
   historyTypingMarked = false;
   structureDirty = false;
@@ -610,9 +614,13 @@ function openTrash(id) {
   exitSplit(true);
   revokeAllMediaUrls();
   currentId = null;
+  relockNotes(null);
   currentPage = 0;
   trashViewId = id;
   const snapshot = vault.trash[id].data || {};
+  if (snapshot.lock && !snapshot.unsealed) {
+    status("This note is protected: restore it, then open it with its password");
+  }
   $("title").value = snapshot.title || "";
   if (isPaged(snapshot)) {
     renderSheets();
@@ -752,10 +760,10 @@ function saveCurrent() {
  * before anything reads or changes the note, so keys typed a moment ago are
  * in it.
  *
- * Used by: this file (openTrash) and most scripts that change notes:
- * attachments.js, backups.js, content.js, designs.js, events.js, history.js,
- * media-sync.js, notes.js, panel.js, pdf.js, settings.js, sidebar.js,
- * split.js, toolbar.js, updates.js.
+ * Used by: this file (openTrash) and most scripts that change notes: *
+ * attachments.js, backups.js, content.js, designs.js, events.js, history.js, *
+ * media-sync.js, notes.js, panel.js, pdf.js, settings.js, sidebar.js, *
+ * split.js, toolbar.js, updates.js, protect.js (before sealing the open note).
  * Uses: saveTimer (events.js), saveCurrent.
  * Complexity: that of saveCurrent.
  */
@@ -822,11 +830,12 @@ const ERROR_EXPLANATIONS = {
  * after 4 s; an error stays until the next key, save or sync; a sticky one
  * ("Syncing...") never clears by itself.
  *
- * Used by: this file and almost every script: alignment.js, attachments.js,
- * backups.js, censor.js, content.js, delete-vault.js, designs.js, events.js, format-menu.js,
- * history.js, lines.js, lock.js, media-sync.js, notes.js, panel.js, pdf.js,
- * settings.js, sidebar.js, split.js, tables.js, toolbar.js, updates.js,
- * vault.js, vaults.js.
+ * Used by: this file and almost every script: alignment.js, attachments.js, *
+ * backups.js, censor.js, content.js, delete-vault.js, designs.js, events.js,
+ * format-menu.js, * history.js, lines.js, lock.js, media-sync.js, notes.js,
+ * panel.js, pdf.js, * settings.js, sidebar.js, split.js, tables.js,
+ * toolbar.js, updates.js, * vault.js, vaults.js, protect.js (the protection
+ * messages).
  * Uses: nothing.
  * Complexity: O(1).
  */
@@ -875,9 +884,10 @@ function classifySyncError(error) {
  * panel (closed when there is nothing left to show). Every change of state
  * goes through here.
  *
- * Used by: this file and most scripts: attachments.js, content.js,
- * designs.js, events.js, history.js, lines.js, lock.js, media-sync.js,
- * merge.js, notes.js, panel.js, sidebar.js, split.js, toolbar.js, vault.js, vaults.js.
+ * Used by: this file and most scripts: attachments.js, content.js, *
+ * designs.js, events.js, history.js, lines.js, lock.js, media-sync.js, *
+ * merge.js, notes.js, panel.js, sidebar.js, split.js, toolbar.js, vault.js,
+ * vaults.js, protect.js (after protecting).
  * Uses: unsyncedCount (vault.js), toggleChip, renderUnsynced (sidebar.js),
  * ERROR_LABELS, renderBanner, renderTrashBanner, closePanel and renderDetail (panel.js).
  * Complexity: O(n) over the vault, to count what is unsynced.

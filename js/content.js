@@ -93,7 +93,8 @@ function validInlineMedia(el) {
  * Without this, an attachment that lives only inline (not in note.media)
  * would be wrongly purged, or never uploaded. Returns [] for a plain body.
  *
- * Used by: vault.js (mediaReferenced), media-sync.js (mediaIdsFor, syncMediaPhase).
+ * Used by: vault.js (mediaReferenced), media-sync.js (mediaIdsFor,
+ * syncMediaPhase), protect.js (the pictures a sealed text shows).
  * Uses: validInlineMedia.
  * Complexity: O(n) in the body's length.
  */
@@ -134,8 +135,9 @@ function notePages(note) {
  * search) goes through this, never note.body alone.
  *
  * Used by: this file (noteSearchText, switchPage), vault.js (mediaReferenced),
- * media-sync.js (mediaIdsFor), designs.js (applyPreset), pdf.js
- * (buildNotePdf, exportNotePdf, sidecarAttachments), split.js (enterSplit).
+ * * media-sync.js (mediaIdsFor), designs.js (applyPreset), pdf.js *
+ * (buildNotePdf, exportNotePdf, sidecarAttachments), split.js (enterSplit),
+ * protect.js (the pictures a sealed text shows).
  * Uses: notePages.
  * Complexity: O(p) in the pages.
  */

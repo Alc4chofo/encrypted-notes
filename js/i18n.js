@@ -165,6 +165,50 @@ const I18N = {
   "{0} could not be read": ["{0} konnte nicht gelesen werden", "no se pudo leer {0}"],
   "That name is taken by a vault of another copy of the app in this browser.": ["Diesen Namen trägt schon ein Tresor einer anderen Kopie der App in diesem Browser.", "Ese nombre ya lo usa una bóveda de otra copia de la aplicación en este navegador."],
 
+  // ---- Protected notes and folders (protect.js) ----
+  "Protect with a password...": ["Mit einem Passwort schützen...", "Proteger con una contraseña..."],
+  "Change the password...": ["Passwort ändern...", "Cambiar la contraseña..."],
+  "Remove the password...": ["Passwort entfernen...", "Quitar la contraseña..."],
+  "Protected": ["Geschützt", "Protegido"],
+  "Open \"{0}\"": ["\"{0}\" öffnen", "Abrir \"{0}\""],
+  "This folder is protected. Enter its password.": ["Dieser Ordner ist geschützt. Gib sein Passwort ein.", "Esta carpeta está protegida. Escribe su contraseña."],
+  "This note is protected. Enter its password.": ["Diese Notiz ist geschützt. Gib ihr Passwort ein.", "Esta nota está protegida. Escribe su contraseña."],
+  "A protected note opens once the sync is done": ["Eine geschützte Notiz öffnet sich, sobald die Synchronisierung fertig ist", "Una nota protegida se abre cuando termine la sincronización"],
+  "This note is protected: restore it, then open it with its password": ["Diese Notiz ist geschützt: Stelle sie wieder her und öffne sie dann mit ihrem Passwort", "Esta nota está protegida: restáurala y ábrela con su contraseña"],
+  "Protect \"{0}\"": ["\"{0}\" schützen", "Proteger \"{0}\""],
+  "Opening this note will ask for this password, every time. Without it, its text cannot be read, by anyone.": ["Beim Öffnen fragt diese Notiz jedes Mal nach diesem Passwort. Ohne es kann niemand ihren Text lesen.", "Al abrir esta nota se pedirá esta contraseña, cada vez. Sin ella, nadie puede leer su texto."],
+  "Note protected": ["Notiz geschützt", "Nota protegida"],
+  "Unfolding this folder, or opening anything in it, will ask for this password, every time.": ["Beim Aufklappen dieses Ordners oder beim Öffnen von etwas darin wird jedes Mal nach diesem Passwort gefragt.", "Al desplegar esta carpeta, o abrir algo de dentro, se pedirá esta contraseña, cada vez."],
+  "Protect its notes too?": ["Auch seine Notizen schützen?", "¿Proteger también sus notas?"],
+  "Seal the text of the {0} note(s) in this folder with the same password? Each then asks for it when it opens, wherever it is moved. Notes that already have a password keep theirs.": ["Den Text der {0} Notiz(en) in diesem Ordner mit demselben Passwort versiegeln? Jede fragt dann beim Öffnen danach, wohin sie auch verschoben wird. Notizen, die schon ein Passwort haben, behalten ihres.", "¿Sellar el texto de las {0} nota(s) de esta carpeta con la misma contraseña? Cada una la pedirá al abrirse, la muevas adonde la muevas. Las notas que ya tienen contraseña conservan la suya."],
+  "Protect the notes too": ["Auch die Notizen schützen", "Proteger también las notas"],
+  "Only the folder": ["Nur den Ordner", "Solo la carpeta"],
+  "Folder and its notes protected": ["Ordner und seine Notizen geschützt", "Carpeta y sus notas protegidas"],
+  "Folder protected": ["Ordner geschützt", "Carpeta protegida"],
+  "Change the password of \"{0}\"": ["Passwort von \"{0}\" ändern", "Cambiar la contraseña de \"{0}\""],
+  "Enter its current password.": ["Gib das aktuelle Passwort ein.", "Escribe su contraseña actual."],
+  "Next": ["Weiter", "Siguiente"],
+  "Choose its new password.": ["Wähle das neue Passwort.", "Elige su contraseña nueva."],
+  "Choose its new password. The notes inside that use the folder's password change with it.": ["Wähle das neue Passwort. Die Notizen darin, die das Passwort des Ordners nutzen, ändern sich mit.", "Elige su contraseña nueva. Las notas de dentro que usan la contraseña de la carpeta cambian con ella."],
+  "Password changed": ["Passwort geändert", "Contraseña cambiada"],
+  "Remove the password of \"{0}\"": ["Passwort von \"{0}\" entfernen", "Quitar la contraseña de \"{0}\""],
+  "Enter its password. Its text is then stored like any other note's, sealed only by the master password.": ["Gib ihr Passwort ein. Ihr Text wird dann wie der jeder anderen Notiz gespeichert, nur vom Master-Passwort versiegelt.", "Escribe su contraseña. Su texto se guardará entonces como el de cualquier otra nota, sellado solo por la contraseña maestra."],
+  "Remove the password": ["Passwort entfernen", "Quitar la contraseña"],
+  "Password removed": ["Passwort entfernt", "Contraseña quitada"],
+  "Enter its password.": ["Gib sein Passwort ein.", "Escribe su contraseña."],
+  "Remove it from its notes too?": ["Auch von seinen Notizen entfernen?", "¿Quitarla también de sus notas?"],
+  "{0} note(s) in this folder use the folder's password. Remove it from them too, or keep them protected?": ["{0} Notiz(en) in diesem Ordner nutzen das Passwort des Ordners. Auch von ihnen entfernen oder sie geschützt lassen?", "{0} nota(s) de esta carpeta usan la contraseña de la carpeta. ¿Quitarla también de ellas, o dejarlas protegidas?"],
+  "From the notes too": ["Auch von den Notizen", "También de las notas"],
+  "Password": ["Passwort", "Contraseña"],
+  "Open": ["Öffnen", "Abrir"],
+  "Checking the password...": ["Das Passwort wird geprüft...", "Comprobando la contraseña..."],
+  "Wrong password.": ["Falsches Passwort.", "Contraseña incorrecta."],
+  "New password": ["Neues Passwort", "Contraseña nueva"],
+  "Confirm the new password": ["Neues Passwort bestätigen", "Confirma la contraseña nueva"],
+  "Protect": ["Schützen", "Proteger"],
+  "Choose a password.": ["Wähle ein Passwort.", "Elige una contraseña."],
+  "Protecting...": ["Wird geschützt...", "Protegiendo..."],
+
   // ---- Password meter ----
   "{0} million years": ["{0} Millionen Jahre", "{0} millones de años"],
   "{0} billion years": ["{0} Milliarden Jahre", "{0} miles de millones de años"],
@@ -735,11 +779,11 @@ const I18N_SKIP = '[translate="no"], #editor, #sheets, #prev-body, script, style
  * arguments, {0}, {1}... in the text are filled in first. Spacing at either
  * end is kept, and runs of spaces inside (an HTML line break) count as one.
  *
- * Used by: this file (everything on screen goes through it), help.js (the
- * screenshots' descriptions), sidebar.js (the "Trash" and "(untitled)" parts
- * of the Unsynced section's paths), updates.js (the update question and the
- * download note, put together from sentences that come and go), setup.js
- * (the steps in Start here.txt).
+ * Used by: this file (everything on screen goes through it), help.js (the *
+ * screenshots' descriptions), sidebar.js (the "Trash" and "(untitled)" parts *
+ * of the Unsynced section's paths), updates.js (the update question and the *
+ * download note, put together from sentences that come and go), setup.js *
+ * (the steps in Start here.txt), protect.js (the protection questions).
  * Uses: nothing but the lookup tables; it calls itself for a {0} part.
  * Complexity: O(1) for an exact line, O(p) over the pattern lines otherwise;
  * the answer is remembered.

@@ -78,8 +78,9 @@ function enterSplit() {
  * changes, it asks: overwrite the note, cancel the changes (the snapshot goes
  * back), or keep editing. Resolves with false when you keep editing.
  *
- * Used by: settings.js (Lock), pagination.js (opening another note or the
- * trash), history.js (the second-screen buttons).
+ * Used by: settings.js (Lock), pagination.js (opening another note or the *
+ * trash), history.js (the second-screen buttons), protect.js (closing a
+ * protected note).
  * Uses: flushSave and renderStatus (pagination.js), showModal (modal.js),
  * restoreSplitSnapshot (history.js), fitSheets (lines.js).
  * Complexity: O(1), plus one save when it saves.

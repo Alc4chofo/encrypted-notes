@@ -121,6 +121,22 @@ Attachments are not sealed under the password key, because that key depends on a
    The parts go up first and the manifest last, so an interrupted upload leaves no manifest and the next sync retries the whole set. On download the parts are joined and the single GCM tag authenticates the whole reassembled ciphertext. The manifest is plaintext and repo-controlled, so its part count is bounded by what the app could ever have written (200 MiB / 20 MiB), which stops a tampered manifest from triggering unbounded downloads.
 6. **Metadata scrubbing:** JPEG, PNG and WebP images are re-encoded through a canvas when they are attached (`stripImageMetadata`), which removes EXIF data such as GPS coordinates and camera serial numbers before anything is encrypted.
 
+### 3.5 Protected notes and folders
+
+A note can carry a password of its own (`js/protect.js`). Its text, the note's body or pages, is then sealed a second time, inside the vault:
+
+```
+key  = PBKDF2-HMAC-SHA256(note password, salt = 16 random bytes, PBKDF2_ITERATIONS, 256-bit output)
+lock = AES-256-GCM-Encrypt(key, iv = 12 random bytes, plaintext = JSON of {body, bodyV, pages})
+note.lock = {"v":1, "iter", "salt", "iv", "data", "media"}   and the note's own text is emptied
+```
+
+`media` lists the ids of the attachments the sealed text shows inline, so Sync still fetches them and the clean-up does not take them for unused (`lockedMediaIds`); the ids are random and say nothing about the text. The title, colour, folder, attachment list and dates stay outside the lock, under the master password only.
+
+Opening a protected note asks for its password every time (`protectGate`, in front of `openNote`). The text is opened into the note in memory, marked `unsealed`, only while it is the open note. When another note opens, the trash shows, Sync starts or the vault locks, it is sealed again and taken out of memory, with its undo steps and its search text (`relockNotes`); a text that did not change gets its old lock back, so it does not look edited to Sync. Every save in between (to this browser, the app folder, the repo or a backup) passes through `sealObject`, which seals any unsealed note again before the vault is sealed (`storedForm`): the text never leaves the page without its own lock. Sync closes an open protected note first, so the merge only ever compares locks; a lock counts as the note's body in the merge, so two devices changing the same protected note make a conflict copy, which opens with the same password.
+
+A folder's lock seals only a fixed check value under its password's key, the same way. It hides: while the folder is closed (`folderLocked`), its notes and subfolders show nowhere, not in search, Pinned or Unsynced, and anything that would show or move them (unfolding it, opening a note in it, deleting it, a new note in it) asks for its password first (`unfoldProtectedFolder`, `withFolderOpen`). Folding it closes it again. Its notes' text is sealed only if they are protected too, which protecting the folder offers: they then share the folder's salt and key, and a change of the folder's password re-seals them along with it.
+
 ## 4. What is stored where
 
 ### In your private repo
@@ -287,6 +303,7 @@ Every input path into the vault goes through AES-GCM authenticated decryption, s
 - **PBKDF2 is not memory-hard.** It is the strongest function the Web Crypto API offers natively, and the iteration count is set high to compensate, but a long random password is still essential (section 7).
 - **The attempt limit is client-side** and does nothing against an offline copy (section 5).
 - **No password recovery.** Without the master password nobody can decrypt the vault, the author included.
+- **A protected note's password works the same way**: forget it and its text is gone, even with the master password. Its title, colour, folder and attachment names stay readable to anyone with the master password, and so do its attachments themselves, which are sealed with the vault's attachment key (section 3.4). A protected folder only hides: its name and its notes' titles are in the vault like any other, and its notes' text is sealed only if they are protected too. While a protected note is open, its text is in the page's memory like any open note's.
 - **Deleting is not forensic erasure.** **Delete vault** (`js/delete-vault.js`) overwrites every piece it can reach with random bytes of the same length before removing it: the vault's `localStorage` values, its attachment records in IndexedDB, and every file in its folder next to `index.html`; the page then reloads, which drops every decrypted note from memory. But a web page cannot overwrite a disk in place: the browser writes a file through a fresh copy that then replaces it, and keeps its own storage in log-structured databases, so the old bytes can sit in space the disk has let go until something else is written there, and an SSD moves data around on its own. In the repo the vault's folder is removed in one commit (`deleteRepoVaultOnce`, refused when the folder holds anything that is not a vault file), but git keeps every earlier commit, and GitHub can keep unreachable objects for a while; other devices and downloaded backups keep their own copies. Everything left behind is the same AES-256-GCM ciphertext, sealed with your master password: without it, none of it can be read.
 
 ## 11. Checking it yourself

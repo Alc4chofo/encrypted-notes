@@ -210,10 +210,11 @@ function persistLocal(stamp = true) {
  * like success and the change was lost.
  *
  * Used by: every structural change. notes.js (folders, colours, moves, trash),
- * sidebar.js (dragging and nesting, emptying the trash), content.js (pages),
- * designs.js (designs and presets), events.js (a new note), history.js
- * (resetting a layout, the second screen's snapshot), attachments.js (a note
- * made for a dropped file), and togglePin in this file.
+ * * sidebar.js (dragging and nesting, emptying the trash), content.js (pages),
+ * * designs.js (designs and presets), events.js (a new note), history.js *
+ * (resetting a layout, the second screen's snapshot), attachments.js (a note *
+ * made for a dropped file), and togglePin in this file, protect.js (after
+ * protecting).
  * Uses: persistLocal, status and renderStatus (pagination.js).
  * Complexity: that of persistLocal.
  */
@@ -242,7 +243,7 @@ function persistSafe(stamp = true) {
 function mediaReferenced(mediaId) {
   for (const id in vault.notes) {
     const note = vault.notes[id];
-    if ((note.media || []).some(media => media.id === mediaId)) {
+    if ((note.media || []).some(media => media.id === mediaId) || lockedMediaIds(note).includes(mediaId)) {
       return true;
     }
     // An image that appears only inline in the text counts too, on every page:
@@ -254,7 +255,7 @@ function mediaReferenced(mediaId) {
 
   for (const id in vault.trash) {
     const data = vault.trash[id].data;
-    if (data && (data.media || []).some(media => media.id === mediaId)) {
+    if (data && ((data.media || []).some(media => media.id === mediaId) || lockedMediaIds(data).includes(mediaId))) {
       return true;
     }
     if (data && noteBodies(data).some(body => body.bodyV === 2 && bodyMediaIds(body.body, 2).includes(mediaId))) {
@@ -558,9 +559,10 @@ function revokeDownloadUrl(url) {
  * Revokes every decrypted attachment URL at once, after closing a lightbox
  * that shows one: the plain bytes of every attachment become unreachable.
  *
- * Used by: settings.js (Lock), pagination.js (opening another note or a
- * trash item), notes.js (trashing and purging), merge.js (applying a merge),
- * panel.js (restoring the pre-merge snapshot).
+ * Used by: settings.js (Lock), pagination.js (opening another note or a *
+ * trash item), notes.js (trashing and purging), merge.js (applying a merge), *
+ * panel.js (restoring the pre-merge snapshot), protect.js (closing a protected
+ * note).
  * Uses: closeLightbox (attachments.js), revokeDownloadUrl.
  * Complexity: O(u) in the number of live URLs.
  */

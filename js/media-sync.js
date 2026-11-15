@@ -74,6 +74,8 @@ async function runSync(scope) {
   clearTimeout(saveTimer);
   clearTimeout(repagTimer);
   saveCurrent();
+  // The merge only ever sees protected notes sealed.
+  await sealBeforeSync();
   if (autoPurgeTrash()) {
     await persistLocal();
   }
@@ -651,6 +653,9 @@ function mediaIdsFor(vaultSide, ids) {
       for (const item of (note.media || [])) {
         out.add(item.id);
       }
+      for (const mid of lockedMediaIds(note)) {
+        out.add(mid);
+      }
       for (const entry of noteBodies(note)) {
         if (entry.bodyV === 2) {
           for (const mid of bodyMediaIds(entry.body, 2)) {
@@ -663,6 +668,9 @@ function mediaIdsFor(vaultSide, ids) {
     if (trashed && trashed.data) {
       for (const item of (trashed.data.media || [])) {
         out.add(item.id);
+      }
+      for (const mid of lockedMediaIds(trashed.data)) {
+        out.add(mid);
       }
       for (const entry of noteBodies(trashed.data)) {
         if (entry.bodyV === 2) {

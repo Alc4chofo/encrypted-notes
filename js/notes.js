@@ -381,11 +381,14 @@ function purgeTrashCore(id) {
  * setNoteColor, notePages, makePagedAndShow, addPage and duplicateNote
  * (content.js), presetItems and designItems (designs.js), resetNoteLayout
  * (history.js), exportNoteInternal and exportNotePdf (pdf.js), flushSave,
- * openNote and status (pagination.js), window.syncNote (media-sync.js), trashNote.
+ * openNote and status (pagination.js), window.syncNote (media-sync.js), trashNote,
+ * noteSealed and protectionItems (protect.js).
  * Complexity: O(1) to build; the submenus are built when they open.
  */
 function noteMenu(id) {
   const note = vault.notes[id] || {};
+  // What needs the text waits until a protected note is opened with its password.
+  const sealed = noteSealed(id);
 
   // Pin first: it is the item people reach for without thinking, and it reads as on or off.
   const items = [{ label: isPinned(id) ? "Unpin" : "Pin to top", disabled: syncing, onClick: () => togglePin(id) }];
@@ -404,7 +407,7 @@ function noteMenu(id) {
 
   items.push({
     label: "Pages",
-    disabled: syncing,
+    disabled: syncing || sealed,
     submenu: () => {
       const current = vault.notes[id] || {};
       const pages = notePages(current);
@@ -435,7 +438,7 @@ function noteMenu(id) {
 
   items.push({
     label: "Presets",
-    disabled: syncing,
+    disabled: syncing || sealed,
     submenu: () => {
       if (currentId !== id) {
         openNote(id);
@@ -445,7 +448,7 @@ function noteMenu(id) {
   });
   items.push({
     label: "Design presets",
-    disabled: syncing,
+    disabled: syncing || sealed,
     submenu: () => {
       if (currentId !== id) {
         openNote(id);
@@ -454,10 +457,10 @@ function noteMenu(id) {
     },
   });
   items.push({ label: "Duplicate", disabled: syncing, onClick: () => duplicateNote(id) });
-  items.push({ label: "Reset layout...", disabled: syncing, onClick: () => resetNoteLayout(id) });
+  items.push({ label: "Reset layout...", disabled: syncing || sealed, onClick: () => resetNoteLayout(id) });
   items.push({
     label: "Export",
-    disabled: syncing,
+    disabled: syncing || sealed,
     submenu: () => [
       { label: "PDF file", onClick: () => exportNoteInternal(id, "pdf") },
       { label: "Folder with the PDF and its files...", onClick: () => exportNoteInternal(id, "folder") },
@@ -468,6 +471,8 @@ function noteMenu(id) {
       { label: "Print (browser dialog) - adds browser metadata", onClick: () => exportNotePdf(id) },
     ],
   });
+  items.push({ sep: true });
+  items.push(...protectionItems("note", id));
   items.push({ sep: true });
   items.push({
     label: "Sync this note",
@@ -484,22 +489,25 @@ function noteMenu(id) {
 
 /**
  * The right-click menu of a folder: new note, new subfolder (unless that
- * would nest too deep), rename, move, colour, sync this folder, delete.
+ * would nest too deep), rename, move, colour, its password, sync this
+ * folder, delete. In a protected folder, what would show or move its
+ * contents asks for its password first.
  *
  * Used by: sidebar.js (a folder's row).
  * Uses: newNote (events.js), folderDepth, MAX_NEST, revealFolder and
  * renderList (sidebar.js), promptModal (modal.js), createFolder, clearSearch
  * (events.js), moveFolderItems, setFolderColor, flushSave and renderStatus
- * (pagination.js), window.syncFolder (media-sync.js), deleteFolderFlow.
+ * (pagination.js), window.syncFolder (media-sync.js), deleteFolderFlow,
+ * withFolderOpen and protectionItems (protect.js).
  * Complexity: O(f log f) for the "Move to" check, which lists the valid targets.
  */
 function folderMenu(folderId) {
   return [
-    { label: "New note", disabled: syncing, onClick: () => newNote(folderId) },
+    { label: "New note", disabled: syncing, onClick: () => withFolderOpen(folderId, () => newNote(folderId)) },
     {
       label: "New subfolder...",
       disabled: syncing || folderDepth(folderId) + 1 >= MAX_NEST,
-      onClick: async () => {
+      onClick: () => withFolderOpen(folderId, async () => {
         const name = await promptModal({ title: "New subfolder", placeholder: "Folder name", confirmLabel: "Create" });
         if (!name || syncing || !vault.folders[folderId]) {
           return;
@@ -511,7 +519,7 @@ function folderMenu(folderId) {
         revealFolder(folderId);
         renderList();
         renderStatus();
-      },
+      }),
     },
     { sep: true },
     {
@@ -534,6 +542,8 @@ function folderMenu(folderId) {
       }],
     },
     { sep: true },
+    ...protectionItems("folder", folderId),
+    { sep: true },
     {
       label: "Sync folder",
       disabled: syncing,
@@ -543,7 +553,8 @@ function folderMenu(folderId) {
       },
     },
     { sep: true },
-    { label: "Delete...", danger: true, disabled: syncing, onClick: () => deleteFolderFlow(folderId) },
+    { label: "Delete...", danger: true, disabled: syncing,
+      onClick: () => withFolderOpen(folderId, () => deleteFolderFlow(folderId)) },
   ];
 }
 

@@ -8,7 +8,8 @@
  * wait in a queue behind the open one. Escape is handled centrally in
  * events.js, which knows which layer is on top.
  *
- * Main functions: showModal, confirmModal, alertModal, promptModal, modalIsOpen.
+ * Main functions: showModal, confirmModal, alertModal, promptModal,
+ * passwordModal, modalIsOpen.
  * Auxiliary functions: modalRaw, buildModal.
  *
  * Complexity: building a dialog is O(c) in its number of buttons; the queue
@@ -46,10 +47,11 @@ function modalIsOpen() {
  * that lays the buttons out another way ("three-and-cancel": three in a row,
  * the last one under them, as wide as the three).
  *
- * Used by: backups.js (whether to update an old backup), delete-vault.js
- * (where to delete a vault from), notes.js (deleting a
- * folder), split.js (unsaved changes when the second screen closes),
- * updates.js (offering an app update, and how installing it went).
+ * Used by: backups.js (whether to update an old backup), delete-vault.js *
+ * (where to delete a vault from), notes.js (deleting a * folder), split.js
+ * (unsaved changes when the second screen closes), * updates.js (offering an
+ * app update, and how installing it went), protect.js (protecting a folder's
+ * notes too).
  * Uses: modalRaw.
  * Complexity: O(c) in the number of buttons.
  */
@@ -112,6 +114,25 @@ async function promptModal(opts) {
   return result.choice === "ok" && result.value.trim() ? result.value.trim() : null;
 }
 
+/**
+ * Asks for one or more passwords (opts.fields: their labels) and resolves
+ * with their values, in order, or null when it was cancelled. opts.error
+ * shows a line in red under the question (a wrong password, say).
+ *
+ * Used by: protect.js (opening, protecting and changing a password).
+ * Uses: modalRaw.
+ * Complexity: O(f) in the fields.
+ */
+async function passwordModal(opts) {
+  const result = await modalRaw({
+    ...opts,
+    passwords: opts.fields,
+    choices: [{ id: "ok", label: opts.confirmLabel || "OK" }, { id: "cancel", label: "Cancel" }],
+    defaultId: "ok",
+  });
+  return result.choice === "ok" ? result.secrets : null;
+}
+
 // =================== Auxiliary functions ===================
 
 /**
@@ -146,6 +167,20 @@ function buildModal(opts, resolve) {
   if (opts.body) {
     card.appendChild(makeElement("p", null, opts.body));
   }
+
+  if (opts.error) {
+    card.appendChild(makeElement("p", "modal-error", opts.error));
+  }
+  // Password fields: never filled in by the browser, never kept.
+  const secrets = (opts.passwords || []).map(label => {
+    const field = makeElement("input");
+    field.type = "password";
+    field.placeholder = label;
+    field.setAttribute("aria-label", label);
+    field.autocomplete = "new-password";
+    card.appendChild(field);
+    return field;
+  });
 
   let input = null;
   if (opts.input) {
@@ -192,7 +227,7 @@ function buildModal(opts, resolve) {
         previousFocus.focus();
       } catch {}
     }
-    resolve({ choice, value: input ? input.value : "" });
+    resolve({ choice, value: input ? input.value : "", secrets: secrets.map(field => field.value) });
   }
   modalCancel = () => finish(null);
 
@@ -204,7 +239,7 @@ function buildModal(opts, resolve) {
   back.addEventListener("mousedown", event => {
     if (event.target === back) {
       event.preventDefault();
-      (input || defaultButton || actions.firstChild).focus();
+      (secrets[0] || input || defaultButton || actions.firstChild).focus();
     }
   });
 
@@ -233,5 +268,5 @@ function buildModal(opts, resolve) {
     // Escape falls through to the central handler, which decides which layer it closes.
   }
   document.addEventListener("keydown", onKey, true);
-  (input || defaultButton || actions.firstChild).focus();
+  (secrets[0] || input || defaultButton || actions.firstChild).focus();
 }

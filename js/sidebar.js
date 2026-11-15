@@ -76,10 +76,10 @@ let unsyncedCollapsed = localStorage.getItem("unsyncedCollapsed") !== "0";
  * trash. It is the one function that writes the list, and it does nothing
  * while a draw is already running.
  *
- * Used by: almost every change to notes or folders: attachments.js,
- * content.js, designs.js, events.js, history.js, lines.js, lock.js,
- * media-sync.js, merge.js, notes.js, pagination.js, panel.js, toolbar.js and
- * vault.js, plus this file.
+ * Used by: almost every change to notes or folders: attachments.js, *
+ * content.js, designs.js, events.js, history.js, lines.js, lock.js, *
+ * media-sync.js, merge.js, notes.js, pagination.js, panel.js, toolbar.js and *
+ * vault.js, plus this file, protect.js (unfolding and protecting).
  * Uses: renderListInner, renderUnsynced, renderTrash.
  * Complexity: O(n log n + f * d) over notes and folders.
  */
@@ -159,8 +159,9 @@ function renderListInner() {
   }
   loose.sort(compareNotes);
 
-  // A note shows when nothing is searched, or when its title or text contains the query.
-  const visibleNote = id => !searching || noteMatches(id, query);
+  // A note shows when nothing is searched, or when its title or text contains the query;
+  // never while a protected folder it is in is closed.
+  const visibleNote = id => !noteHidden(id) && (!searching || noteMatches(id, query));
 
   if (inlineEdit && inlineEdit.kind === "new") {
     list.appendChild(inlineFolderRow(null));
@@ -217,6 +218,11 @@ function renderListInner() {
     visited.add(folderId);
     const all = byFolder[folderId] || [];
     const nameMatches = searching && folderName(folderId).toLowerCase().includes(query);
+    // A closed protected folder shows by its name only: nothing inside it counts.
+    if (folderLocked(folderId)) {
+      visibleNotes[folderId] = [];
+      return (showFolder[folderId] = !searching || nameMatches);
+    }
     visibleNotes[folderId] = (!searching || nameMatches) ? all : all.filter(visibleNote);
     let show = !searching || nameMatches || visibleNotes[folderId].length > 0;
     for (const child of childrenOf[folderId] || []) {
@@ -252,7 +258,7 @@ function renderListInner() {
     rows++;
     // While searching, folds are ignored (a match hidden in a folded folder
     // reads as lost data) and never written.
-    if (!searching && collapsed.has(folderId)) {
+    if ((!searching && collapsed.has(folderId)) || folderLocked(folderId)) {
       return;
     }
     const clamped = colors.length >= MAX_NEST;
@@ -365,6 +371,9 @@ function noteRow(id, railColors = []) {
   }
   row.appendChild(dot);
   row.appendChild(makeElement("span", "t" + (note.title ? "" : " untitled"), note.title || "(untitled)"));
+  if (note.lock) {
+    row.appendChild(lockMark());
+  }
   // Always there, only shown or hidden: adding it only when needed made the
   // title jump on every save and sync.
   const unsyncedDot = makeElement("span", "dot", "●");
@@ -504,7 +513,7 @@ function noteRow(id, railColors = []) {
 function folderRow(folderId, count, railColors = []) {
   const folder = vault.folders[folderId];
   const searching = searchQuery.trim().length > 0;
-  const open = searching || !collapsed.has(folderId);
+  const open = (searching || !collapsed.has(folderId)) && !folderLocked(folderId);
 
   const row = makeElement("div", "folder-row" + (railColors.length ? " nested" : ""));
   if (railColors.length) {
@@ -517,11 +526,20 @@ function folderRow(folderId, count, railColors = []) {
   }
   row.appendChild(dot);
   row.appendChild(makeElement("span", "folder-name", folder.name || "(unnamed)"));
-  row.appendChild(makeElement("span", "folder-count", String(count)));
+  if (folder.lock) {
+    row.appendChild(lockMark());
+  }
+  // A closed protected folder does not say how many notes it holds.
+  row.appendChild(makeElement("span", "folder-count", folderLocked(folderId) ? "" : String(count)));
 
   row.onclick = () => {
     // The click a finished drag leaves behind.
     if (justDragged) {
+      return;
+    }
+    // A closed protected folder asks for its password, even while searching.
+    if (folderLocked(folderId)) {
+      unfoldProtectedFolder(folderId);
       return;
     }
     // Folding does nothing while searching.
@@ -532,6 +550,8 @@ function folderRow(folderId, count, railColors = []) {
       collapsed.delete(folderId);
     } else {
       collapsed.add(folderId);
+      // Folded, a protected folder closes: unfolding it asks again.
+      foldProtectedFolder(folderId);
     }
     saveCollapsed();
     renderList();
@@ -652,7 +672,8 @@ function renderUnsynced() {
     return;
   }
 
-  const noteIds = unsyncedIds().sort((a, b) => vault.notes[b].mtime - vault.notes[a].mtime);
+  const noteIds = unsyncedIds().filter(id => !noteHidden(id))
+    .sort((a, b) => vault.notes[b].mtime - vault.notes[a].mtime);
   const folderIds = unsyncedFolderIds().sort((a, b) => compareByName(folderName(a), folderName(b)));
   const trashIds = unsyncedTrashIds();
   const deletedNoteIds = pendingNoteDeletions();
@@ -1568,7 +1589,7 @@ function scheduleHoverExpand(folderId, row) {
   hoverExpandFid = folderId;
   hoverExpandTimer = setTimeout(() => {
     hoverExpandTimer = null;
-    if (draggingNoteId && collapsed.has(folderId)) {
+    if (draggingNoteId && collapsed.has(folderId) && !folderLocked(folderId)) {
       expandFolderInline(folderId, row);
     }
   }, 600);
