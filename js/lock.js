@@ -517,7 +517,7 @@ if ($("lock-bg").readyState >= 2) {
 //   - housekeeping (old tombstones, expired trash) and the re-keying of an
 //     older vault, then the attachment key (it lives inside the vault, so
 //     only once the live vault is settled);
-//   - the app opens, with its side lines (ambient.js) and with every folder
+//   - the app opens, over its background (background.js) and with every folder
 //     and the trash folded, the attempt count is reset, and the old
 //     top-level vault is offered its move into a folder, then any overdue
 //     backup.
@@ -587,7 +587,7 @@ $("unlock-form").onsubmit = async event => {
       $("lock").style.display = "none";
       syncLockBg();
       $("app").style.display = "flex";
-      startAmbientLines();
+      showAppBackground();
       unsavedEdits = false;
       enterBackupView(pendingBackupKind, wrapper.at);
       renderList();
@@ -700,7 +700,7 @@ $("unlock-form").onsubmit = async event => {
     $("lock").style.display = "none";
     syncLockBg();
     $("app").style.display = "flex";
-    startAmbientLines();
+    showAppBackground();
     unsavedEdits = false;
     collapsed = new Set(Object.keys(vault.folders));
     trashCollapsed = true;

@@ -18,6 +18,74 @@
   background: var(--s1);
 }
 
+/* ---------- Background behind the note (background.js) ----------
+   A video of your own fills the note area, and the note sits on a panel with an outline: dark enough to read
+   on, clear enough for the picture to show through. #main is a layer of its own, so the video (-2) and the
+   panel (-1) stay behind everything in it, while the menus, which open on <body>, stay above. Without a
+   video none of this shows. */
+#main {
+  position: relative;
+  isolation: isolate;
+}
+
+#app-bg {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 1.2s ease;
+}
+
+/* --panel-inset: how far the panel stands in from each side of the note area. */
+#main.has-bg {
+  --panel-inset: max(8px, calc(var(--ed-pad-x) - 48px));
+  background: #000;
+}
+
+#main.has-bg #app-bg {
+  opacity: 1;
+}
+
+/* The panel: from just left of the toolbar to the same distance on the right, so the picture stays free at
+   the sides; in a narrow window it nearly fills the area. */
+#main.has-bg::before {
+  content: "";
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: var(--panel-inset);
+  right: var(--panel-inset);
+  z-index: -1;
+  border: 1px solid var(--line-3);
+  border-radius: 12px;
+  background: rgb(5 5 5 / .8);
+  box-shadow: 0 18px 50px rgb(0 0 0 / .65);
+  pointer-events: none;
+}
+
+/* Inside the panel the note's own surfaces turn see-through, so the panel is the one surface. */
+#main.has-bg #fmt-bar,
+#main.has-bg #attachments,
+#main.has-bg.readonly #editor {
+  background: transparent;
+}
+
+/* The toolbar and the attachment strip span the note area; here they keep inside the panel, their lines and
+   the toolbar's hint with them, with their buttons where they always are. */
+#main.has-bg #fmt-bar {
+  margin-inline: var(--panel-inset);
+  padding-left: calc(var(--ed-pad-x) - 8px - var(--panel-inset));
+}
+
+#main.has-bg #attachments {
+  margin-inline: var(--panel-inset);
+  padding-inline: calc(var(--ed-pad-x) - var(--panel-inset));
+}
+
 /* Title row: the note title is the page heading, set in the book serif with no
    box around it, aligned with the text column below. */
 .bar {
@@ -917,9 +985,8 @@ body.backup-view #status-detail {
   flex: 1;
   overflow: auto;
   padding: 20px 0 48px;
-  /* See-through like the editor, and above the side lines. */
+  /* See-through like the editor, so a background behind the note shows beside the sheets. */
   background: transparent;
-  position: relative;
   min-width: 0;
 }
 
@@ -1035,17 +1102,6 @@ body.paged-view #sheets {
   flex: 1;
   display: flex;
   min-height: 0;
-  position: relative;
-}
-
-/* The side lines (ambient.js): a canvas over the whole writing area, first in #edit-wrap so the editor and
-   the sheets paint above it. It only draws in the margins beside the text, and never takes a click. */
-#ambient-lines {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
 }
 
 #edit-wrap #editor {
@@ -1206,7 +1262,7 @@ body.split-edit #split-cancel {
   padding: 26px var(--ed-pad-x) 96px;
   font: 400 14.5px/1.7 var(--mono);
   color: #dcd6cc;
-  /* See-through, so the side lines behind it (#ambient-lines) show in its margins. */
+  /* See-through, so the note's panel and the background behind it (background.js) show. */
   background: transparent;
   white-space: pre-wrap;
   overflow-wrap: break-word;
