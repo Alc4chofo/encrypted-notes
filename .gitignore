@@ -6,8 +6,5 @@ vault.enc.js
 media/
 backup-*.enc.js
 *.design.json
-# Lock-screen and note backgrounds are your own files, kept on your device.
-lock-background.*
-app-background-*
 # Local editor and preview settings.
 .claude/
